@@ -20,7 +20,7 @@ interface MarketTableProps {
 
 export function MarketTable({ markets }: MarketTableProps) {
   return (
-    <Card className="p-0">
+    <Card className="p-0 overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>

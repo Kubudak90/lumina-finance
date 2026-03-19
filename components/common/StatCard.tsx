@@ -9,10 +9,10 @@ interface StatCardProps {
 export function StatCard({ label, value, subValue }: StatCardProps) {
   return (
     <Card>
-      <CardContent className="relative">
-        <div className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-2">{label}</div>
-        <div className="text-2xl font-bold font-mono text-foreground">{value}</div>
-        {subValue && <div className="text-sm text-muted-foreground mt-1">{subValue}</div>}
+      <CardContent className="pt-1">
+        <div className="text-sm text-muted-foreground font-medium mb-3">{label}</div>
+        <div className="text-3xl font-bold font-mono tracking-tight text-foreground">{value}</div>
+        {subValue && <div className="text-sm text-muted-foreground mt-2">{subValue}</div>}
       </CardContent>
     </Card>
   );
