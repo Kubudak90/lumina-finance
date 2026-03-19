@@ -15,13 +15,13 @@ export function HealthFactorBar({ healthFactor }: HealthFactorBarProps) {
   return (
     <div>
       <div className="flex justify-between text-sm mb-1">
-        <span className="text-text-secondary">Health Factor</span>
-        <span className="font-mono font-bold text-text-primary">{formatHealthFactor(healthFactor)}</span>
+        <span className="text-muted-foreground">Health Factor</span>
+        <span className="font-mono font-bold text-foreground">{formatHealthFactor(healthFactor)}</span>
       </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${percent}%` }} />
       </div>
-      <div className="text-xs text-text-secondary mt-1">{label}</div>
+      <div className="text-xs text-muted-foreground mt-1">{label}</div>
     </div>
   );
 }

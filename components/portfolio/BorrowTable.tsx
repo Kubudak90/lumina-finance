@@ -1,4 +1,13 @@
 import { TokenIcon } from "@/components/common/TokenIcon";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 
 interface BorrowRow {
   symbol: string;
@@ -8,38 +17,38 @@ interface BorrowRow {
 }
 
 export function BorrowTable({ rows, onRepay }: { rows: BorrowRow[]; onRepay: (symbol: string) => void }) {
-  if (rows.length === 0) return <p className="text-text-secondary text-sm">No borrows</p>;
+  if (rows.length === 0) return <p className="text-muted-foreground text-sm">No borrows</p>;
   return (
-    <table className="w-full">
-      <thead>
-        <tr className="text-left text-xs text-text-secondary uppercase tracking-wider border-b border-brand-border">
-          <th className="pb-2 font-medium">Asset</th>
-          <th className="pb-2 font-medium">Debt</th>
-          <th className="pb-2 font-medium">Value</th>
-          <th className="pb-2 font-medium">APY</th>
-          <th className="pb-2"></th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Asset</TableHead>
+          <TableHead>Debt</TableHead>
+          <TableHead>Value</TableHead>
+          <TableHead>APY</TableHead>
+          <TableHead></TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {rows.map((r) => (
-          <tr key={r.symbol} className="border-b border-brand-border hover:bg-gray-50 transition-colors">
-            <td className="py-3">
+          <TableRow key={r.symbol}>
+            <TableCell>
               <div className="flex items-center gap-2">
                 <TokenIcon symbol={r.symbol} size={24} />
-                <span className="font-medium text-text-primary">{r.symbol}</span>
+                <span className="font-medium">{r.symbol}</span>
               </div>
-            </td>
-            <td className="py-3 font-mono text-text-primary">{r.debt}</td>
-            <td className="py-3 font-mono text-text-primary">{r.value}</td>
-            <td className="py-3 text-warning font-mono font-medium">{r.apy}</td>
-            <td className="py-3">
-              <button onClick={() => onRepay(r.symbol)} className="text-sm text-brand-accent hover:underline font-medium">
+            </TableCell>
+            <TableCell className="font-mono">{r.debt}</TableCell>
+            <TableCell className="font-mono">{r.value}</TableCell>
+            <TableCell className="text-warning font-mono font-medium">{r.apy}</TableCell>
+            <TableCell>
+              <Button variant="link" size="sm" onClick={() => onRepay(r.symbol)}>
                 Repay
-              </button>
-            </td>
-          </tr>
+              </Button>
+            </TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }

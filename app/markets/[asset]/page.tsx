@@ -13,6 +13,8 @@ import { RepayModal } from "@/components/actions/RepayModal";
 import { useMarketData } from "@/hooks/useMarketData";
 import { getMarketBySymbol } from "@/lib/constants";
 import { formatUsd, formatPercent } from "@/lib/format";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function MarketDetailPage() {
   const { asset } = useParams<{ asset: string }>();
@@ -22,7 +24,7 @@ export default function MarketDetailPage() {
   const [modal, setModal] = useState<"supply" | "borrow" | "withdraw" | "repay" | null>(null);
 
   if (!market) {
-    return <div className="text-text-secondary">Market not found</div>;
+    return <div className="text-muted-foreground">Market not found</div>;
   }
 
   const [totalSupply, totalBorrow, reserves, borrowRate, supplyRate] =
@@ -34,7 +36,7 @@ export default function MarketDetailPage() {
       ? Number((totalBorrow * 10000n) / totalSupply) / 100
       : 0;
 
-  // Kink model parameters — hardcoded for MVP, read from contract in production
+  // Kink model parameters -- hardcoded for MVP, read from contract in production
   const isUsdc = market.symbol === "USDC";
   const chartParams = isUsdc
     ? { baseRate: 0.02, slope1: 0.04, slope2: 0.75, optimalUtil: 0.8 }
@@ -51,8 +53,8 @@ export default function MarketDetailPage() {
       <div className="flex items-center gap-4 animate-in">
         <TokenIcon symbol={market.symbol} size={48} />
         <div>
-          <h1 className="text-3xl font-bold text-text-primary">{market.symbol} Market</h1>
-          <p className="text-text-secondary">{market.name}</p>
+          <h1 className="text-3xl font-bold text-foreground">{market.symbol} Market</h1>
+          <p className="text-muted-foreground">{market.name}</p>
         </div>
       </div>
 
@@ -76,35 +78,47 @@ export default function MarketDetailPage() {
         </div>
 
         {/* Right column: action buttons */}
-        <div className="bg-white border border-brand-border rounded-xl p-6 space-y-4 shadow-sm animate-in-delay-3">
-          <h3 className="text-lg font-semibold text-text-primary">Actions</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setModal("supply")}
-              className="py-3 rounded-lg font-semibold bg-brand-accent text-white hover:bg-brand-accent-hover transition-colors"
-            >
-              Supply
-            </button>
-            <button
-              onClick={() => setModal("borrow")}
-              className="py-3 rounded-lg font-semibold border border-brand-accent text-brand-accent hover:bg-brand-accent/5 transition-colors"
-            >
-              Borrow
-            </button>
-            <button
-              onClick={() => setModal("withdraw")}
-              className="py-3 rounded-lg font-semibold border border-brand-border text-text-secondary hover:bg-gray-50 transition-colors"
-            >
-              Withdraw
-            </button>
-            <button
-              onClick={() => setModal("repay")}
-              className="py-3 rounded-lg font-semibold border border-brand-border text-text-secondary hover:bg-gray-50 transition-colors"
-            >
-              Repay
-            </button>
-          </div>
-        </div>
+        <Card className="animate-in-delay-3 h-fit">
+          <CardHeader>
+            <CardTitle>Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                variant="default"
+                size="lg"
+                className="h-12 font-semibold"
+                onClick={() => setModal("supply")}
+              >
+                Supply
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                className="h-12 font-semibold"
+                onClick={() => setModal("borrow")}
+              >
+                Borrow
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                className="h-12 font-semibold"
+                onClick={() => setModal("withdraw")}
+              >
+                Withdraw
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                className="h-12 font-semibold"
+                onClick={() => setModal("repay")}
+              >
+                Repay
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Modals */}

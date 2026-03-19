@@ -1,4 +1,12 @@
 import { TokenIcon } from "@/components/common/TokenIcon";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 
 interface CollateralRow {
   symbol: string;
@@ -8,32 +16,32 @@ interface CollateralRow {
 }
 
 export function CollateralTable({ rows }: { rows: CollateralRow[] }) {
-  if (rows.length === 0) return <p className="text-text-secondary text-sm">No collateral deposited</p>;
+  if (rows.length === 0) return <p className="text-muted-foreground text-sm">No collateral deposited</p>;
   return (
-    <table className="w-full">
-      <thead>
-        <tr className="text-left text-xs text-text-secondary uppercase tracking-wider border-b border-brand-border">
-          <th className="pb-2 font-medium">Asset</th>
-          <th className="pb-2 font-medium">Amount</th>
-          <th className="pb-2 font-medium">Value</th>
-          <th className="pb-2 font-medium">LTV</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Asset</TableHead>
+          <TableHead>Amount</TableHead>
+          <TableHead>Value</TableHead>
+          <TableHead>LTV</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {rows.map((r) => (
-          <tr key={r.symbol} className="border-b border-brand-border hover:bg-gray-50 transition-colors">
-            <td className="py-3">
+          <TableRow key={r.symbol}>
+            <TableCell>
               <div className="flex items-center gap-2">
                 <TokenIcon symbol={r.symbol} size={24} />
-                <span className="font-medium text-text-primary">{r.symbol}</span>
+                <span className="font-medium">{r.symbol}</span>
               </div>
-            </td>
-            <td className="py-3 font-mono text-text-primary">{r.amount}</td>
-            <td className="py-3 font-mono text-text-primary">{r.value}</td>
-            <td className="py-3 font-mono text-text-primary">{r.ltv}</td>
-          </tr>
+            </TableCell>
+            <TableCell className="font-mono">{r.amount}</TableCell>
+            <TableCell className="font-mono">{r.value}</TableCell>
+            <TableCell className="font-mono">{r.ltv}</TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }

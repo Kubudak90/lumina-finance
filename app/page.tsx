@@ -7,6 +7,7 @@ import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { useAccount } from "wagmi";
 import { formatUsd } from "@/lib/format";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
@@ -20,8 +21,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       <div className="animate-in">
-        <h1 className="text-3xl font-bold mb-1 text-text-primary">Dashboard</h1>
-        <p className="text-text-secondary">Protocol overview</p>
+        <h1 className="text-3xl font-bold mb-1 text-foreground">Dashboard</h1>
+        <p className="text-muted-foreground">Protocol overview</p>
       </div>
 
       {/* Protocol Stats */}
@@ -42,19 +43,23 @@ export default function Dashboard() {
 
       {/* User Position (if connected) */}
       {isConnected && healthFactor && (
-        <div className="bg-white border border-brand-border rounded-xl p-6 shadow-sm animate-in">
-          <h2 className="text-lg font-semibold mb-4 text-text-primary">Your Position</h2>
-          <div className="max-w-sm">
-            <HealthFactorBar healthFactor={healthFactor} />
-          </div>
-        </div>
+        <Card className="animate-in">
+          <CardHeader>
+            <CardTitle>Your Position</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="max-w-sm">
+              <HealthFactorBar healthFactor={healthFactor} />
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Markets Table */}
       <div className="animate-in-delay-4">
-        <h2 className="text-lg font-semibold mb-4 text-text-primary">Markets</h2>
+        <h2 className="text-lg font-semibold mb-4 text-foreground">Markets</h2>
         {isLoading ? (
-          <div className="text-text-secondary">Loading markets...</div>
+          <div className="text-muted-foreground">Loading markets...</div>
         ) : (
           <MarketTable markets={markets} />
         )}

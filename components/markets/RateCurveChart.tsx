@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 interface RateCurveChartProps {
   baseRate: number;
@@ -46,61 +47,65 @@ export function RateCurveChart({
   const currentUtilRounded = Math.round(currentUtil);
 
   return (
-    <div className="bg-white border border-brand-border rounded-xl p-4 shadow-sm">
-      <h4 className="text-sm text-text-secondary mb-4 font-medium">Interest Rate Curve</h4>
-      <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={data}>
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="#F3F4F6"
-          />
-          <XAxis
-            dataKey="utilization"
-            tick={{ fill: "#6B7280", fontSize: 11 }}
-            tickFormatter={(v) => `${v}%`}
-          />
-          <YAxis
-            tick={{ fill: "#6B7280", fontSize: 11 }}
-            tickFormatter={(v) => `${v.toFixed(0)}%`}
-          />
-          <Tooltip
-            contentStyle={{
-              background: "#FFFFFF",
-              border: "1px solid #E5E7EB",
-              borderRadius: 8,
-              boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
-            }}
-            labelFormatter={(v) => `Utilization: ${v}%`}
-            formatter={(v) => [`${Number(v).toFixed(2)}%`]}
-          />
-          <Line
-            type="monotone"
-            dataKey="borrowRate"
-            stroke="#6366f1"
-            strokeWidth={2}
-            dot={false}
-            name="Borrow Rate"
-          />
-          <Line
-            type="monotone"
-            dataKey="supplyRate"
-            stroke="#059669"
-            strokeWidth={2}
-            dot={false}
-            name="Supply Rate"
-          />
-          <ReferenceLine
-            x={currentUtilRounded}
-            stroke="#6B7280"
-            strokeDasharray="5 5"
-            label={{
-              value: "Current",
-              fill: "#6B7280",
-              fontSize: 11,
-            }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm text-muted-foreground">Interest Rate Curve</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={data}>
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+            />
+            <XAxis
+              dataKey="utilization"
+              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+              tickFormatter={(v) => `${v}%`}
+            />
+            <YAxis
+              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+              tickFormatter={(v) => `${v.toFixed(0)}%`}
+            />
+            <Tooltip
+              contentStyle={{
+                background: "hsl(var(--background))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: 8,
+                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
+              }}
+              labelFormatter={(v) => `Utilization: ${v}%`}
+              formatter={(v) => [`${Number(v).toFixed(2)}%`]}
+            />
+            <Line
+              type="monotone"
+              dataKey="borrowRate"
+              stroke="#6366f1"
+              strokeWidth={2}
+              dot={false}
+              name="Borrow Rate"
+            />
+            <Line
+              type="monotone"
+              dataKey="supplyRate"
+              stroke="#059669"
+              strokeWidth={2}
+              dot={false}
+              name="Supply Rate"
+            />
+            <ReferenceLine
+              x={currentUtilRounded}
+              stroke="hsl(var(--muted-foreground))"
+              strokeDasharray="5 5"
+              label={{
+                value: "Current",
+                fill: "hsl(var(--muted-foreground))",
+                fontSize: 11,
+              }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
   );
 }
