@@ -14,8 +14,8 @@ export default function PortfolioPage() {
   if (!isConnected) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
-        <h1 className="text-3xl font-bold mb-4">Portfolio</h1>
-        <p className="text-slate-400 mb-6">Connect your wallet to view your positions</p>
+        <h1 className="text-3xl font-bold mb-4 text-text-primary">Portfolio</h1>
+        <p className="text-text-secondary mb-6">Connect your wallet to view your positions</p>
       </div>
     );
   }
@@ -27,8 +27,8 @@ export default function PortfolioPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Portfolio</h1>
+      <div className="flex items-center justify-between animate-in">
+        <h1 className="text-3xl font-bold text-text-primary">Portfolio</h1>
         {healthFactor && (
           <div className="w-64">
             <HealthFactorBar healthFactor={healthFactor} />
@@ -36,18 +36,18 @@ export default function PortfolioPage() {
         )}
       </div>
 
-      <div className="bg-brand-card border border-brand-border rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-4">Your Supplies</h2>
+      <div className="bg-white border border-brand-border rounded-xl p-6 shadow-sm animate-in-delay-1">
+        <h2 className="text-lg font-semibold mb-4 text-text-primary">Your Supplies</h2>
         <SupplyTable rows={supplies} onWithdraw={(s) => console.log("withdraw", s)} />
       </div>
 
-      <div className="bg-brand-card border border-brand-border rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-4">Your Borrows</h2>
+      <div className="bg-white border border-brand-border rounded-xl p-6 shadow-sm animate-in-delay-2">
+        <h2 className="text-lg font-semibold mb-4 text-text-primary">Your Borrows</h2>
         <BorrowTable rows={borrows} onRepay={(s) => console.log("repay", s)} />
       </div>
 
-      <div className="bg-brand-card border border-brand-border rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-4">Your Collateral</h2>
+      <div className="bg-white border border-brand-border rounded-xl p-6 shadow-sm animate-in-delay-3">
+        <h2 className="text-lg font-semibold mb-4 text-text-primary">Your Collateral</h2>
         <CollateralTable rows={collateral} />
       </div>
     </div>

@@ -22,7 +22,7 @@ export default function MarketDetailPage() {
   const [modal, setModal] = useState<"supply" | "borrow" | "withdraw" | "repay" | null>(null);
 
   if (!market) {
-    return <div className="text-slate-400">Market not found</div>;
+    return <div className="text-text-secondary">Market not found</div>;
   }
 
   const [totalSupply, totalBorrow, reserves, borrowRate, supplyRate] =
@@ -43,21 +43,21 @@ export default function MarketDetailPage() {
   return (
     <div className="space-y-6">
       {/* Back link */}
-      <Link href="/markets" className="text-brand-cyan hover:underline text-sm">
+      <Link href="/markets" className="text-brand-accent hover:underline text-sm font-medium">
         &larr; Back to Markets
       </Link>
 
       {/* Header: token icon + symbol + name */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 animate-in">
         <TokenIcon symbol={market.symbol} size={48} />
         <div>
-          <h1 className="text-3xl font-bold">{market.symbol} Market</h1>
-          <p className="text-slate-400">{market.name}</p>
+          <h1 className="text-3xl font-bold text-text-primary">{market.symbol} Market</h1>
+          <p className="text-text-secondary">{market.name}</p>
         </div>
       </div>
 
       {/* Top stat cards */}
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid md:grid-cols-3 gap-4 animate-in-delay-1">
         <StatCard label="Supply APY" value={formatPercent(supplyRate)} />
         <StatCard label="Borrow APY" value={formatPercent(borrowRate)} />
         <StatCard label="Utilization" value={`${util.toFixed(1)}%`} />
@@ -66,7 +66,7 @@ export default function MarketDetailPage() {
       {/* Two-column layout */}
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left column: more stats + rate curve */}
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in-delay-2">
           <div className="grid grid-cols-2 gap-4">
             <StatCard label="Total Supplied" value={formatUsd(totalSupply)} />
             <StatCard label="Total Borrowed" value={formatUsd(totalBorrow)} />
@@ -76,30 +76,30 @@ export default function MarketDetailPage() {
         </div>
 
         {/* Right column: action buttons */}
-        <div className="bg-brand-card border border-brand-border rounded-xl p-6 space-y-4">
-          <h3 className="text-lg font-semibold">Actions</h3>
+        <div className="bg-white border border-brand-border rounded-xl p-6 space-y-4 shadow-sm animate-in-delay-3">
+          <h3 className="text-lg font-semibold text-text-primary">Actions</h3>
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setModal("supply")}
-              className="py-3 rounded-xl font-semibold bg-gradient-to-r from-brand-cyan to-brand-blue text-white hover:opacity-90 transition-opacity"
+              className="py-3 rounded-lg font-semibold bg-brand-accent text-white hover:bg-brand-accent-hover transition-colors"
             >
               Supply
             </button>
             <button
               onClick={() => setModal("borrow")}
-              className="py-3 rounded-xl font-semibold border border-brand-cyan text-brand-cyan hover:bg-brand-cyan/10 transition-colors"
+              className="py-3 rounded-lg font-semibold border border-brand-accent text-brand-accent hover:bg-brand-accent/5 transition-colors"
             >
               Borrow
             </button>
             <button
               onClick={() => setModal("withdraw")}
-              className="py-3 rounded-xl font-semibold border border-slate-600 text-slate-300 hover:bg-white/5 transition-colors"
+              className="py-3 rounded-lg font-semibold border border-brand-border text-text-secondary hover:bg-gray-50 transition-colors"
             >
               Withdraw
             </button>
             <button
               onClick={() => setModal("repay")}
-              className="py-3 rounded-xl font-semibold border border-slate-600 text-slate-300 hover:bg-white/5 transition-colors"
+              className="py-3 rounded-lg font-semibold border border-brand-border text-text-secondary hover:bg-gray-50 transition-colors"
             >
               Repay
             </button>

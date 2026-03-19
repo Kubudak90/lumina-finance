@@ -15,7 +15,7 @@ export function TxButton({ onClick, isPending, isConfirming, disabled, children 
     <button
       onClick={onClick}
       disabled={disabled || isLoading}
-      className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-brand-cyan to-brand-blue hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+      className="w-full py-3 px-4 rounded-lg font-semibold text-white bg-brand-accent hover:bg-brand-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
     >
       {isPending ? "Confirm in wallet..." : isConfirming ? "Confirming..." : children}
     </button>

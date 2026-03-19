@@ -6,10 +6,11 @@ interface StatCardProps {
 
 export function StatCard({ label, value, subValue }: StatCardProps) {
   return (
-    <div className="bg-brand-card border border-brand-border rounded-xl p-4">
-      <div className="text-xs text-cyan-300 uppercase tracking-wider mb-1">{label}</div>
-      <div className="text-2xl font-bold">{value}</div>
-      {subValue && <div className="text-sm text-slate-400 mt-1">{subValue}</div>}
+    <div className="bg-white border border-brand-border rounded-xl p-5 shadow-sm relative overflow-hidden">
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-accent/20 rounded-l-xl" />
+      <div className="text-xs text-text-secondary uppercase tracking-wider font-medium mb-2">{label}</div>
+      <div className="text-2xl font-bold font-mono text-text-primary">{value}</div>
+      {subValue && <div className="text-sm text-text-secondary mt-1">{subValue}</div>}
     </div>
   );
 }

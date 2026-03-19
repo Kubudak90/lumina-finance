@@ -47,15 +47,15 @@ export function LiquidateModal({
 
   if (isSuccess) {
     return (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
         <div
-          className="bg-brand-card border border-brand-border rounded-2xl p-6 w-full max-w-md"
+          className="bg-white border border-brand-border rounded-2xl p-6 w-full max-w-md shadow-lg"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-center">
-            <div className="text-4xl mb-4">&#10003;</div>
-            <h3 className="text-xl font-bold mb-2">Liquidation Successful</h3>
-            <button onClick={onClose} className="text-brand-cyan hover:underline">
+            <div className="text-4xl mb-4 text-success">&#10003;</div>
+            <h3 className="text-xl font-bold mb-2 text-text-primary">Liquidation Successful</h3>
+            <button onClick={onClose} className="text-brand-accent hover:underline font-medium">
               Close
             </button>
           </div>
@@ -65,28 +65,28 @@ export function LiquidateModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-brand-card border border-brand-border rounded-2xl p-6 w-full max-w-md"
+        className="bg-white border border-brand-border rounded-2xl p-6 w-full max-w-md shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold">Liquidate Position</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+          <h3 className="text-xl font-bold text-text-primary">Liquidate Position</h3>
+          <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors">
             &#10005;
           </button>
         </div>
-        <p className="text-sm text-slate-400 mb-4">
+        <p className="text-sm text-text-secondary mb-4">
           Max repayable: {maxDebt} {debtSymbol} (50% close factor)
         </p>
         <div className="mb-6">
-          <label className="text-sm text-slate-400 mb-2 block">Repay Amount</label>
+          <label className="text-sm text-text-secondary mb-2 block">Repay Amount</label>
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
-            className="w-full bg-brand-dark border border-brand-border rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:border-brand-cyan"
+            className="w-full bg-white border border-brand-border rounded-lg px-4 py-3 text-lg font-mono text-text-primary focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/20 transition-colors"
           />
         </div>
         <TxButton

@@ -8,14 +8,16 @@ export default function MarketsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Markets</h1>
-        <p className="text-slate-400">Supply assets to earn yield or borrow against collateral</p>
+      <div className="animate-in">
+        <h1 className="text-3xl font-bold mb-1 text-text-primary">Markets</h1>
+        <p className="text-text-secondary">Supply assets to earn yield or borrow against collateral</p>
       </div>
       {isLoading ? (
-        <div className="text-slate-400">Loading...</div>
+        <div className="text-text-secondary">Loading...</div>
       ) : (
-        <MarketTable markets={markets} />
+        <div className="animate-in-delay-1">
+          <MarketTable markets={markets} />
+        </div>
       )}
     </div>
   );

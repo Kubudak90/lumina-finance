@@ -46,28 +46,29 @@ export function RateCurveChart({
   const currentUtilRounded = Math.round(currentUtil);
 
   return (
-    <div className="bg-brand-card border border-brand-border rounded-xl p-4">
-      <h4 className="text-sm text-slate-400 mb-4">Interest Rate Curve</h4>
+    <div className="bg-white border border-brand-border rounded-xl p-4 shadow-sm">
+      <h4 className="text-sm text-text-secondary mb-4 font-medium">Interest Rate Curve</h4>
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={data}>
           <CartesianGrid
             strokeDasharray="3 3"
-            stroke="rgba(255,255,255,0.05)"
+            stroke="#F3F4F6"
           />
           <XAxis
             dataKey="utilization"
-            tick={{ fill: "#64748b", fontSize: 11 }}
+            tick={{ fill: "#6B7280", fontSize: 11 }}
             tickFormatter={(v) => `${v}%`}
           />
           <YAxis
-            tick={{ fill: "#64748b", fontSize: 11 }}
+            tick={{ fill: "#6B7280", fontSize: 11 }}
             tickFormatter={(v) => `${v.toFixed(0)}%`}
           />
           <Tooltip
             contentStyle={{
-              background: "#0f172a",
-              border: "1px solid rgba(6,182,212,0.2)",
+              background: "#FFFFFF",
+              border: "1px solid #E5E7EB",
               borderRadius: 8,
+              boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
             }}
             labelFormatter={(v) => `Utilization: ${v}%`}
             formatter={(v) => [`${Number(v).toFixed(2)}%`]}
@@ -75,7 +76,7 @@ export function RateCurveChart({
           <Line
             type="monotone"
             dataKey="borrowRate"
-            stroke="#f97316"
+            stroke="#6366f1"
             strokeWidth={2}
             dot={false}
             name="Borrow Rate"
@@ -83,18 +84,18 @@ export function RateCurveChart({
           <Line
             type="monotone"
             dataKey="supplyRate"
-            stroke="#4ade80"
+            stroke="#059669"
             strokeWidth={2}
             dot={false}
             name="Supply Rate"
           />
           <ReferenceLine
             x={currentUtilRounded}
-            stroke="#06b6d4"
+            stroke="#6B7280"
             strokeDasharray="5 5"
             label={{
               value: "Current",
-              fill: "#06b6d4",
+              fill: "#6B7280",
               fontSize: 11,
             }}
           />

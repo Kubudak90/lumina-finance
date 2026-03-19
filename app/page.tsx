@@ -19,23 +19,31 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-        <p className="text-slate-400">Protocol overview</p>
+      <div className="animate-in">
+        <h1 className="text-3xl font-bold mb-1 text-text-primary">Dashboard</h1>
+        <p className="text-text-secondary">Protocol overview</p>
       </div>
 
       {/* Protocol Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="TVL" value={isLoading ? "..." : formatUsd(tvl)} />
-        <StatCard label="Total Supply" value={isLoading ? "..." : formatUsd(totalSupply)} />
-        <StatCard label="Total Borrows" value={isLoading ? "..." : formatUsd(totalBorrow)} />
-        <StatCard label="Markets" value={String(markets.length)} />
+        <div className="animate-in-delay-1">
+          <StatCard label="TVL" value={isLoading ? "..." : formatUsd(tvl)} />
+        </div>
+        <div className="animate-in-delay-2">
+          <StatCard label="Total Supply" value={isLoading ? "..." : formatUsd(totalSupply)} />
+        </div>
+        <div className="animate-in-delay-3">
+          <StatCard label="Total Borrows" value={isLoading ? "..." : formatUsd(totalBorrow)} />
+        </div>
+        <div className="animate-in-delay-4">
+          <StatCard label="Markets" value={String(markets.length)} />
+        </div>
       </div>
 
       {/* User Position (if connected) */}
       {isConnected && healthFactor && (
-        <div className="bg-brand-card border border-brand-border rounded-xl p-6">
-          <h2 className="text-lg font-semibold mb-4">Your Position</h2>
+        <div className="bg-white border border-brand-border rounded-xl p-6 shadow-sm animate-in">
+          <h2 className="text-lg font-semibold mb-4 text-text-primary">Your Position</h2>
           <div className="max-w-sm">
             <HealthFactorBar healthFactor={healthFactor} />
           </div>
@@ -43,10 +51,10 @@ export default function Dashboard() {
       )}
 
       {/* Markets Table */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Markets</h2>
+      <div className="animate-in-delay-4">
+        <h2 className="text-lg font-semibold mb-4 text-text-primary">Markets</h2>
         {isLoading ? (
-          <div className="text-slate-400">Loading markets...</div>
+          <div className="text-text-secondary">Loading markets...</div>
         ) : (
           <MarketTable markets={markets} />
         )}
