@@ -10,6 +10,17 @@ export function formatUsd(value: bigint, decimals = 18): string {
   }).format(num);
 }
 
+/** Format a token amount (bigint, 18 decimals) to USD using a price multiplier */
+export function formatTokenToUsd(value: bigint, price: number, decimals = 18): string {
+  const num = Number(formatUnits(value, decimals)) * price;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: num < 1 ? 4 : 2,
+  }).format(num);
+}
+
 export function formatPercent(rateBigInt: bigint): string {
   // Rate is in 1e18 format (e.g., 4e16 = 4%)
   const pct = Number(formatUnits(rateBigInt, 16));

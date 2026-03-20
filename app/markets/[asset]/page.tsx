@@ -11,8 +11,9 @@ import { BorrowModal } from "@/components/actions/BorrowModal";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
 import { useMarketData } from "@/hooks/useMarketData";
+import { usePrices } from "@/hooks/usePrices";
 import { getMarketBySymbol } from "@/lib/constants";
-import { formatUsd, formatPercent } from "@/lib/format";
+import { formatTokenToUsd, formatPercent } from "@/lib/format";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -20,6 +21,7 @@ export default function MarketDetailPage() {
   const { asset } = useParams<{ asset: string }>();
   const market = getMarketBySymbol(asset);
   const { data } = useMarketData(market?.asset ?? "0x0000000000000000000000000000000000000000");
+  const { data: prices } = usePrices();
 
   const [modal, setModal] = useState<"supply" | "borrow" | "withdraw" | "repay" | null>(null);
 
@@ -35,6 +37,8 @@ export default function MarketDetailPage() {
     totalSupply > 0n
       ? Number((totalBorrow * 10000n) / totalSupply) / 100
       : 0;
+
+  const price = prices?.[market.symbol] ?? 0;
 
   // Kink model parameters -- hardcoded for MVP, read from contract in production
   const isUsdc = market.symbol === "USDC";
@@ -70,10 +74,10 @@ export default function MarketDetailPage() {
         {/* Left column: more stats + rate curve */}
         <div className="space-y-4 animate-in-delay-2">
           <div className="grid grid-cols-2 gap-4">
-            <StatCard label="Total Supplied" value={formatUsd(totalSupply)} />
-            <StatCard label="Total Borrowed" value={formatUsd(totalBorrow)} />
+            <StatCard label="Total Supplied" value={formatTokenToUsd(totalSupply, price, market.decimals)} />
+            <StatCard label="Total Borrowed" value={formatTokenToUsd(totalBorrow, price, market.decimals)} />
           </div>
-          <StatCard label="Reserves" value={formatUsd(reserves)} />
+          <StatCard label="Reserves" value={formatTokenToUsd(reserves, price, market.decimals)} />
           <RateCurveChart {...chartParams} currentUtil={util} />
         </div>
 

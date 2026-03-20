@@ -1,18 +1,24 @@
+import Image from "next/image";
+
 interface TokenIconProps {
   symbol: string;
   size?: number;
 }
 
-const GRADIENTS: Record<string, string> = {
-  USDC: "from-blue-400 to-blue-600",
-  WETH: "from-indigo-400 to-purple-600",
-  ETH: "from-indigo-400 to-purple-600",
+const ICON_MAP: Record<string, string> = {
+  USDC: "/tokens/usdc.svg",
+  WETH: "/tokens/eth.svg",
+  ETH: "/tokens/eth.svg",
 };
 
 export function TokenIcon({ symbol, size = 32 }: TokenIconProps) {
+  const src = ICON_MAP[symbol];
+  if (src) {
+    return <Image src={src} alt={symbol} width={size} height={size} className="rounded-full" />;
+  }
   return (
     <div
-      className={`bg-gradient-to-br ${GRADIENTS[symbol] || "from-gray-400 to-gray-600"} rounded-full flex items-center justify-center text-white font-bold shadow-sm`}
+      className="rounded-full bg-muted flex items-center justify-center text-muted-foreground font-bold"
       style={{ width: size, height: size, fontSize: size * 0.4 }}
     >
       {symbol.slice(0, 2)}

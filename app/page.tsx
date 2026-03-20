@@ -5,18 +5,38 @@ import { HealthFactorBar } from "@/components/common/HealthFactorBar";
 import { MarketTable } from "@/components/markets/MarketTable";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useHealthFactor } from "@/hooks/useHealthFactor";
+import { usePrices } from "@/hooks/usePrices";
 import { useAccount } from "wagmi";
-import { formatUsd } from "@/lib/format";
+import { formatUnits } from "viem";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+
+function formatAggregateUsd(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: value < 1 ? 4 : 2,
+  }).format(value);
+}
 
 export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
   const { healthFactor } = useHealthFactor();
   const { isConnected } = useAccount();
+  const { data: prices } = usePrices();
 
-  const totalSupply = markets.reduce((sum, m) => sum + m.totalSupply, 0n);
-  const totalBorrow = markets.reduce((sum, m) => sum + m.totalBorrow, 0n);
-  const tvl = totalSupply - totalBorrow;
+  // Calculate USD-denominated totals by multiplying each market's token amounts by price
+  const totalSupplyUsd = markets.reduce((sum, m) => {
+    const price = prices?.[m.symbol] ?? 0;
+    return sum + Number(formatUnits(m.totalSupply, m.decimals)) * price;
+  }, 0);
+
+  const totalBorrowUsd = markets.reduce((sum, m) => {
+    const price = prices?.[m.symbol] ?? 0;
+    return sum + Number(formatUnits(m.totalBorrow, m.decimals)) * price;
+  }, 0);
+
+  const tvlUsd = totalSupplyUsd - totalBorrowUsd;
 
   return (
     <div className="space-y-8">
@@ -28,13 +48,13 @@ export default function Dashboard() {
       {/* Protocol Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="animate-in-delay-1">
-          <StatCard label="TVL" value={isLoading ? "..." : formatUsd(tvl)} />
+          <StatCard label="TVL" value={isLoading ? "..." : formatAggregateUsd(tvlUsd)} />
         </div>
         <div className="animate-in-delay-2">
-          <StatCard label="Total Supply" value={isLoading ? "..." : formatUsd(totalSupply)} />
+          <StatCard label="Total Supply" value={isLoading ? "..." : formatAggregateUsd(totalSupplyUsd)} />
         </div>
         <div className="animate-in-delay-3">
-          <StatCard label="Total Borrows" value={isLoading ? "..." : formatUsd(totalBorrow)} />
+          <StatCard label="Total Borrows" value={isLoading ? "..." : formatAggregateUsd(totalBorrowUsd)} />
         </div>
         <div className="animate-in-delay-4">
           <StatCard label="Markets" value={String(markets.length)} />
