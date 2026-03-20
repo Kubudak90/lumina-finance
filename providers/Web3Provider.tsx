@@ -3,13 +3,13 @@
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectKitProvider, getDefaultConfig } from "connectkit";
-import { anvil } from "@/lib/chains";
+import { baseSepolia } from "@/lib/chains";
 
 const config = createConfig(
   getDefaultConfig({
-    chains: [anvil],
+    chains: [baseSepolia],
     transports: {
-      [anvil.id]: http(),
+      [baseSepolia.id]: http(),
     },
     walletConnectProjectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "",
     appName: "LightLend",
@@ -20,7 +20,7 @@ const config = createConfig(
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchInterval: 15_000, // 15 seconds
+      refetchInterval: 15_000,
       staleTime: 10_000,
     },
   },
@@ -30,7 +30,7 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ConnectKitProvider theme="midnight">
+        <ConnectKitProvider theme="auto">
           {children}
         </ConnectKitProvider>
       </QueryClientProvider>

@@ -123,12 +123,12 @@ export const DEBT_TOKEN_ABI = [
   },
 ] as const;
 
-// Addresses — update after deployment
+// Deployed on Base Sepolia (chain ID 84532)
 export const ADDRESSES = {
-  lendingPool: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-  usdc: "0x0000000000000000000000000000000000000001" as `0x${string}`,
-  weth: "0x0000000000000000000000000000000000000002" as `0x${string}`,
-  usdcAdapter: "0x0000000000000000000000000000000000000003" as `0x${string}`,
-  ethAdapter: "0x0000000000000000000000000000000000000004" as `0x${string}`,
-  oracle: "0x0000000000000000000000000000000000000005" as `0x${string}`,
+  lendingPool: "0x1C79C848a5e0a17D86D44Cb2ac9714214EdFaD3d" as `0x${string}`,
+  usdc: "0xC5DF09eE5B4a6C2dbd3ACb3845693A4FCc978A36" as `0x${string}`,
+  weth: "0xa46f75bF3C47DCD48103A2f16013a0c7b735f491" as `0x${string}`,
+  usdcAdapter: "0x6b58FcB5B30D58653622929217A8dB6AAe72c37d" as `0x${string}`,
+  ethAdapter: "0xcF11f4926dD1eCE26fE8Ce868356d0CD5c57F0fc" as `0x${string}`,
+  oracle: "0xA4189fc3818AbA2d4F26E980480420334ab65557" as `0x${string}`,
 } as const;

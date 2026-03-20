@@ -1,23 +1,14 @@
 import { defineChain } from "viem";
 
-export const lighterEvm = defineChain({
-  id: 1890, // placeholder — update when Lighter publishes chain ID
-  name: "Lighter EVM",
+export const baseSepolia = defineChain({
+  id: 84532,
+  name: "Base Sepolia",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://rpc.lighter.xyz"] }, // placeholder
+    default: { http: ["https://sepolia.base.org"] },
   },
   blockExplorers: {
-    default: { name: "Lighter Explorer", url: "https://explorer.lighter.xyz" },
+    default: { name: "BaseScan", url: "https://sepolia.basescan.org" },
   },
-});
-
-// For local testing with Foundry anvil
-export const anvil = defineChain({
-  id: 31337,
-  name: "Anvil",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["http://127.0.0.1:8545"] },
-  },
+  testnet: true,
 });
