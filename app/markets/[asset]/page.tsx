@@ -14,6 +14,7 @@ import { RepayModal } from "@/components/actions/RepayModal";
 import { EnableCollateralModal } from "@/components/actions/EnableCollateralModal";
 import { useMarketData } from "@/hooks/useMarketData";
 import { useUserCollateralStatus } from "@/hooks/useUserCollateralStatus";
+import { useReserveConfig } from "@/hooks/useReserveConfig";
 import { usePrices } from "@/hooks/usePrices";
 import { getMarketBySymbol } from "@/lib/constants";
 import { formatTokenToUsd, formatPercent } from "@/lib/format";
@@ -21,17 +22,21 @@ import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 
-const RISK_PARAMS: Record<string, { ltv: string; liqThreshold: string; liqBonus: string; eMode?: string }> = {
-  WETH: { ltv: "80%", liqThreshold: "85%", liqBonus: "5%" },
-  USDC: { ltv: "85%", liqThreshold: "90%", liqBonus: "5%", eMode: "Stablecoins E-Mode" },
-};
-
 export default function MarketDetailPage() {
   const { asset } = useParams<{ asset: string }>();
   const market = getMarketBySymbol(asset);
   const { reserveData } = useMarketData(market?.asset ?? ZERO_ADDRESS);
   const { data: prices } = usePrices();
   const { isCollateralEnabled } = useUserCollateralStatus();
+  const { getConfig } = useReserveConfig();
+  const cfg = getConfig(market?.symbol ?? "");
+  const risk = cfg
+    ? {
+        ltv: `${(cfg.ltv / 100).toFixed(0)}%`,
+        liqThreshold: `${(cfg.liquidationThreshold / 100).toFixed(0)}%`,
+        liqBonus: `${((cfg.liquidationBonus - 10000) / 100).toFixed(0)}%`,
+      }
+    : { ltv: "—", liqThreshold: "—", liqBonus: "—" };
 
   // Read aToken + debtToken totalSupply for real supply/borrow amounts
   const tokenSupplies = useReadContracts({
@@ -59,7 +64,6 @@ export default function MarketDetailPage() {
     : 0;
 
   const price = prices?.[market.symbol] ?? 0;
-  const risk = RISK_PARAMS[market.symbol] ?? { ltv: "—", liqThreshold: "—", liqBonus: "—" };
 
   const chartParams = {
     baseRate: 0.02,
@@ -100,16 +104,6 @@ export default function MarketDetailPage() {
           <StatCard label="Liquidation Bonus" value={risk.liqBonus} />
         </div>
       </div>
-
-      {/* E-Mode badge */}
-      {risk.eMode && (
-        <div className="animate-in-delay-1">
-          <span className="inline-flex items-center gap-1.5 border border-accent/30 px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-accent">
-            <span className="inline-block h-1.5 w-1.5 bg-accent" />
-            {risk.eMode}
-          </span>
-        </div>
-      )}
 
       {/* Two-column layout */}
       <div className="grid md:grid-cols-2 gap-6">
