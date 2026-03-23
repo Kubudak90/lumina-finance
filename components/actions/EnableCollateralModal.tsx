@@ -31,7 +31,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
 
   useEffect(() => {
     if (error) toast.error(`${actionLabel} collateral failed`, { description: parseErrorMessage(error) });
-  }, [error]);
+  }, [error, actionLabel]);
 
   useEffect(() => {
     if (isSuccess && hash) {
@@ -39,7 +39,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
         action: { label: "View on Explorer", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
       });
     }
-  }, [isSuccess, hash]);
+  }, [isSuccess, hash, newValue]);
 
   const handleToggle = () => {
     if (!address) return;
