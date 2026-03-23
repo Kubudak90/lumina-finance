@@ -1,42 +1,177 @@
-import { useReadContracts, useAccount } from "wagmi";
-import { DEBT_TOKEN_ABI, ERC20_ABI, ADDRESSES } from "@/lib/contracts";
+import { useReadContracts, useReadContract, useAccount } from "wagmi";
+import { POOL_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
+import { useUserCollateralStatus } from "./useUserCollateralStatus";
 
 export interface UserMarketPosition {
   asset: `0x${string}`;
   symbol: string;
-  supplied: bigint;    // lToken balance
-  borrowed: bigint;    // debtToken balance
-  collateral: bigint;  // adapter deposit balance
+  decimals: number;
+  supplied: bigint;    // aToken balanceOf(user)
+  borrowed: bigint;    // variableDebtToken balanceOf(user)
+  /** In Aave V3 supplied assets are collateral, so collateral = supplied */
+  collateral: bigint;
+  collateralEnabled: boolean; // derived from supplied > 0 (Aave V3: supply = collateral)
 }
 
+export interface UserAccountData {
+  totalCollateralBase: bigint;
+  totalDebtBase: bigint;
+  availableBorrowsBase: bigint;
+  currentLiquidationThreshold: bigint;
+  ltv: bigint;
+  healthFactor: bigint;
+}
+
+/** Shape returned by Pool.getReserveData (matches the ABI tuple struct) */
+interface ReserveDataResult {
+  configuration: { data: bigint };
+  liquidityIndex: bigint;
+  currentLiquidityRate: bigint;
+  variableBorrowIndex: bigint;
+  currentVariableBorrowRate: bigint;
+  currentStableBorrowRate: bigint;
+  lastUpdateTimestamp: bigint;
+  id: number;
+  aTokenAddress: `0x${string}`;
+  stableDebtTokenAddress: `0x${string}`;
+  variableDebtTokenAddress: `0x${string}`;
+  interestRateStrategyAddress: `0x${string}`;
+  accruedToTreasury: bigint;
+  unbacked: bigint;
+  isolationModeTotalDebt: bigint;
+}
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+
+/**
+ * Fetches the user's positions across all markets.
+ *
+ * Uses:
+ *   - Pool.getUserAccountData(user) -> aggregate account health data
+ *   - Pool.getReserveData(asset) -> to discover aToken & debtToken addresses
+ *   - aToken.balanceOf(user) -> user's supply balance per market
+ *   - variableDebtToken.balanceOf(user) -> user's borrow balance per market
+ */
 export function useUserPosition() {
   const { address } = useAccount();
-
-  // We need lToken balances, debtToken balances for each market
-  // For MVP, we read these from the contracts
-  // In production, the LendingPool would expose a getUserPosition view
-
+  const { isCollateralEnabled } = useUserCollateralStatus();
   const enabled = !!address;
 
-  const result = useReadContracts({
-    contracts: address
-      ? MARKETS.flatMap((m) => [
-          // Wallet balance of underlying token
+  // --- Step 1: Get reserve data to find aToken/debtToken addresses ---
+  const reserveContracts = MARKETS.map((m) => ({
+    address: ADDRESSES.pool as `0x${string}`,
+    abi: POOL_ABI,
+    functionName: "getReserveData" as const,
+    args: [m.asset] as const,
+  }));
+
+  const reserveResult = useReadContracts({
+    contracts: reserveContracts,
+    query: { refetchInterval: 30_000 },
+  });
+
+  const reserveParsed = MARKETS.map((_m, i) => {
+    const defaults = { aTokenAddress: _m.aToken, variableDebtTokenAddress: _m.variableDebtToken };
+    try {
+      const raw = reserveResult.data?.[i]?.result;
+      if (!raw) return defaults;
+      const d = raw as Record<string, unknown>;
+      if (d.aTokenAddress) {
+        return {
+          aTokenAddress: (d.aTokenAddress as `0x${string}`) ?? _m.aToken,
+          variableDebtTokenAddress: (d.variableDebtTokenAddress as `0x${string}`) ?? _m.variableDebtToken,
+        };
+      }
+      return defaults;
+    } catch {
+      return defaults;
+    }
+  });
+
+  const hasReserveData = reserveResult.data && reserveResult.data.length > 0;
+
+  // --- Step 2: Get user account data (aggregate) ---
+  const accountResult = useReadContract({
+    address: ADDRESSES.pool as `0x${string}`,
+    abi: POOL_ABI,
+    functionName: "getUserAccountData",
+    args: address ? [address] : undefined,
+    query: { enabled, refetchInterval: 10_000 },
+  });
+
+  // viem may return as array or named object depending on ABI shape
+  let accountData: UserAccountData | undefined;
+  if (accountResult.data) {
+    const d = accountResult.data as unknown;
+    if (Array.isArray(d)) {
+      accountData = {
+        totalCollateralBase: d[0] as bigint,
+        totalDebtBase: d[1] as bigint,
+        availableBorrowsBase: d[2] as bigint,
+        currentLiquidationThreshold: d[3] as bigint,
+        ltv: d[4] as bigint,
+        healthFactor: d[5] as bigint,
+      };
+    } else if (typeof d === "object" && d !== null) {
+      const obj = d as Record<string, bigint>;
+      accountData = {
+        totalCollateralBase: obj.totalCollateralBase ?? 0n,
+        totalDebtBase: obj.totalDebtBase ?? 0n,
+        availableBorrowsBase: obj.availableBorrowsBase ?? 0n,
+        currentLiquidationThreshold: obj.currentLiquidationThreshold ?? 0n,
+        ltv: obj.ltv ?? 0n,
+        healthFactor: obj.healthFactor ?? 0n,
+      };
+    }
+  }
+
+  // --- Step 3: Per-market balances (aToken + debtToken) ---
+  const balanceContracts =
+    enabled && hasReserveData
+      ? MARKETS.flatMap((_m, i) => [
           {
-            address: m.asset,
-            abi: ERC20_ABI,
+            address: reserveParsed[i].aTokenAddress,
+            abi: ATOKEN_ABI,
             functionName: "balanceOf" as const,
-            args: [address] as const,
+            args: [address!] as const,
+          },
+          {
+            address: reserveParsed[i].variableDebtTokenAddress,
+            abi: VARIABLE_DEBT_TOKEN_ABI,
+            functionName: "balanceOf" as const,
+            args: [address!] as const,
           },
         ])
-      : [],
-    query: { enabled },
+      : [];
+
+  const balanceResult = useReadContracts({
+    contracts: balanceContracts,
+    query: { enabled: enabled && !!hasReserveData, refetchInterval: 10_000 },
+  });
+
+  // --- Combine ---
+  const positions: UserMarketPosition[] = MARKETS.map((m, i) => {
+    const supplied = (balanceResult.data?.[i * 2]?.result as bigint) ?? 0n;
+    const borrowed = (balanceResult.data?.[i * 2 + 1]?.result as bigint) ?? 0n;
+    const collEnabled = isCollateralEnabled(m.asset);
+
+    return {
+      asset: m.asset,
+      symbol: m.symbol,
+      decimals: m.decimals,
+      supplied,
+      borrowed,
+      collateral: collEnabled ? supplied : 0n,
+      collateralEnabled: collEnabled,
+    };
   });
 
   return {
-    positions: [] as UserMarketPosition[], // Simplified for MVP — expand when contracts deployed
-    isLoading: result.isLoading,
+    positions,
+    accountData,
+    isLoading: reserveResult.isLoading || balanceResult.isLoading || accountResult.isLoading,
     isConnected: !!address,
   };
 }
