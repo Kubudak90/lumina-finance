@@ -46,7 +46,7 @@ type ModalState =
 export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
   const { healthFactor } = useHealthFactor();
-  const { positions } = useUserPosition();
+  const { positions, accountData } = useUserPosition();
   const { data: prices } = usePrices();
   const { isConnected: walletConnected } = useAccount();
   const { currentCategoryId: eModeCategoryId, categoryData: eModeCategoryData } = useEMode();
@@ -72,8 +72,10 @@ export default function Dashboard() {
   const hfColor = hfNum >= 2 ? "bg-emerald-500" : hfNum >= 1.2 ? "bg-amber-500" : "bg-rose-500";
   const hfTextColor = hfNum >= 2 ? "text-emerald-400" : hfNum >= 1.2 ? "text-amber-400" : "text-rose-400";
 
-  // Borrow limit (rough: 85% of collateral for USDC-like)
-  const borrowLimit = userTotalSupplied * 0.85;
+  // Borrow limit from real account data
+  const borrowLimit = accountData
+    ? Number(accountData.availableBorrowsBase + accountData.totalDebtBase) / 1e8
+    : 0;
 
   // Net worth
   const netWorth = userTotalSupplied - userTotalBorrowed;
@@ -282,7 +284,7 @@ export default function Dashboard() {
                     const price = prices?.[m.symbol] ?? 0;
                     const suppliedAmt = pos ? Number(formatUnits(pos.supplied, m.decimals)) : 0;
                     const suppliedUsd = suppliedAmt * price;
-                    const hasCollateral = pos ? pos.collateral > 0n : false;
+                    const hasCollateral = isCollateralEnabled(m.asset);
 
                     return (
                       <tr
@@ -330,18 +332,22 @@ export default function Dashboard() {
                           </button>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() =>
-                              setModal(
-                                suppliedAmt > 0
-                                  ? { type: "withdraw", market: m }
-                                  : { type: "supply", market: m }
-                              )
-                            }
-                            className="px-3 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                          >
-                            {suppliedAmt > 0 ? "Withdraw" : "Supply"}
-                          </button>
+                          <div className="flex gap-1.5 justify-end">
+                            <button
+                              onClick={() => setModal({ type: "supply", market: m })}
+                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                            >
+                              Supply
+                            </button>
+                            {suppliedAmt > 0 && (
+                              <button
+                                onClick={() => setModal({ type: "withdraw", market: m })}
+                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                              >
+                                Withdraw
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -423,23 +429,27 @@ export default function Dashboard() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-emerald-400 font-mono text-sm">
+                          <span className="text-amber-400 font-mono text-sm">
                             {mInfo ? formatPercent(mInfo.borrowRate) : "--"}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() =>
-                              setModal(
-                                borrowedAmt > 0
-                                  ? { type: "repay", market: m }
-                                  : { type: "borrow", market: m }
-                              )
-                            }
-                            className="px-3 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                          >
-                            {borrowedAmt > 0 ? "Repay" : "Borrow"}
-                          </button>
+                          <div className="flex gap-1.5 justify-end">
+                            <button
+                              onClick={() => setModal({ type: "borrow", market: m })}
+                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                            >
+                              Borrow
+                            </button>
+                            {borrowedAmt > 0 && (
+                              <button
+                                onClick={() => setModal({ type: "repay", market: m })}
+                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                              >
+                                Repay
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
