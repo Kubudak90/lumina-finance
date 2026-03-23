@@ -42,19 +42,23 @@ export default function LiquidationsPage() {
     const hfBigInt = hf as bigint;
     if (hfBigInt < BigInt("1000000000000000000")) {
       const hfFormatted = Number(formatUnits(hfBigInt, 18)).toFixed(4);
-      const debtMarket = MARKETS[0];
-      const collateralMarket = MARKETS.length > 1 ? MARKETS[1] : MARKETS[0];
-      opportunities.push({
-        borrower: checkAddress,
-        debt: "Check on-chain",
-        collateral: "Check on-chain",
-        healthFactor: hfFormatted,
-        debtAsset: debtMarket.asset,
-        collateralAsset: collateralMarket.asset,
-        maxDebt: "0",
-        debtSymbol: debtMarket.symbol,
-        debtDecimals: debtMarket.decimals,
-      });
+      // Show one opportunity per possible debt/collateral pair
+      for (const debtMarket of MARKETS) {
+        for (const collateralMarket of MARKETS) {
+          if (debtMarket.asset === collateralMarket.asset) continue;
+          opportunities.push({
+            borrower: checkAddress,
+            debt: "Check on-chain",
+            collateral: collateralMarket.symbol,
+            healthFactor: hfFormatted,
+            debtAsset: debtMarket.asset,
+            collateralAsset: collateralMarket.asset,
+            maxDebt: "0",
+            debtSymbol: debtMarket.symbol,
+            debtDecimals: debtMarket.decimals,
+          });
+        }
+      }
     }
   }
 
@@ -139,8 +143,8 @@ export default function LiquidationsPage() {
                 </td>
               </tr>
             ) : (
-              opportunities.map((o) => (
-                <tr key={o.borrower} className="border-b border-border/50 hover:bg-white/5 transition-colors">
+              opportunities.map((o, i) => (
+                <tr key={`${o.borrower}-${o.debtAsset}-${o.collateralAsset}-${i}`} className="border-b border-border/50 hover:bg-white/5 transition-colors">
                   <td className="px-6 py-4 font-mono text-sm">{truncateAddress(o.borrower)}</td>
                   <td className="px-6 py-4 font-mono text-sm">{o.debt}</td>
                   <td className="px-6 py-4 font-mono text-sm">{o.collateral}</td>
