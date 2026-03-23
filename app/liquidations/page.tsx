@@ -1,19 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useReadContract } from "wagmi";
+import { formatUnits } from "viem";
 import { truncateAddress } from "@/lib/format";
 import { LiquidateModal } from "@/components/actions/LiquidateModal";
-import { Card } from "@/components/ui/card";
+import { POOL_ABI } from "@/lib/abis";
+import { ADDRESSES } from "@/lib/contracts";
+import { MARKETS } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
 
 interface LiquidationOpportunity {
   borrower: `0x${string}`;
@@ -21,76 +16,162 @@ interface LiquidationOpportunity {
   collateral: string;
   healthFactor: string;
   debtAsset: `0x${string}`;
-  collateralAdapter: `0x${string}`;
+  collateralAsset: `0x${string}`;
   maxDebt: string;
   debtSymbol: string;
+  debtDecimals: number;
 }
 
 export default function LiquidationsPage() {
   const [selected, setSelected] = useState<LiquidationOpportunity | null>(null);
+  const [searchAddress, setSearchAddress] = useState("");
+  const [checkAddress, setCheckAddress] = useState<`0x${string}` | undefined>();
 
-  // MVP: placeholder -- in production, fetch from events/indexer
+  const { data: accountData, isLoading: isLoadingHf, error: hfError } = useReadContract({
+    address: ADDRESSES.pool,
+    abi: POOL_ABI,
+    functionName: "getUserAccountData",
+    args: checkAddress ? [checkAddress] : undefined,
+    query: { enabled: !!checkAddress },
+  });
+
+  const hf = accountData ? (accountData as readonly bigint[])[5] : undefined;
+
   const opportunities: LiquidationOpportunity[] = [];
+  if (checkAddress && hf !== undefined && hf !== null) {
+    const hfBigInt = hf as bigint;
+    if (hfBigInt < BigInt("1000000000000000000")) {
+      const hfFormatted = Number(formatUnits(hfBigInt, 18)).toFixed(4);
+      const debtMarket = MARKETS[0];
+      const collateralMarket = MARKETS.length > 1 ? MARKETS[1] : MARKETS[0];
+      opportunities.push({
+        borrower: checkAddress,
+        debt: "Check on-chain",
+        collateral: "Check on-chain",
+        healthFactor: hfFormatted,
+        debtAsset: debtMarket.asset,
+        collateralAsset: collateralMarket.asset,
+        maxDebt: "0",
+        debtSymbol: debtMarket.symbol,
+        debtDecimals: debtMarket.decimals,
+      });
+    }
+  }
+
+  const isValidAddress = (addr: string): addr is `0x${string}` => {
+    return /^0x[0-9a-fA-F]{40}$/.test(addr);
+  };
+
+  const handleCheck = () => {
+    if (isValidAddress(searchAddress)) {
+      setCheckAddress(searchAddress as `0x${string}`);
+    }
+  };
+
+  const hfDisplay = () => {
+    if (!checkAddress) return null;
+    if (isLoadingHf) return <p className="text-xs font-mono text-muted-foreground">Loading health factor...</p>;
+    if (hfError) return <p className="text-xs font-mono text-destructive">Error reading health factor. Address may have no position.</p>;
+    if (hf !== undefined && hf !== null) {
+      const hfBigInt = hf as bigint;
+      if (hfBigInt === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) {
+        return <p className="text-xs font-mono text-green-500">Health Factor: Infinite (no debt)</p>;
+      }
+      const hfNum = Number(formatUnits(hfBigInt, 18));
+      const isLiquidatable = hfBigInt < BigInt("1000000000000000000");
+      return (
+        <p className={`text-xs font-mono font-medium ${isLiquidatable ? "text-destructive" : "text-green-500"}`}>
+          Health Factor: {hfNum.toFixed(4)} {isLiquidatable ? " -- LIQUIDATABLE" : " -- Healthy"}
+        </p>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-6">
       <div className="animate-in">
-        <h1 className="text-3xl font-bold mb-1 text-foreground">Liquidation Opportunities</h1>
-        <p className="text-muted-foreground">Positions below health factor 1.0 can be liquidated</p>
+        <h1 className="text-4xl font-bold tracking-tighter uppercase glow-text mb-1">Liquidations</h1>
+        <p className="text-muted-foreground text-sm">Positions below health factor 1.0 can be liquidated</p>
       </div>
 
-      <Card className="p-0 animate-in-delay-1">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="px-6">Borrower</TableHead>
-              <TableHead className="px-6">Debt</TableHead>
-              <TableHead className="px-6">Collateral</TableHead>
-              <TableHead className="px-6">Health Factor</TableHead>
-              <TableHead className="px-6"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+      {/* Search by address */}
+      <div className="technical-border bg-card p-6 animate-in-delay-1">
+        <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent mb-4">Check Address Health Factor</h2>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            value={searchAddress}
+            onChange={(e) => setSearchAddress(e.target.value)}
+            placeholder="0x... borrower address"
+            className="h-12 text-sm font-mono flex-1 bg-background border border-border px-4 text-foreground placeholder:text-muted-foreground focus:border-accent/50 focus:outline-none transition-colors"
+          />
+          <button
+            className="h-12 px-6 bg-accent text-background font-bold uppercase tracking-[0.2em] text-[10px] hover:bg-white shadow-[0_0_20px_rgba(176,196,255,0.2)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={handleCheck}
+            disabled={!isValidAddress(searchAddress)}
+          >
+            Check
+          </button>
+        </div>
+        <div className="mt-3">
+          {hfDisplay()}
+        </div>
+      </div>
+
+      {/* Results table */}
+      <div className="technical-border bg-card animate-in-delay-2">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrower</th>
+              <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Debt</th>
+              <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Collateral</th>
+              <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Health Factor</th>
+              <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
             {opportunities.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
-                  No liquidation opportunities at this time
-                </TableCell>
-              </TableRow>
+              <tr>
+                <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground text-sm">
+                  No liquidation opportunities found. Enter a borrower address above to check.
+                </td>
+              </tr>
             ) : (
               opportunities.map((o) => (
-                <TableRow key={o.borrower}>
-                  <TableCell className="px-6 py-4 font-mono text-sm">{truncateAddress(o.borrower)}</TableCell>
-                  <TableCell className="px-6 py-4 font-mono">{o.debt}</TableCell>
-                  <TableCell className="px-6 py-4 font-mono">{o.collateral}</TableCell>
-                  <TableCell className="px-6 py-4">
+                <tr key={o.borrower} className="border-b border-border/50 hover:bg-white/5 transition-colors">
+                  <td className="px-6 py-4 font-mono text-sm">{truncateAddress(o.borrower)}</td>
+                  <td className="px-6 py-4 font-mono text-sm">{o.debt}</td>
+                  <td className="px-6 py-4 font-mono text-sm">{o.collateral}</td>
+                  <td className="px-6 py-4">
                     <Badge variant="destructive" className="font-mono">
                       {o.healthFactor}
                     </Badge>
-                  </TableCell>
-                  <TableCell className="px-6 py-4">
-                    <Button
-                      variant="destructive"
-                      size="sm"
+                  </td>
+                  <td className="px-6 py-4">
+                    <button
+                      className="h-8 px-4 bg-destructive text-destructive-foreground text-[10px] font-mono uppercase tracking-wider hover:bg-destructive/80 transition-colors"
                       onClick={() => setSelected(o)}
                     >
                       Liquidate
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                    </button>
+                  </td>
+                </tr>
               ))
             )}
-          </TableBody>
-        </Table>
-      </Card>
+          </tbody>
+        </table>
+      </div>
 
       {selected && (
         <LiquidateModal
           borrower={selected.borrower}
           debtAsset={selected.debtAsset}
           debtSymbol={selected.debtSymbol}
-          collateralAdapter={selected.collateralAdapter}
+          collateralAsset={selected.collateralAsset}
           maxDebt={selected.maxDebt}
+          debtDecimals={selected.debtDecimals}
           onClose={() => setSelected(null)}
         />
       )}
