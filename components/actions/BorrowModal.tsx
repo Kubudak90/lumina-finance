@@ -51,13 +51,23 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
   });
 
   let availableBorrowsBase = 0n;
+  let totalCollateralBase = 0n;
+  let totalDebtBase = 0n;
+  let currentLiquidationThreshold = 0n;
   try {
     const d = accountDataResult.data as Record<string, bigint> | readonly bigint[] | undefined;
     if (d) {
       if (Array.isArray(d)) {
+        totalCollateralBase = d[0] ?? 0n;
+        totalDebtBase = d[1] ?? 0n;
         availableBorrowsBase = d[2] ?? 0n;
+        currentLiquidationThreshold = d[3] ?? 0n;
       } else {
-        availableBorrowsBase = (d as Record<string, bigint>).availableBorrowsBase ?? 0n;
+        const obj = d as Record<string, bigint>;
+        totalCollateralBase = obj.totalCollateralBase ?? 0n;
+        totalDebtBase = obj.totalDebtBase ?? 0n;
+        availableBorrowsBase = obj.availableBorrowsBase ?? 0n;
+        currentLiquidationThreshold = obj.currentLiquidationThreshold ?? 0n;
       }
     }
   } catch { /* ignore */ }
@@ -80,7 +90,21 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
 
   // Health factor helpers
   const isMaxHf = healthFactor === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-  const hfNum = healthFactor ? (isMaxHf ? Infinity : Number(healthFactor) / 1e18) : 0;
+
+  // Simulate new health factor after borrow
+  // HF = (totalCollateralBase * liqThreshold / 10000) / totalDebtBase
+  const borrowValueInBase = parsedAmount > 0n && priceRaw > 0n
+    ? Number(parsedAmount) * Number(priceRaw) / (10 ** decimals)
+    : 0;
+  const newTotalDebt = Number(totalDebtBase) + borrowValueInBase;
+  const collateralWeighted = Number(totalCollateralBase) * Number(currentLiquidationThreshold) / 10000;
+  const simulatedHf = newTotalDebt > 0 && parsedAmount > 0n
+    ? collateralWeighted / newTotalDebt
+    : null;
+  const simulatedHfColor = simulatedHf === null ? "text-muted-foreground"
+    : simulatedHf >= 2 ? "text-emerald-400"
+    : simulatedHf >= 1.2 ? "text-amber-400"
+    : "text-red-400";
 
   useEffect(() => {
     if (error) {
@@ -182,29 +206,45 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
               </div>
               <p className="text-xs text-muted-foreground">Ensure you have sufficient collateral. Health factor must remain above 1.05.</p>
 
-              {/* Health Factor */}
+              {/* Health Factor Simulation */}
               {healthFactor && (
                 <div className="technical-border bg-background p-3 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Health Factor</span>
-                    <span className="font-mono font-medium">{formatHealthFactor(healthFactor)}</span>
+                    <div className="flex items-center gap-2 font-mono font-medium">
+                      <span>{formatHealthFactor(healthFactor)}</span>
+                      {simulatedHf !== null && (
+                        <>
+                          <span className="text-muted-foreground">&rarr;</span>
+                          <span className={simulatedHfColor}>{simulatedHf.toFixed(2)}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <HealthFactorBar healthFactor={healthFactor} />
                   {isMaxHf && (
                     <p className="text-xs text-muted-foreground">New borrower -- ensure you have collateral enabled</p>
                   )}
-                  {!isMaxHf && hfNum < 1.2 && (
+                  {simulatedHf !== null && simulatedHf < 1.0 && (
                     <p className="text-xs text-red-500 font-medium">
-                      Warning: Your health factor is critically low. Borrowing more may result in immediate liquidation.
+                      This borrow will put you below liquidation threshold. You will be liquidated immediately.
                     </p>
                   )}
-                  {!isMaxHf && hfNum >= 1.2 && hfNum < 1.5 && (
+                  {simulatedHf !== null && simulatedHf >= 1.0 && simulatedHf < 1.2 && (
+                    <p className="text-xs text-red-500 font-medium">
+                      Warning: Health factor will be critically low after this borrow. High liquidation risk.
+                    </p>
+                  )}
+                  {simulatedHf !== null && simulatedHf >= 1.2 && simulatedHf < 1.5 && (
                     <p className="text-xs text-amber-500 font-medium">
-                      Warning: Your health factor is low. Borrowing more may put you at liquidation risk.
+                      Warning: Health factor will be low. Monitor your position closely.
                     </p>
                   )}
-                  {!isMaxHf && hfNum >= 1.5 && (
-                    <p className="text-xs text-muted-foreground">Borrowing will reduce your health factor</p>
+                  {simulatedHf !== null && simulatedHf >= 1.5 && (
+                    <p className="text-xs text-muted-foreground">Position looks healthy after this borrow</p>
+                  )}
+                  {!isMaxHf && simulatedHf === null && (
+                    <p className="text-xs text-muted-foreground">Enter an amount to see health factor impact</p>
                   )}
                 </div>
               )}
@@ -213,9 +253,11 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
                 onClick={handleBorrow}
                 isPending={isPending}
                 isConfirming={isConfirming}
-                disabled={!amount || parsedAmount === 0n || (availableLiquidity > 0n && parsedAmount > availableLiquidity)}
+                disabled={!amount || parsedAmount === 0n || (availableLiquidity > 0n && parsedAmount > availableLiquidity) || (simulatedHf !== null && simulatedHf < 1.0)}
               >
-                Borrow {symbol}
+                {simulatedHf !== null && simulatedHf < 1.0
+                  ? "Health Factor Too Low"
+                  : `Borrow ${symbol}`}
               </TxButton>
             </div>
           </>
