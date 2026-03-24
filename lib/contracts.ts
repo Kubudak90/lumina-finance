@@ -1,121 +1,61 @@
-export const LENDING_POOL_ABI = [
-  {
-    name: "supply",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "asset", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "withdraw",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "asset", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "borrow",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "asset", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "repay",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "asset", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "enableCollateral",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "adapter", type: "address" },
-      { name: "data", type: "bytes" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "liquidate",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "borrower", type: "address" },
-      { name: "debtAsset", type: "address" },
-      { name: "debtAmount", type: "uint256" },
-      { name: "collateralAdapter", type: "address" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "getHealthFactor",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "user", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "getMarketData",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "asset", type: "address" }],
-    outputs: [
-      { name: "totalSupply", type: "uint256" },
-      { name: "totalBorrow", type: "uint256" },
-      { name: "reserves", type: "uint256" },
-      { name: "borrowRate", type: "uint256" },
-      { name: "supplyRate", type: "uint256" },
-    ],
-  },
-] as const;
+import {
+  POOL_ABI,
+  AAVE_ORACLE_ABI,
+  ATOKEN_ABI,
+  VARIABLE_DEBT_TOKEN_ABI,
+  DATA_PROVIDER_ABI,
+  REWARDS_CONTROLLER_ABI,
+  ERC20_ABI,
+} from "./abis";
 
-export const ERC20_ABI = [
-  {
-    name: "approve",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    name: "allowance",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "owner", type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "balanceOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
+// =============================================================================
+// Deployed contract addresses on Base Sepolia (chain ID 84532)
+// =============================================================================
+export const ADDRESSES = {
+  // --- Core Aave V3 protocol ---
+  pool: "0xCe390a9B81841c077bC4541f16D53d2a01bdEb39" as `0x${string}`,
+  poolConfigurator: "0xE4F797d68111F0635E5423EFc7035688CF78BB0c" as `0x${string}`,
+  oracle: "0x0103951a20eD2bd84Bd79FE3719553A358893911" as `0x${string}`,
+  dataProvider: "0x7949865603B716A442f65249D428D03F10950825" as `0x${string}`,
+  rewardsController: "0x0903A0e176375F11C86E74e316E1B806DDD49A2b" as `0x${string}`,
 
-export const DEBT_TOKEN_ABI = [
+  // --- Underlying token addresses ---
+  usdc: "0x57d6EB79ea08D10d7e03865cb1820f01F82255c4" as `0x${string}`,
+  weth: "0xDf2B23A45B9a451c002c27F83e9e55da5efdc992" as `0x${string}`,
+} as const;
+
+// =============================================================================
+// Re-export all ABIs for convenient single-file imports
+// =============================================================================
+export {
+  POOL_ABI,
+  AAVE_ORACLE_ABI,
+  ATOKEN_ABI,
+  VARIABLE_DEBT_TOKEN_ABI,
+  DATA_PROVIDER_ABI,
+  REWARDS_CONTROLLER_ABI,
+  ERC20_ABI,
+};
+
+// =============================================================================
+// Backward-compatible aliases (old system -> new Aave V3)
+// These keep existing frontend imports working during migration.
+// TODO: Remove these once all components are updated to use the new ABIs
+// =============================================================================
+
+/** @deprecated Use POOL_ABI instead */
+export const LENDING_POOL_ABI = POOL_ABI;
+
+/** @deprecated Use VARIABLE_DEBT_TOKEN_ABI instead */
+export const DEBT_TOKEN_ABI = VARIABLE_DEBT_TOKEN_ABI;
+
+/** @deprecated Use ATOKEN_ABI instead */
+export const LTOKEN_ABI = ATOKEN_ABI;
+
+/** @deprecated No longer needed in Aave V3 architecture */
+export const ADAPTER_ABI = [
   {
-    name: "balanceOf",
+    name: "deposits",
     type: "function",
     stateMutability: "view",
     inputs: [{ name: "", type: "address" }],
@@ -123,12 +63,34 @@ export const DEBT_TOKEN_ABI = [
   },
 ] as const;
 
-// Deployed on Base Sepolia (chain ID 84532)
-export const ADDRESSES = {
-  lendingPool: "0x1C79C848a5e0a17D86D44Cb2ac9714214EdFaD3d" as `0x${string}`,
-  usdc: "0xC5DF09eE5B4a6C2dbd3ACb3845693A4FCc978A36" as `0x${string}`,
-  weth: "0xa46f75bF3C47DCD48103A2f16013a0c7b735f491" as `0x${string}`,
-  usdcAdapter: "0x6b58FcB5B30D58653622929217A8dB6AAe72c37d" as `0x${string}`,
-  ethAdapter: "0xcF11f4926dD1eCE26fE8Ce868356d0CD5c57F0fc" as `0x${string}`,
-  oracle: "0xA4189fc3818AbA2d4F26E980480420334ab65557" as `0x${string}`,
-} as const;
+/** @deprecated No longer needed - rates are handled by Aave V3 pool internally */
+export const INTEREST_RATE_MODEL_ABI = [
+  {
+    name: "baseRate",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "slope1",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "slope2",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "optimalUtilization",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;

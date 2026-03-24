@@ -69,10 +69,9 @@ export function RateCurveChart({
             />
             <Tooltip
               contentStyle={{
-                background: "hsl(var(--background))",
+                background: "hsl(var(--card))",
                 border: "1px solid hsl(var(--border))",
-                borderRadius: 8,
-                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
+                borderRadius: 0,
               }}
               labelFormatter={(v) => `Utilization: ${v}%`}
               formatter={(v) => [`${Number(v).toFixed(2)}%`]}
@@ -80,7 +79,7 @@ export function RateCurveChart({
             <Line
               type="monotone"
               dataKey="borrowRate"
-              stroke="#6366f1"
+              stroke="#B0C4FF"
               strokeWidth={2}
               dot={false}
               name="Borrow Rate"
@@ -88,7 +87,7 @@ export function RateCurveChart({
             <Line
               type="monotone"
               dataKey="supplyRate"
-              stroke="#059669"
+              stroke="#10B981"
               strokeWidth={2}
               dot={false}
               name="Supply Rate"

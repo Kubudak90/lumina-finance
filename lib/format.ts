@@ -22,8 +22,9 @@ export function formatTokenToUsd(value: bigint, price: number, decimals = 18): s
 }
 
 export function formatPercent(rateBigInt: bigint): string {
-  // Rate is in 1e18 format (e.g., 4e16 = 4%)
-  const pct = Number(formatUnits(rateBigInt, 16));
+  // Aave V3 rates are in RAY format (1e27). Divide by 1e25 to get a percentage.
+  // e.g., 4e25 = 4%
+  const pct = Number(rateBigInt) / 1e25;
   return `${pct.toFixed(2)}%`;
 }
 

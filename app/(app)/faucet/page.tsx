@@ -2,8 +2,6 @@
 
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits } from "viem";
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { ADDRESSES } from "@/lib/contracts";
 
@@ -26,7 +24,7 @@ const FAUCET_TOKENS = [
     name: "USD Coin",
     address: ADDRESSES.usdc,
     amount: "10000",
-    decimals: 18,
+    decimals: 6,
     description: "10,000 USDC",
   },
   {
@@ -59,37 +57,39 @@ function FaucetCard({
   };
 
   return (
-    <Card>
-      <CardContent className="flex items-center justify-between py-2">
+    <div className="technical-border bg-card">
+      <div className="flex items-center justify-between p-4">
         <div className="flex items-center gap-4">
           <TokenIcon symbol={token.symbol} size={40} />
           <div>
-            <div className="font-semibold text-foreground text-lg">{token.symbol}</div>
-            <div className="text-sm text-muted-foreground">{token.name}</div>
+            <div className="font-bold text-foreground">{token.symbol}</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{token.name}</div>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
             <div className="font-mono font-bold text-foreground">{token.description}</div>
-            <div className="text-xs text-muted-foreground">per request</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">per request</div>
           </div>
           {isSuccess ? (
-            <Button variant="outline" size="lg" className="w-32" onClick={() => reset()}>
+            <button
+              className="w-32 h-10 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-colors"
+              onClick={() => reset()}
+            >
               Minted!
-            </Button>
+            </button>
           ) : (
-            <Button
-              size="lg"
-              className="w-32"
+            <button
+              className="w-32 h-10 bg-accent text-background font-bold uppercase tracking-[0.2em] text-[10px] hover:bg-white shadow-[0_0_20px_rgba(176,196,255,0.2)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={handleMint}
               disabled={!address || isPending || isConfirming}
             >
               {isPending ? "Confirm..." : isConfirming ? "Minting..." : "Mint"}
-            </Button>
+            </button>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -99,16 +99,16 @@ export default function FaucetPage() {
   return (
     <div className="space-y-8">
       <div className="animate-in">
-        <h1 className="text-3xl font-bold mb-1 text-foreground">Faucet</h1>
-        <p className="text-muted-foreground">Get test tokens to try LightLend on Base Sepolia</p>
+        <h1 className="text-4xl font-bold tracking-tighter uppercase glow-text mb-1">Faucet</h1>
+        <p className="text-muted-foreground text-sm">Get test tokens to try Lumina Finance on Base Sepolia</p>
       </div>
 
       {!isConnected ? (
-        <Card className="animate-in-delay-1">
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground text-lg">Connect your wallet to use the faucet</p>
-          </CardContent>
-        </Card>
+        <div className="technical-border bg-card animate-in-delay-1">
+          <div className="py-12 text-center">
+            <p className="text-muted-foreground">Connect your wallet to use the faucet</p>
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
           {FAUCET_TOKENS.map((token, i) => (
@@ -119,22 +119,22 @@ export default function FaucetPage() {
         </div>
       )}
 
-      <Card className="animate-in-delay-3">
-        <CardHeader>
-          <CardTitle>How to use</CardTitle>
-          <CardDescription>3 steps to start testing LightLend</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ol className="list-decimal list-inside space-y-3 text-muted-foreground">
+      <div className="technical-border bg-card animate-in-delay-3">
+        <div className="p-4 border-b border-border/50">
+          <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">How to use</h2>
+          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">3 steps to start testing Lumina Finance</p>
+        </div>
+        <div className="p-4">
+          <ol className="list-decimal list-inside space-y-3 text-muted-foreground text-sm">
             <li><span className="text-foreground font-medium">Mint tokens</span> — Click Mint above to get test USDC and WETH</li>
             <li><span className="text-foreground font-medium">Supply</span> — Go to Markets, pick USDC or WETH, and supply tokens to earn yield</li>
             <li><span className="text-foreground font-medium">Borrow</span> — Enable collateral, then borrow against it. Watch your Health Factor!</li>
           </ol>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <div className="text-center text-sm text-muted-foreground animate-in-delay-4">
-        <p>Need Base Sepolia ETH for gas? Use the <a href="https://www.alchemy.com/faucets/base-sepolia" target="_blank" rel="noopener noreferrer" className="text-brand-accent hover:underline">Alchemy Faucet</a></p>
+      <div className="text-center text-[10px] font-mono uppercase tracking-wider text-muted-foreground animate-in-delay-4">
+        <p>Need Base Sepolia ETH for gas? Use the <a href="https://www.alchemy.com/faucets/base-sepolia" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-white transition-colors">Alchemy Faucet</a></p>
       </div>
     </div>
   );

@@ -18,7 +18,7 @@ export function TokenIcon({ symbol, size = 32 }: TokenIconProps) {
   }
   return (
     <div
-      className="rounded-full bg-muted flex items-center justify-center text-muted-foreground font-bold"
+      className="rounded-full bg-accent-dim flex items-center justify-center text-muted-foreground font-bold"
       style={{ width: size, height: size, fontSize: size * 0.4 }}
     >
       {symbol.slice(0, 2)}

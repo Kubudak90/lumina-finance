@@ -1,511 +1,199 @@
 "use client";
 
-import { useState } from "react";
-import { TokenIcon } from "@/components/common/TokenIcon";
-import { useAllMarkets } from "@/hooks/useAllMarkets";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
-import { useUserPosition } from "@/hooks/useUserPosition";
-import { usePrices } from "@/hooks/usePrices";
-import { useAccount } from "wagmi";
-import { formatUnits } from "viem";
-import { formatPercent, formatHealthFactor, formatTokenAmount } from "@/lib/format";
-import { Skeleton } from "@/components/ui/skeleton";
-import { SupplyModal } from "@/components/actions/SupplyModal";
-import { BorrowModal } from "@/components/actions/BorrowModal";
-import { WithdrawModal } from "@/components/actions/WithdrawModal";
-import { RepayModal } from "@/components/actions/RepayModal";
-import { EnableCollateralModal } from "@/components/actions/EnableCollateralModal";
-import { EModeModal } from "@/components/actions/EModeModal";
-import { useEMode } from "@/hooks/useEMode";
-import { useUserCollateralStatus } from "@/hooks/useUserCollateralStatus";
-import { MARKETS, type MarketConfig } from "@/lib/constants";
 import Link from "next/link";
+import { ConnectKitButton } from "connectkit";
 import {
-  ArrowUpRight,
-  ArrowDownLeft,
-  TrendingUp,
-  Shield,
   Zap,
-  Search,
+  ArrowRight,
+  Shield,
+  TrendingUp,
+  Layers,
+  ChevronRight,
 } from "lucide-react";
 
-function fmtUsd(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: value < 1 ? 2 : 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+const FEATURES = [
+  {
+    icon: TrendingUp,
+    title: "Supply & Earn",
+    description: "Deposit assets and earn yield from borrowers. Interest accrues every second.",
+  },
+  {
+    icon: Layers,
+    title: "Borrow Against Collateral",
+    description: "Leverage your assets by borrowing against them. Variable rates, no fixed terms.",
+  },
+  {
+    icon: Shield,
+    title: "Battle-Tested Security",
+    description: "Built on Aave V3 — the most audited DeFi protocol. Your assets are protected.",
+  },
+  {
+    icon: Zap,
+    title: "Powered by Lighter",
+    description: "Ultra-fast execution on Lighter's ZK rollup. Low fees, instant finality.",
+  },
+];
 
-type ModalState =
-  | { type: "supply" | "borrow" | "withdraw" | "repay" | "collateral"; market: MarketConfig }
-  | { type: "emode" }
-  | null;
+const STATS = [
+  { label: "Protocol", value: "Aave V3" },
+  { label: "Chain", value: "Lighter" },
+  { label: "Markets", value: "USDC, WETH" },
+  { label: "Status", value: "Testnet" },
+];
 
-export default function Dashboard() {
-  const { markets, isLoading } = useAllMarkets();
-  const { healthFactor } = useHealthFactor();
-  const { positions, accountData } = useUserPosition();
-  const { data: prices } = usePrices();
-  const { isConnected: walletConnected } = useAccount();
-  const { currentCategoryId: eModeCategoryId, categoryData: eModeCategoryData } = useEMode();
-  const { isCollateralEnabled } = useUserCollateralStatus();
-  const [search, setSearch] = useState("");
-  const [modal, setModal] = useState<ModalState>(null);
-
-  // Compute user totals
-  const userTotalSupplied = positions.reduce((sum, p) => {
-    const price = prices?.[p.symbol] ?? 0;
-    return sum + Number(formatUnits(p.supplied, p.decimals)) * price;
-  }, 0);
-
-  const userTotalBorrowed = positions.reduce((sum, p) => {
-    const price = prices?.[p.symbol] ?? 0;
-    return sum + Number(formatUnits(p.borrowed, p.decimals)) * price;
-  }, 0);
-
-  // HF
-  const isMaxHf = healthFactor === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-  const hfNum = healthFactor ? (isMaxHf ? 99 : Number(healthFactor) / 1e18) : 0;
-  const hfPercent = Math.min((hfNum / 5) * 100, 100);
-  const hfColor = hfNum >= 2 ? "bg-emerald-500" : hfNum >= 1.2 ? "bg-amber-500" : "bg-rose-500";
-  const hfTextColor = hfNum >= 2 ? "text-emerald-400" : hfNum >= 1.2 ? "text-amber-400" : "text-rose-400";
-
-  // Borrow limit from real account data
-  const borrowLimit = accountData
-    ? Number(accountData.availableBorrowsBase + accountData.totalDebtBase) / 1e8
-    : 0;
-
-  // Net worth
-  const netWorth = userTotalSupplied - userTotalBorrowed;
-
-  // Filter markets by search
-  const filtered = MARKETS.filter(
-    (m) =>
-      m.symbol.toLowerCase().includes(search.toLowerCase()) ||
-      m.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  // Find market data by asset
-  const getMarketInfo = (asset: string) =>
-    markets.find((m) => m.asset.toLowerCase() === asset.toLowerCase());
-
+export default function LandingPage() {
   return (
-    <div className="space-y-6">
-      {/* ─── Stats Grid ─── */}
-      {walletConnected && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in">
-          {/* Total Supplied */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Total Supplied
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <ArrowUpRight size={14} className="text-accent" />
-              </div>
+    <div className="min-h-screen flex flex-col">
+      {/* Nav */}
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-accent/10">
+              <Zap className="w-4 h-4 text-accent" />
             </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-36" />
-            ) : (
-              <>
-                <div className="text-2xl font-mono font-bold glow-text">
-                  {fmtUsd(userTotalSupplied)}
+            <span className="text-sm font-bold tracking-widest glow-text">LUMINA</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/dashboard"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-text-dim hover:text-foreground transition-colors"
+            >
+              App <ChevronRight className="w-3 h-3" />
+            </Link>
+            <ConnectKitButton />
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="flex-1 flex items-center justify-center pt-16">
+        <div className="max-w-6xl mx-auto px-6 py-24 md:py-32">
+          <div className="max-w-3xl mx-auto text-center space-y-8">
+            <div className="inline-flex items-center gap-2 border border-accent/30 bg-accent/5 px-4 py-1.5 text-[10px] font-mono uppercase tracking-widest text-accent">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+              Live on Base Sepolia Testnet
+            </div>
+
+            <h1 className="text-5xl md:text-7xl font-bold tracking-tighter leading-[0.9]">
+              <span className="glow-text">Lending</span>
+              <br />
+              <span className="text-text-dim">on Lighter</span>
+            </h1>
+
+            <p className="text-lg md:text-xl text-text-dim max-w-xl mx-auto leading-relaxed">
+              The first lending protocol on the Lighter ecosystem.
+              Supply, borrow, and earn — powered by Aave V3.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link
+                href="/dashboard"
+                className="group flex items-center gap-2 h-12 px-8 bg-accent text-background font-bold uppercase tracking-[0.2em] text-xs hover:bg-white shadow-[0_0_30px_rgba(176,196,255,0.25)] transition-all"
+              >
+                Launch App
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+              <Link
+                href="/faucet"
+                className="flex items-center gap-2 h-12 px-8 border border-accent/30 text-accent text-xs font-bold uppercase tracking-[0.2em] hover:bg-accent/10 transition-colors"
+              >
+                Get Test Tokens
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Stats Bar */}
+      <section className="border-y border-border/50 bg-card/50">
+        <div className="max-w-6xl mx-auto px-6 py-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {STATS.map((stat) => (
+              <div key={stat.label} className="text-center">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-text-dim mb-1">
+                  {stat.label}
                 </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1">Earning interest</div>
-              </>
-            )}
+                <div className="text-sm font-mono font-bold text-foreground">
+                  {stat.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tighter glow-text mb-3">
+              Built for DeFi
+            </h2>
+            <p className="text-text-dim max-w-md mx-auto">
+              Everything you need to lend and borrow on Lighter
+            </p>
           </div>
 
-          {/* Total Borrowed */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Total Borrowed
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <ArrowDownLeft size={14} className="text-accent" />
-              </div>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-36" />
-            ) : (
-              <>
-                <div className="text-2xl font-mono font-bold glow-text">
-                  {fmtUsd(userTotalBorrowed)}
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1">
-                  Limit: {fmtUsd(borrowLimit)}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Net Worth */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Net Worth
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <TrendingUp size={14} className="text-accent" />
-              </div>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-36" />
-            ) : (
-              <>
-                <div className={`text-2xl font-mono font-bold glow-text ${netWorth >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {fmtUsd(netWorth)}
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1">Supplied - Borrowed</div>
-              </>
-            )}
-          </div>
-
-          {/* Health Factor */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Health Factor
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setModal({ type: "emode" })}
-                  className="px-2 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+          <div className="grid md:grid-cols-2 gap-6">
+            {FEATURES.map((feature) => {
+              const Icon = feature.icon;
+              return (
+                <div
+                  key={feature.title}
+                  className="technical-border bg-card p-6 hover:bg-white/[0.02] transition-colors"
                 >
-                  E-Mode
-                </button>
-                <div className="p-2 bg-accent/10 rounded-lg">
-                  <Shield size={14} className="text-accent" />
+                  <div className="flex items-start gap-4">
+                    <div className="p-2.5 bg-accent/10 rounded-lg shrink-0">
+                      <Icon className="w-5 h-5 text-accent" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-foreground mb-1.5">
+                        {feature.title}
+                      </h3>
+                      <p className="text-sm text-text-dim leading-relaxed">
+                        {feature.description}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            {!healthFactor ? (
-              <div className="text-2xl font-mono font-bold text-muted-foreground">--</div>
-            ) : (
-              <>
-                <div className={`text-2xl font-mono font-bold glow-text ${hfTextColor}`}>
-                  {formatHealthFactor(healthFactor)}
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2.5">
-                  <div
-                    className={`h-full ${hfColor} rounded-full transition-all duration-500`}
-                    style={{ width: `${hfPercent}%` }}
-                  />
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1.5">
-                  Liquidation at &lt; 1.0
-                </div>
-              </>
-            )}
+              );
+            })}
           </div>
         </div>
-      )}
+      </section>
 
-      {/* ─── E-Mode Indicator ─── */}
-      {walletConnected && eModeCategoryId > 0 && eModeCategoryData && (
-        <div className="technical-border bg-accent-dim/30 p-3 flex items-center gap-3 animate-in">
-          <Zap size={14} className="text-accent shrink-0" />
-          <span className="text-xs text-accent font-mono">
-            E-Mode: {eModeCategoryData.label || "Stablecoins"} (Higher LTV)
-          </span>
-          <button
-            onClick={() => setModal({ type: "emode" })}
-            className="ml-auto px-3 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+      {/* CTA */}
+      <section className="py-24 border-t border-border/50">
+        <div className="max-w-6xl mx-auto px-6 text-center">
+          <h2 className="text-3xl md:text-4xl font-bold tracking-tighter glow-text mb-4">
+            Start Earning Today
+          </h2>
+          <p className="text-text-dim mb-8 max-w-md mx-auto">
+            Connect your wallet, get test tokens from the faucet, and experience
+            the future of lending on Lighter.
+          </p>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 h-12 px-8 bg-accent text-background font-bold uppercase tracking-[0.2em] text-xs hover:bg-white shadow-[0_0_30px_rgba(176,196,255,0.25)] transition-all"
           >
-            Manage
-          </button>
+            Launch App
+            <ArrowRight className="w-4 h-4" />
+          </Link>
         </div>
-      )}
+      </section>
 
-      {/* ─── Search Bar ─── */}
-      <div className="flex items-center gap-2">
-        <div className="relative w-full max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
-          <input
-            type="text"
-            placeholder="Search assets..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-card border border-border pl-9 pr-3 py-2 text-xs font-mono text-foreground placeholder:text-text-dim focus:outline-none focus:border-accent/50 transition-colors"
-          />
-        </div>
-      </div>
-
-      {/* ─── Supply & Borrow Tables ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Supply Markets */}
-        <div className="animate-in-delay-1">
-          <div className="flex items-center gap-2 mb-4">
-            <ArrowUpRight size={14} className="text-accent" />
-            <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">
-              Supply Markets
-            </span>
+      {/* Footer */}
+      <footer className="border-t border-border/50 py-8">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <Zap className="w-3.5 h-3.5 text-accent" />
+            <span className="text-xs font-mono tracking-widest text-text-dim">LUMINA FINANCE</span>
           </div>
-
-          <div className="technical-border bg-card overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Asset
-                  </th>
-                  <th className="text-left text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Supplied
-                  </th>
-                  <th className="text-left text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    APY
-                  </th>
-                  <th className="text-center text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Collateral
-                  </th>
-                  <th className="text-right text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <>
-                    {[0, 1, 2].map((i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="px-4 py-4" colSpan={5}>
-                          <Skeleton className="h-8 w-full" />
-                        </td>
-                      </tr>
-                    ))}
-                  </>
-                ) : (
-                  filtered.map((m) => {
-                    const mInfo = getMarketInfo(m.asset);
-                    const pos = positions.find((p) => p.asset.toLowerCase() === m.asset.toLowerCase());
-                    const price = prices?.[m.symbol] ?? 0;
-                    const suppliedAmt = pos ? Number(formatUnits(pos.supplied, m.decimals)) : 0;
-                    const suppliedUsd = suppliedAmt * price;
-                    const hasCollateral = isCollateralEnabled(m.asset);
-
-                    return (
-                      <tr
-                        key={m.symbol}
-                        className="border-b border-border/50 hover:bg-white/5 transition-colors"
-                      >
-                        <td className="px-4 py-3">
-                          <Link href={`/markets/${m.symbol.toLowerCase()}`} className="flex items-center gap-2.5">
-                            <TokenIcon symbol={m.symbol} size={24} />
-                            <div>
-                              <div className="text-xs font-mono font-medium text-foreground">
-                                {m.symbol}
-                              </div>
-                              <div className="text-[10px] text-text-dim">{m.name}</div>
-                            </div>
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-xs font-mono text-foreground">
-                            {formatTokenAmount(pos?.supplied ?? 0n, m.decimals)}
-                          </div>
-                          <div className="text-[10px] text-text-dim font-mono">
-                            {fmtUsd(suppliedUsd)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-emerald-400 font-mono text-sm">
-                            {mInfo ? formatPercent(mInfo.supplyRate) : "--"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => setModal({ type: "collateral", market: m })}
-                            className={`
-                              relative inline-flex h-5 w-9 items-center rounded-full transition-colors
-                              ${hasCollateral ? "bg-accent" : "bg-muted-foreground/30"}
-                            `}
-                          >
-                            <span
-                              className={`
-                                inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform
-                                ${hasCollateral ? "translate-x-[18px]" : "translate-x-[3px]"}
-                              `}
-                            />
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex gap-1.5 justify-end">
-                            <button
-                              onClick={() => setModal({ type: "supply", market: m })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                            >
-                              Supply
-                            </button>
-                            {suppliedAmt > 0 && (
-                              <button
-                                onClick={() => setModal({ type: "withdraw", market: m })}
-                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                              >
-                                Withdraw
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+          <div className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
+            Powered by Aave V3 on Lighter
           </div>
         </div>
-
-        {/* Borrow Markets */}
-        <div className="animate-in-delay-2">
-          <div className="flex items-center gap-2 mb-4">
-            <ArrowDownLeft size={14} className="text-accent" />
-            <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">
-              Borrow Markets
-            </span>
-          </div>
-
-          <div className="technical-border bg-card overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Asset
-                  </th>
-                  <th className="text-left text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Borrowed
-                  </th>
-                  <th className="text-left text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    APY
-                  </th>
-                  <th className="text-right text-[10px] text-text-dim uppercase font-mono tracking-wider px-4 py-3">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <>
-                    {[0, 1, 2].map((i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="px-4 py-4" colSpan={4}>
-                          <Skeleton className="h-8 w-full" />
-                        </td>
-                      </tr>
-                    ))}
-                  </>
-                ) : (
-                  filtered.map((m) => {
-                    const mInfo = getMarketInfo(m.asset);
-                    const pos = positions.find((p) => p.asset.toLowerCase() === m.asset.toLowerCase());
-                    const price = prices?.[m.symbol] ?? 0;
-                    const borrowedAmt = pos ? Number(formatUnits(pos.borrowed, m.decimals)) : 0;
-                    const borrowedUsd = borrowedAmt * price;
-
-                    return (
-                      <tr
-                        key={m.symbol}
-                        className="border-b border-border/50 hover:bg-white/5 transition-colors"
-                      >
-                        <td className="px-4 py-3">
-                          <Link href={`/markets/${m.symbol.toLowerCase()}`} className="flex items-center gap-2.5">
-                            <TokenIcon symbol={m.symbol} size={24} />
-                            <div>
-                              <div className="text-xs font-mono font-medium text-foreground">
-                                {m.symbol}
-                              </div>
-                              <div className="text-[10px] text-text-dim">{m.name}</div>
-                            </div>
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-xs font-mono text-foreground">
-                            {formatTokenAmount(pos?.borrowed ?? 0n, m.decimals)}
-                          </div>
-                          <div className="text-[10px] text-text-dim font-mono">
-                            {fmtUsd(borrowedUsd)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-amber-400 font-mono text-sm">
-                            {mInfo ? formatPercent(mInfo.borrowRate) : "--"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex gap-1.5 justify-end">
-                            <button
-                              onClick={() => setModal({ type: "borrow", market: m })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                            >
-                              Borrow
-                            </button>
-                            {borrowedAmt > 0 && (
-                              <button
-                                onClick={() => setModal({ type: "repay", market: m })}
-                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                              >
-                                Repay
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Modals ─── */}
-      {modal?.type === "supply" && (
-        <SupplyModal
-          asset={modal.market.asset}
-          symbol={modal.market.symbol}
-          decimals={modal.market.decimals}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "borrow" && (
-        <BorrowModal
-          asset={modal.market.asset}
-          symbol={modal.market.symbol}
-          decimals={modal.market.decimals}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "withdraw" && (
-        <WithdrawModal
-          asset={modal.market.asset}
-          symbol={modal.market.symbol}
-          decimals={modal.market.decimals}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "repay" && (
-        <RepayModal
-          asset={modal.market.asset}
-          symbol={modal.market.symbol}
-          decimals={modal.market.decimals}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "collateral" && (
-        <EnableCollateralModal
-          asset={modal.market.asset}
-          symbol={modal.market.symbol}
-          decimals={modal.market.decimals}
-          currentlyEnabled={isCollateralEnabled(modal.market.asset)}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "emode" && (
-        <EModeModal onClose={() => setModal(null)} />
-      )}
+      </footer>
     </div>
   );
 }

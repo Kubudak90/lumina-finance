@@ -3,17 +3,17 @@
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectKitProvider, getDefaultConfig } from "connectkit";
-import { baseSepolia } from "@/lib/chains";
+import { defaultChain } from "@/lib/chains";
 
 const config = createConfig(
   getDefaultConfig({
-    chains: [baseSepolia],
+    chains: [defaultChain],
     transports: {
-      [baseSepolia.id]: http(),
+      [defaultChain.id]: http(),
     },
     walletConnectProjectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "",
-    appName: "LightLend",
-    appDescription: "Lending protocol on Lighter EVM",
+    appName: "Lumina Finance",
+    appDescription: "The first lending protocol on Lighter",
   })
 );
 
@@ -30,7 +30,7 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ConnectKitProvider theme="auto">
+        <ConnectKitProvider mode="dark" theme="midnight">
           {children}
         </ConnectKitProvider>
       </QueryClientProvider>

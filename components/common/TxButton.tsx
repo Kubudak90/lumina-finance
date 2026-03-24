@@ -17,7 +17,7 @@ export function TxButton({ onClick, isPending, isConfirming, disabled, children 
     <Button
       variant="default"
       size="lg"
-      className="w-full h-12 text-base font-semibold"
+      className="w-full py-4 text-base bg-accent text-background font-bold uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(176,196,255,0.2)] hover:bg-white"
       onClick={onClick}
       disabled={disabled || isLoading}
     >
