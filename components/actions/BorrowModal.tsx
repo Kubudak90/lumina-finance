@@ -14,6 +14,7 @@ import { formatHealthFactor } from "@/lib/format";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { getMarketByAsset } from "@/lib/constants";
 
 interface BorrowModalProps {
   asset: `0x${string}`;
@@ -31,12 +32,14 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
 
   const parsedAmount = amount ? parseUnits(amount, decimals) : 0n;
 
-  // Available liquidity in pool (ERC20 balance of underlying held by Pool)
+  // Available liquidity — In Aave V3, underlying tokens are held by the aToken contract, not the Pool
+  const market = getMarketByAsset(asset);
   const poolBalance = useReadContract({
     address: asset,
     abi: [{ name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] }] as const,
     functionName: "balanceOf",
-    args: [ADDRESSES.pool],
+    args: market ? [market.aToken] : undefined,
+    query: { enabled: !!market },
   });
   const availableLiquidity = (poolBalance.data as bigint) ?? 0n;
   const availableFormatted = formatUnits(availableLiquidity > 0n ? availableLiquidity : 0n, decimals);
