@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
-import { usePrices } from "@/hooks/usePrices";
 import { formatPercent } from "@/lib/format";
 
 const YIELD_ASSETS = ["WETH", "USDC"];
@@ -15,9 +14,7 @@ export default function LeveragePage() {
   const [amount, setAmount] = useState("");
   const [leverage, setLeverage] = useState(2);
 
-  // F-011: Use real market data and prices
   const { markets } = useAllMarkets();
-  const { data: prices } = usePrices();
 
   const yieldMarket = markets.find((m) => m.symbol === yieldAsset);
   const debtMarket = markets.find((m) => m.symbol === debtAsset);
