@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
-import { POOL_ABI } from "@/lib/abis";
+import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { parseErrorMessage } from "@/lib/errorMessages";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -33,6 +34,8 @@ export function LiquidateModal({
   onClose,
 }: LiquidateModalProps) {
   const [amount, setAmount] = useState("");
+  const [pendingLiquidateAfterApproval, setPendingLiquidateAfterApproval] = useState(false);
+  const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
   const approval = useTokenApproval(debtAsset, ADDRESSES.pool, address);
   const { writeContract, data: hash, isPending, error } = useWriteContract();
@@ -40,8 +43,29 @@ export function LiquidateModal({
 
   const parsedAmount = amount ? (safeParseUnits(amount, debtDecimals) ?? 0n) : 0n;
 
+  // F-006: Compute max liquidatable amount (50% close factor)
+  const maxDebtParsed = safeParseUnits(maxDebt, debtDecimals) ?? 0n;
+  const maxLiquidatable = maxDebtParsed / 2n; // 50% close factor
+  const exceedsMax = parsedAmount > 0n && maxLiquidatable > 0n && parsedAmount > maxLiquidatable;
+
+  // F-008: Check wallet balance of debt token
+  const walletBalanceResult = useReadContract({
+    address: debtAsset,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+  const walletBalance = (walletBalanceResult.data as bigint) ?? 0n;
+  const insufficientBalance = parsedAmount > 0n && parsedAmount > walletBalance;
+
+  // Error toast refs for repeated errors (F-012)
+  const prevErrorRef = useRef<Error | null>(null);
+  const prevApprovalErrorRef = useRef<Error | null>(null);
+
   useEffect(() => {
-    if (error) {
+    if (error && error !== prevErrorRef.current) {
+      prevErrorRef.current = error;
       toast.error("Liquidation failed", {
         description: parseErrorMessage(error),
       });
@@ -49,7 +73,8 @@ export function LiquidateModal({
   }, [error]);
 
   useEffect(() => {
-    if (approval.error) {
+    if (approval.error && approval.error !== prevApprovalErrorRef.current) {
+      prevApprovalErrorRef.current = approval.error;
       toast.error("Approval failed", {
         description: parseErrorMessage(approval.error),
       });
@@ -68,9 +93,29 @@ export function LiquidateModal({
     }
   }, [isSuccess, hash]);
 
+  // Reset pending state when amount changes to prevent stale auto-liquidate
+  useEffect(() => {
+    setPendingLiquidateAfterApproval(false);
+  }, [amount]);
+
+  // Auto-proceed with liquidation after approval succeeds
+  useEffect(() => {
+    if (approval.isSuccess && pendingLiquidateAfterApproval) {
+      setPendingLiquidateAfterApproval(false);
+      writeContract({
+        address: ADDRESSES.pool,
+        abi: POOL_ABI,
+        functionName: "liquidationCall",
+        args: [collateralAsset, debtAsset, borrower, approvedAmountRef.current, false],
+      });
+    }
+  }, [approval.isSuccess, pendingLiquidateAfterApproval]);
+
   const handleLiquidate = () => {
     if (approval.needsApproval(parsedAmount)) {
-      approval.approve();
+      approvedAmountRef.current = parsedAmount;
+      approval.approve(parsedAmount);
+      setPendingLiquidateAfterApproval(true);
       return;
     }
     // Aave V3: liquidationCall(collateralAsset, debtAsset, user, debtToCover, receiveAToken)
@@ -121,12 +166,18 @@ export function LiquidateModal({
                   placeholder="0.00"
                   className="h-12 text-lg bg-transparent border-border font-mono"
                 />
+                {exceedsMax && (
+                  <p className="text-xs text-destructive mt-1">Amount exceeds max liquidatable (50% close factor)</p>
+                )}
+                {insufficientBalance && !exceedsMax && (
+                  <p className="text-xs text-destructive mt-1">Insufficient balance</p>
+                )}
               </div>
               <TxButton
                 onClick={handleLiquidate}
                 isPending={isPending || approval.isPending}
                 isConfirming={isConfirming || approval.isConfirming}
-                disabled={!amount || parsedAmount === 0n}
+                disabled={!address || !amount || parsedAmount === 0n || exceedsMax || insufficientBalance}
               >
                 {approval.needsApproval(parsedAmount) ? `Approve ${debtSymbol}` : "Execute Liquidation"}
               </TxButton>

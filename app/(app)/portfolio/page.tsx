@@ -7,7 +7,6 @@ import { HealthFactorBar } from "@/components/common/HealthFactorBar";
 import { SupplyTable } from "@/components/portfolio/SupplyTable";
 import { BorrowTable } from "@/components/portfolio/BorrowTable";
 import { CollateralTable } from "@/components/portfolio/CollateralTable";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { usePrices } from "@/hooks/usePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
@@ -19,8 +18,8 @@ import { RepayModal } from "@/components/actions/RepayModal";
 
 export default function PortfolioPage() {
   const { isConnected } = useAccount();
-  const { healthFactor } = useHealthFactor();
-  const { positions, isLoading: positionsLoading } = useUserPosition();
+  const { positions, accountData, isLoading: positionsLoading } = useUserPosition();
+  const healthFactor = accountData?.healthFactor;
   const { data: prices } = usePrices();
   const { markets } = useAllMarkets();
   const { getConfig } = useReserveConfig();
@@ -119,7 +118,7 @@ export default function PortfolioPage() {
         </div>
         <div className="technical-border bg-card p-4">
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Net Worth</div>
-          <div className="text-2xl font-bold font-mono tracking-tight text-emerald-400">
+          <div className={`text-2xl font-bold font-mono tracking-tight ${netWorth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
             ${netWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>

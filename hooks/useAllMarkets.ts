@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useReadContracts } from "wagmi";
 import { POOL_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
@@ -31,8 +32,6 @@ interface ReserveDataResult {
   isolationModeTotalDebt: bigint;
 }
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
-
 /**
  * Fetches all market data from the Aave V3 Pool contract.
  *
@@ -60,11 +59,26 @@ export function useAllMarkets() {
   });
 
   // Extract data from reserve results — defensive parsing
-  const reserveParsed = MARKETS.map((_m, i) => {
+  // F-013: Handle both array (positional) and object (named) return formats
+  const reserveParsed = useMemo(() => MARKETS.map((_m, i) => {
     const defaults = { supplyRate: 0n, borrowRate: 0n, aTokenAddress: _m.aToken, variableDebtTokenAddress: _m.variableDebtToken };
     try {
       const raw = reserveResult.data?.[i]?.result;
       if (!raw) return defaults;
+
+      // Handle array (positional) format
+      if (Array.isArray(raw)) {
+        // ReserveData struct fields by position:
+        // [0] configuration, [1] liquidityIndex, [2] currentLiquidityRate,
+        // [3] variableBorrowIndex, [4] currentVariableBorrowRate, ...
+        // [8] aTokenAddress, [10] variableDebtTokenAddress
+        return {
+          supplyRate: (raw[2] as bigint) ?? 0n,
+          borrowRate: (raw[4] as bigint) ?? 0n,
+          aTokenAddress: (raw[8] as `0x${string}`) ?? _m.aToken,
+          variableDebtTokenAddress: (raw[10] as `0x${string}`) ?? _m.variableDebtToken,
+        };
+      }
 
       const d = raw as Record<string, unknown>;
       // viem returns struct as object with named fields
@@ -80,12 +94,12 @@ export function useAllMarkets() {
     } catch {
       return defaults;
     }
-  });
+  }), [reserveResult.data]);
 
   // --- Pass 2: fetch totalSupply for aTokens and debtTokens ---
   const hasReserveData = reserveResult.data && reserveResult.data.length > 0;
 
-  const supplyContracts = hasReserveData
+  const supplyContracts = useMemo(() => hasReserveData
     ? MARKETS.flatMap((_m, i) => [
         {
           address: reserveParsed[i].aTokenAddress,
@@ -100,7 +114,7 @@ export function useAllMarkets() {
           args: [] as const,
         },
       ])
-    : [];
+    : [], [hasReserveData, reserveParsed]);
 
   const supplyResult = useReadContracts({
     contracts: supplyContracts,

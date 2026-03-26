@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
@@ -83,10 +83,16 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
     functionName: "getAssetPrice",
     args: [asset],
   });
-  const priceRaw = (oraclePrice as bigint) ?? 1n;
-  const borrowCapTokens = priceRaw > 0n
-    ? Number(availableBorrowsBase) / Number(priceRaw) // both in 8 decimals, result is token amount
-    : 0;
+  // F-004: Use 0n as fallback instead of 1n to avoid misleading calculations
+  const priceRaw = (oraclePrice as bigint) ?? 0n;
+  // F-006: Use BigInt-based math to avoid Number() precision loss on large bigints.
+  // availableBorrowsBase and priceRaw are both in 8-decimal base units.
+  // borrowCapTokensBigInt = availableBorrowsBase * 10^decimals / priceRaw (result in token-native units)
+  const DECIMALS_FACTOR_BORROW = 10n ** BigInt(decimals);
+  const borrowCapTokensBigInt = priceRaw > 0n
+    ? (availableBorrowsBase * DECIMALS_FACTOR_BORROW) / priceRaw
+    : 0n;
+  const borrowCapTokens = Number(formatUnits(borrowCapTokensBigInt, decimals));
   const maxBorrowTokens = Math.min(borrowCapTokens, Number(availableFormatted));
   // Truncate to token's decimal precision to avoid parseUnits failure (e.g. USDC has 6 decimals)
   const maxDigits = decimals > 6 ? 6 : decimals;
@@ -95,23 +101,36 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
   // Health factor helpers
   const isMaxHf = healthFactor === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
-  // Simulate new health factor after borrow
+  // F-005: Simulate new health factor after borrow using BigInt arithmetic
   // HF = (totalCollateralBase * liqThreshold / 10000) / totalDebtBase
+  // borrowValueInBase = parsedAmount * priceRaw / 10^decimals (both priceRaw and result in 8-decimal base)
+  const DECIMALS_FACTOR = 10n ** BigInt(decimals);
   const borrowValueInBase = parsedAmount > 0n && priceRaw > 0n
-    ? Number(parsedAmount) * Number(priceRaw) / (10 ** decimals)
-    : 0;
-  const newTotalDebt = Number(totalDebtBase) + borrowValueInBase;
-  const collateralWeighted = Number(totalCollateralBase) * Number(currentLiquidationThreshold) / 10000;
-  const simulatedHf = newTotalDebt > 0 && parsedAmount > 0n
-    ? collateralWeighted / newTotalDebt
-    : null;
+    ? (parsedAmount * priceRaw) / DECIMALS_FACTOR
+    : 0n;
+  const newTotalDebt = totalDebtBase + borrowValueInBase;
+  const collateralWeighted = totalCollateralBase * currentLiquidationThreshold / 10000n;
+
+  // Compute simulated HF as a bigint scaled by 1e18 for precision, then convert to Number only for display
+  let simulatedHf: number | null = null;
+  if (newTotalDebt > 0n && parsedAmount > 0n) {
+    // simulatedHfScaled = collateralWeighted * 1e18 / newTotalDebt
+    const HF_SCALE = 10n ** 18n;
+    const simulatedHfScaled = (collateralWeighted * HF_SCALE) / newTotalDebt;
+    simulatedHf = Number(simulatedHfScaled) / 1e18;
+  }
+
   const simulatedHfColor = simulatedHf === null ? "text-muted-foreground"
     : simulatedHf >= 2 ? "text-emerald-400"
     : simulatedHf >= 1.2 ? "text-amber-400"
     : "text-red-400";
 
+  // Error toast refs for repeated errors (F-012)
+  const prevErrorRef = useRef<Error | null>(null);
+
   useEffect(() => {
-    if (error) {
+    if (error && error !== prevErrorRef.current) {
+      prevErrorRef.current = error;
       toast.error("Borrow failed", {
         description: parseErrorMessage(error),
       });
@@ -131,11 +150,12 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
   }, [isSuccess, hash]);
 
   const handleBorrow = () => {
+    if (!address) return;
     writeContract({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "borrow",
-      args: [asset, parsedAmount, 2n, 0, address!],
+      args: [asset, parsedAmount, 2n, 0, address],
     });
   };
 
@@ -257,7 +277,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
                 onClick={handleBorrow}
                 isPending={isPending}
                 isConfirming={isConfirming}
-                disabled={!amount || parsedAmount === 0n || (availableLiquidity > 0n && parsedAmount > availableLiquidity) || (simulatedHf !== null && simulatedHf < 1.0)}
+                disabled={!address || !amount || parsedAmount === 0n || (availableLiquidity > 0n && parsedAmount > availableLiquidity) || (simulatedHf !== null && simulatedHf < 1.0)}
               >
                 {simulatedHf !== null && simulatedHf < 1.0
                   ? "Health Factor Too Low"

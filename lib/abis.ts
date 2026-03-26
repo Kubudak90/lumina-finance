@@ -491,6 +491,40 @@ export const REWARDS_CONTROLLER_ABI = [
 ] as const;
 
 // -----------------------------------------------------------------------------
+// DefaultReserveInterestRateStrategy (Aave V3)
+// -----------------------------------------------------------------------------
+export const INTEREST_RATE_STRATEGY_ABI = [
+  {
+    name: "getBaseVariableBorrowRate",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "getVariableRateSlope1",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "getVariableRateSlope2",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "OPTIMAL_USAGE_RATIO",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
 // Standard ERC20
 // -----------------------------------------------------------------------------
 export const ERC20_ABI = [

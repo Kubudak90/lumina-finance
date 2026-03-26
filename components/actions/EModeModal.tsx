@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useEMode } from "@/hooks/useEMode";
 import { TxButton } from "@/components/common/TxButton";
@@ -53,9 +53,11 @@ export function EModeModal({ onClose }: EModeModalProps) {
   } = useEMode();
 
   const [selectedCategory, setSelectedCategory] = useState<number>(currentCategoryId);
+  const prevErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
-    if (error) {
+    if (error && error !== prevErrorRef.current) {
+      prevErrorRef.current = error;
       toast.error("E-Mode change failed", {
         description: parseErrorMessage(error),
       });

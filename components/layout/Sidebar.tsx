@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import {
   LayoutDashboard,
   Wallet,
@@ -13,6 +12,7 @@ import {
   Coins,
   X,
 } from "lucide-react";
+import { useSidebar } from "@/providers/SidebarProvider";
 
 const MAIN_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -29,7 +29,7 @@ const ACCOUNT_NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const { isMobileOpen, closeMobile } = useSidebar();
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -46,7 +46,7 @@ export function Sidebar() {
         </span>
         {/* Mobile close */}
         <button
-          onClick={() => setMobileOpen(false)}
+          onClick={closeMobile}
           className="ml-auto lg:hidden text-text-dim hover:text-foreground transition-colors"
         >
           <X className="w-5 h-5" />
@@ -65,7 +65,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              onClick={() => setMobileOpen(false)}
+              onClick={closeMobile}
               className={`
                 flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors
                 ${
@@ -92,7 +92,7 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobile}
                 className={`
                   flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors
                   ${
@@ -141,10 +141,10 @@ export function Sidebar() {
       </aside>
 
       {/* Mobile overlay */}
-      {mobileOpen && (
+      {isMobileOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden"
-          onClick={() => setMobileOpen(false)}
+          onClick={closeMobile}
         />
       )}
 
@@ -153,19 +153,11 @@ export function Sidebar() {
         className={`
           fixed inset-y-0 left-0 z-50 w-64 flex-col bg-card border-r border-border
           transform transition-transform duration-200 ease-out lg:hidden
-          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+          ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
         {navContent}
       </aside>
-
-      {/* Expose toggle for Header */}
-      <button
-        id="sidebar-toggle"
-        className="hidden"
-        onClick={() => setMobileOpen(true)}
-        aria-hidden
-      />
     </>
   );
 }

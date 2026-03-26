@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useReadContracts } from "wagmi";
+import { useReadContracts, useReadContract } from "wagmi";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { StatCard } from "@/components/common/StatCard";
 import { RateCurveChart } from "@/components/markets/RateCurveChart";
@@ -18,9 +18,11 @@ import { useReserveConfig } from "@/hooks/useReserveConfig";
 import { usePrices } from "@/hooks/usePrices";
 import { getMarketBySymbol } from "@/lib/constants";
 import { formatTokenToUsd, formatPercent } from "@/lib/format";
-import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI, POOL_ABI, INTEREST_RATE_STRATEGY_ABI } from "@/lib/abis";
+import { ADDRESSES } from "@/lib/contracts";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+const RAY = 1e27;
 
 export default function MarketDetailPage() {
   const { asset } = useParams<{ asset: string }>();
@@ -36,7 +38,7 @@ export default function MarketDetailPage() {
         liqThreshold: `${(cfg.liquidationThreshold / 100).toFixed(0)}%`,
         liqBonus: `${((cfg.liquidationBonus - 10000) / 100).toFixed(0)}%`,
       }
-    : { ltv: "—", liqThreshold: "—", liqBonus: "—" };
+    : { ltv: "--", liqThreshold: "--", liqBonus: "--" };
 
   // Read aToken + debtToken totalSupply for real supply/borrow amounts
   const tokenSupplies = useReadContracts({
@@ -45,6 +47,22 @@ export default function MarketDetailPage() {
       { address: market.variableDebtToken, abi: VARIABLE_DEBT_TOKEN_ABI, functionName: "totalSupply" as const },
     ] : [],
     query: { enabled: !!market, refetchInterval: 15_000 },
+  });
+
+  // F-010: Read interest rate strategy address from reserve data, then read on-chain rate params
+  const interestRateStrategyAddress = reserveData?.interestRateStrategyAddress ?? ZERO_ADDRESS;
+  const hasStrategy = interestRateStrategyAddress !== ZERO_ADDRESS;
+
+  const strategyContracts = hasStrategy ? [
+    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "getBaseVariableBorrowRate" as const },
+    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "getVariableRateSlope1" as const },
+    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "getVariableRateSlope2" as const },
+    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "OPTIMAL_USAGE_RATIO" as const },
+  ] : [];
+
+  const strategyResult = useReadContracts({
+    contracts: strategyContracts,
+    query: { enabled: hasStrategy, refetchInterval: 60_000 },
   });
 
   const [modal, setModal] = useState<"supply" | "borrow" | "withdraw" | "repay" | "collateral" | null>(null);
@@ -65,12 +83,25 @@ export default function MarketDetailPage() {
 
   const price = prices?.[market.symbol] ?? 0;
 
-  const chartParams = {
-    baseRate: 0.02,
-    slope1: 0.04,
-    slope2: 0.75,
-    optimalUtil: 0.80,
-  };
+  // F-010: Use on-chain rate params if available, fallback to defaults
+  const baseRateRaw = (strategyResult.data?.[0]?.result as bigint) ?? 0n;
+  const slope1Raw = (strategyResult.data?.[1]?.result as bigint) ?? 0n;
+  const slope2Raw = (strategyResult.data?.[2]?.result as bigint) ?? 0n;
+  const optimalRatioRaw = (strategyResult.data?.[3]?.result as bigint) ?? 0n;
+
+  const chartParams = hasStrategy && strategyResult.data && strategyResult.data.length === 4
+    ? {
+        baseRate: Number(baseRateRaw) / RAY,
+        slope1: Number(slope1Raw) / RAY,
+        slope2: Number(slope2Raw) / RAY,
+        optimalUtil: Number(optimalRatioRaw) / RAY,
+      }
+    : {
+        baseRate: 0.02,
+        slope1: 0.04,
+        slope2: 0.75,
+        optimalUtil: 0.80,
+      };
 
   return (
     <div className="space-y-6">
@@ -194,7 +225,6 @@ export default function MarketDetailPage() {
         <EnableCollateralModal
           asset={market.asset}
           symbol={market.symbol}
-          decimals={market.decimals}
           currentlyEnabled={isCollateralEnabled(market.asset)}
           onClose={() => setModal(null)}
         />

@@ -6,6 +6,7 @@ import {
   DATA_PROVIDER_ABI,
   REWARDS_CONTROLLER_ABI,
   ERC20_ABI,
+  INTEREST_RATE_STRATEGY_ABI,
 } from "./abis";
 import { checksumAddress } from "./format";
 
@@ -37,62 +38,6 @@ export {
   DATA_PROVIDER_ABI,
   REWARDS_CONTROLLER_ABI,
   ERC20_ABI,
+  INTEREST_RATE_STRATEGY_ABI,
 };
 
-// =============================================================================
-// Backward-compatible aliases (old system -> new Aave V3)
-// These keep existing frontend imports working during migration.
-// TODO: Remove these once all components are updated to use the new ABIs
-// =============================================================================
-
-/** @deprecated Use POOL_ABI instead */
-export const LENDING_POOL_ABI = POOL_ABI;
-
-/** @deprecated Use VARIABLE_DEBT_TOKEN_ABI instead */
-export const DEBT_TOKEN_ABI = VARIABLE_DEBT_TOKEN_ABI;
-
-/** @deprecated Use ATOKEN_ABI instead */
-export const LTOKEN_ABI = ATOKEN_ABI;
-
-/** @deprecated No longer needed in Aave V3 architecture */
-export const ADAPTER_ABI = [
-  {
-    name: "deposits",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
-
-/** @deprecated No longer needed - rates are handled by Aave V3 pool internally */
-export const INTEREST_RATE_MODEL_ABI = [
-  {
-    name: "baseRate",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "slope1",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "slope2",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "optimalUtilization",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;

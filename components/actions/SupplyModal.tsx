@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
@@ -25,6 +25,8 @@ interface SupplyModalProps {
 
 export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalProps) {
   const [amount, setAmount] = useState("");
+  const [pendingSupplyAfterApproval, setPendingSupplyAfterApproval] = useState(false);
+  const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
   const approval = useTokenApproval(asset, ADDRESSES.pool, address);
 
@@ -47,8 +49,13 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
   // Health factor
   const { healthFactor } = useHealthFactor();
 
+  // Error toast refs for repeated errors (F-012)
+  const prevErrorRef = useRef<Error | null>(null);
+  const prevApprovalErrorRef = useRef<Error | null>(null);
+
   useEffect(() => {
-    if (error) {
+    if (error && error !== prevErrorRef.current) {
+      prevErrorRef.current = error;
       toast.error("Supply failed", {
         description: parseErrorMessage(error),
       });
@@ -56,7 +63,8 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
   }, [error]);
 
   useEffect(() => {
-    if (approval.error) {
+    if (approval.error && approval.error !== prevApprovalErrorRef.current) {
+      prevApprovalErrorRef.current = approval.error;
       toast.error("Approval failed", {
         description: parseErrorMessage(approval.error),
       });
@@ -65,6 +73,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
 
   useEffect(() => {
     if (isSuccess && hash) {
+      setPendingSupplyAfterApproval(false);
       toast.success("Supply successful", {
         description: "Transaction confirmed",
         action: {
@@ -75,16 +84,38 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
     }
   }, [isSuccess, hash]);
 
+  // Reset pending approval flag when the amount input changes
+  useEffect(() => {
+    setPendingSupplyAfterApproval(false);
+  }, [amount]);
+
+  // F-003: Auto-proceed with supply after approval succeeds
+  useEffect(() => {
+    if (approval.isSuccess && pendingSupplyAfterApproval) {
+      setPendingSupplyAfterApproval(false);
+      if (!address) return;
+      writeContract({
+        address: ADDRESSES.pool,
+        abi: POOL_ABI,
+        functionName: "supply",
+        args: [asset, approvedAmountRef.current, address, 0],
+      });
+    }
+  }, [approval.isSuccess, pendingSupplyAfterApproval]);
+
   const handleSupply = () => {
+    if (!address) return;
     if (approval.needsApproval(parsedAmount)) {
-      approval.approve();
+      approvedAmountRef.current = parsedAmount;
+      approval.approve(parsedAmount);
+      setPendingSupplyAfterApproval(true);
       return;
     }
     writeContract({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "supply",
-      args: [asset, parsedAmount, address!, 0],
+      args: [asset, parsedAmount, address, 0],
     });
   };
 
@@ -149,7 +180,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
                 onClick={handleSupply}
                 isPending={isPending || approval.isPending}
                 isConfirming={isConfirming || approval.isConfirming}
-                disabled={!amount || parsedAmount === 0n || parsedAmount > balance}
+                disabled={!address || !amount || parsedAmount === 0n || parsedAmount > balance}
               >
                 {approval.needsApproval(parsedAmount) ? `Approve ${symbol}` : `Supply ${symbol}`}
               </TxButton>

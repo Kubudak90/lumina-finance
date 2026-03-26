@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { TxButton } from "@/components/common/TxButton";
 import { POOL_ABI } from "@/lib/abis";
@@ -15,7 +15,6 @@ import { formatHealthFactor } from "@/lib/format";
 interface EnableCollateralModalProps {
   asset: `0x${string}`;
   symbol: string;
-  decimals: number;
   currentlyEnabled: boolean;
   onClose: () => void;
 }
@@ -28,9 +27,13 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
 
   const newValue = !currentlyEnabled;
   const actionLabel = newValue ? "Enable" : "Disable";
+  const prevErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
-    if (error) toast.error(`${actionLabel} collateral failed`, { description: parseErrorMessage(error) });
+    if (error && error !== prevErrorRef.current) {
+      prevErrorRef.current = error;
+      toast.error(`${actionLabel} collateral failed`, { description: parseErrorMessage(error) });
+    }
   }, [error, actionLabel]);
 
   useEffect(() => {

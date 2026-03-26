@@ -13,9 +13,17 @@ const config = createConfig(
     },
     walletConnectProjectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "",
     appName: "Lumina Finance",
+    // Dev warning is emitted below after config creation
     appDescription: "The first lending protocol on Lighter",
   })
 );
+
+if (process.env.NODE_ENV === "development" && !process.env.NEXT_PUBLIC_WC_PROJECT_ID) {
+  console.warn(
+    "[Web3Provider] NEXT_PUBLIC_WC_PROJECT_ID is not set. WalletConnect will not work. " +
+    "Get a project ID at https://cloud.walletconnect.com and add it to your .env.local file."
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

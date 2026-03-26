@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useAllMarkets } from "@/hooks/useAllMarkets";
+import { usePrices } from "@/hooks/usePrices";
+import { formatPercent } from "@/lib/format";
 
 const YIELD_ASSETS = ["WETH", "USDC"];
 const DEBT_ASSETS = ["USDC", "WETH"];
@@ -12,15 +15,28 @@ export default function LeveragePage() {
   const [amount, setAmount] = useState("");
   const [leverage, setLeverage] = useState(2);
 
+  // F-011: Use real market data and prices
+  const { markets } = useAllMarkets();
+  const { data: prices } = usePrices();
+
+  const yieldMarket = markets.find((m) => m.symbol === yieldAsset);
+  const debtMarket = markets.find((m) => m.symbol === debtAsset);
+
+  // Real supply APY (RAY = 1e27, convert to percentage)
+  const baseApy = yieldMarket ? Number(yieldMarket.supplyRate) / 1e25 : 0;
+  const borrowApy = debtMarket ? Number(debtMarket.borrowRate) / 1e25 : 0;
+
   const amountNum = parseFloat(amount) || 0;
   const estimatedPositionSize = amountNum * leverage;
-  const baseApy = yieldAsset === "WETH" ? 3.2 : 5.1;
-  const borrowApy = debtAsset === "USDC" ? 4.5 : 2.8;
   const estimatedApy = baseApy * leverage - borrowApy * (leverage - 1);
-  const estimatedLiqPrice =
-    yieldAsset === "WETH"
-      ? (1800 / leverage) * (leverage - 1) * 1.1
-      : (1 / leverage) * (leverage - 1) * 1.1;
+
+  const yieldPrice = prices?.[yieldAsset] ?? 0;
+  const debtPrice = prices?.[debtAsset] ?? 0;
+
+  // TODO: The liquidation price formula requires the actual liquidation threshold
+  // from the reserve configuration and proper accounting for cross-asset collateral.
+  // Since this feature is "Coming Soon", we display "--" instead of an incorrect estimate.
+  const estimatedLiqPrice = 0;
 
   return (
     <div className="space-y-6">
@@ -93,6 +109,11 @@ export default function LeveragePage() {
                       </option>
                     ))}
                   </select>
+                  {yieldMarket && (
+                    <p className="text-[10px] font-mono text-muted-foreground">
+                      Supply APY: {formatPercent(yieldMarket.supplyRate)}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
@@ -109,6 +130,11 @@ export default function LeveragePage() {
                       </option>
                     ))}
                   </select>
+                  {debtMarket && (
+                    <p className="text-[10px] font-mono text-muted-foreground">
+                      Borrow APY: {formatPercent(debtMarket.borrowRate)}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -152,7 +178,7 @@ export default function LeveragePage() {
               {amountNum > 0 && (
                 <div className="border border-border/50 bg-background/50 p-4 space-y-3">
                   <h4 className="text-[10px] font-mono uppercase tracking-wider text-accent">
-                    Position Estimate
+                    Position Estimate <span className="text-muted-foreground">(Illustrative)</span>
                   </h4>
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-1">
@@ -165,7 +191,7 @@ export default function LeveragePage() {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        Estimated APY
+                        Estimated Net APY
                       </p>
                       <p
                         className={`text-sm font-mono font-medium ${
@@ -178,10 +204,10 @@ export default function LeveragePage() {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        Est. Liquidation Price
+                        Est. Liq. Price
                       </p>
                       <p className="text-sm font-mono font-medium text-foreground">
-                        ${estimatedLiqPrice.toFixed(2)}
+                        {estimatedLiqPrice > 0 ? `$${estimatedLiqPrice.toFixed(2)}` : "--"}
                       </p>
                     </div>
                   </div>

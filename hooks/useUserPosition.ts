@@ -44,8 +44,6 @@ interface ReserveDataResult {
   isolationModeTotalDebt: bigint;
 }
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
-
 /**
  * Fetches the user's positions across all markets.
  *
@@ -78,6 +76,12 @@ export function useUserPosition() {
     try {
       const raw = reserveResult.data?.[i]?.result;
       if (!raw) return defaults;
+      if (Array.isArray(raw)) {
+        return {
+          aTokenAddress: (raw[8] as `0x${string}`) ?? _m.aToken,
+          variableDebtTokenAddress: (raw[10] as `0x${string}`) ?? _m.variableDebtToken,
+        };
+      }
       const d = raw as Record<string, unknown>;
       if (d.aTokenAddress) {
         return {

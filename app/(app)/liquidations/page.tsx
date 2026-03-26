@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useReadContract } from "wagmi";
+import { useReadContract, useReadContracts } from "wagmi";
 import { formatUnits } from "viem";
 import { truncateAddress } from "@/lib/format";
 import { LiquidateModal } from "@/components/actions/LiquidateModal";
-import { POOL_ABI } from "@/lib/abis";
+import { POOL_ABI, DATA_PROVIDER_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
@@ -37,23 +37,77 @@ export default function LiquidationsPage() {
 
   const hf = accountData ? (accountData as readonly bigint[])[5] : undefined;
 
+  // F-007: Use DataProvider.getUserReserveData to determine actual debt/collateral per address
+  const userReserveContracts = checkAddress
+    ? MARKETS.map((m) => ({
+        address: ADDRESSES.dataProvider as `0x${string}`,
+        abi: DATA_PROVIDER_ABI,
+        functionName: "getUserReserveData" as const,
+        args: [m.asset, checkAddress] as const,
+      }))
+    : [];
+
+  const userReserveResults = useReadContracts({
+    contracts: userReserveContracts,
+    query: { enabled: !!checkAddress && hf !== undefined && hf !== null },
+  });
+
   const opportunities: LiquidationOpportunity[] = [];
   if (checkAddress && hf !== undefined && hf !== null) {
     const hfBigInt = hf as bigint;
     if (hfBigInt < BigInt("1000000000000000000")) {
       const hfFormatted = Number(formatUnits(hfBigInt, 18)).toFixed(4);
-      // Show one opportunity per possible debt/collateral pair
-      for (const debtMarket of MARKETS) {
-        for (const collateralMarket of MARKETS) {
+
+      // Parse user reserve data to find actual debt and collateral positions
+      const debtMarkets: { market: typeof MARKETS[number]; debt: bigint }[] = [];
+      const collateralMarkets: { market: typeof MARKETS[number]; collateral: bigint }[] = [];
+
+      MARKETS.forEach((m, i) => {
+        const result = userReserveResults.data?.[i]?.result;
+        if (!result) return;
+
+        try {
+          let currentATokenBalance = 0n;
+          let currentVariableDebt = 0n;
+          let currentStableDebt = 0n;
+
+          if (Array.isArray(result)) {
+            currentATokenBalance = (result[0] as bigint) ?? 0n;
+            currentStableDebt = (result[1] as bigint) ?? 0n;
+            currentVariableDebt = (result[2] as bigint) ?? 0n;
+          } else {
+            const obj = result as Record<string, unknown>;
+            currentATokenBalance = (obj.currentATokenBalance as bigint) ?? 0n;
+            currentStableDebt = (obj.currentStableDebt as bigint) ?? 0n;
+            currentVariableDebt = (obj.currentVariableDebt as bigint) ?? 0n;
+          }
+
+          const totalDebt = currentStableDebt + currentVariableDebt;
+          if (totalDebt > 0n) {
+            debtMarkets.push({ market: m, debt: totalDebt });
+          }
+          if (currentATokenBalance > 0n) {
+            collateralMarkets.push({ market: m, collateral: currentATokenBalance });
+          }
+        } catch { /* ignore parse errors */ }
+      });
+
+      // Only show valid opportunities: actual debt paired with actual collateral
+      for (const { market: debtMarket, debt } of debtMarkets) {
+        for (const { market: collateralMarket, collateral } of collateralMarkets) {
           if (debtMarket.asset === collateralMarket.asset) continue;
+          const debtFormatted = formatUnits(debt, debtMarket.decimals);
+          // F-006: Max liquidatable = 50% close factor
+          const maxDebtAmount = debt / 2n;
+          const maxDebtFormatted = formatUnits(maxDebtAmount, debtMarket.decimals);
           opportunities.push({
             borrower: checkAddress,
-            debt: "Check on-chain",
-            collateral: collateralMarket.symbol,
+            debt: `${Number(debtFormatted).toLocaleString("en-US", { maximumFractionDigits: 4 })} ${debtMarket.symbol}`,
+            collateral: `${Number(formatUnits(collateral, collateralMarket.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })} ${collateralMarket.symbol}`,
             healthFactor: hfFormatted,
             debtAsset: debtMarket.asset,
             collateralAsset: collateralMarket.asset,
-            maxDebt: "0",
+            maxDebt: maxDebtFormatted,
             debtSymbol: debtMarket.symbol,
             debtDecimals: debtMarket.decimals,
           });

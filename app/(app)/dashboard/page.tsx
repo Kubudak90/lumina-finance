@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { usePrices } from "@/hooks/usePrices";
 import { useAccount } from "wagmi";
@@ -45,8 +44,9 @@ type ModalState =
 
 export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
-  const { healthFactor } = useHealthFactor();
   const { positions, accountData } = useUserPosition();
+  // Derive healthFactor from accountData to avoid a duplicate getUserAccountData RPC call
+  const healthFactor = accountData?.healthFactor;
   const { data: prices } = usePrices();
   const { isConnected: walletConnected } = useAccount();
   const { currentCategoryId: eModeCategoryId, categoryData: eModeCategoryData } = useEMode();
@@ -498,7 +498,6 @@ export default function Dashboard() {
         <EnableCollateralModal
           asset={modal.market.asset}
           symbol={modal.market.symbol}
-          decimals={modal.market.decimals}
           currentlyEnabled={isCollateralEnabled(modal.market.asset)}
           onClose={() => setModal(null)}
         />

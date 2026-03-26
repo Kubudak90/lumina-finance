@@ -52,7 +52,19 @@ export function useMarketData(asset: `0x${string}`) {
     query: { refetchInterval: 15_000 },
   });
 
-  const raw = result.data as ReserveDataResult | undefined;
+  // Runtime validation: ensure the data has the expected shape before casting
+  function isReserveDataResult(d: unknown): d is ReserveDataResult {
+    if (!d || typeof d !== "object") return false;
+    const obj = d as Record<string, unknown>;
+    return (
+      typeof obj.aTokenAddress === "string" &&
+      typeof obj.variableDebtTokenAddress === "string" &&
+      obj.configuration !== undefined &&
+      typeof (obj.configuration as Record<string, unknown>)?.data === "bigint"
+    );
+  }
+
+  const raw = isReserveDataResult(result.data) ? result.data : undefined;
 
   const reserveData: ReserveData | undefined = raw
     ? {

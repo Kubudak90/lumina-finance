@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
@@ -26,6 +26,8 @@ interface RepayModalProps {
 
 export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps) {
   const [amount, setAmount] = useState("");
+  const [pendingRepayAfterApproval, setPendingRepayAfterApproval] = useState(false);
+  const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
   const approval = useTokenApproval(asset, ADDRESSES.pool, address);
   const { writeContract, data: hash, isPending, error } = useWriteContract();
@@ -82,8 +84,13 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
   const maxRepay = wallet < debt ? wallet : debt;
   const maxRepayFormatted = formatUnits(maxRepay, decimals);
 
+  // Error toast refs for repeated errors (F-012)
+  const prevErrorRef = useRef<Error | null>(null);
+  const prevApprovalErrorRef = useRef<Error | null>(null);
+
   useEffect(() => {
-    if (error) {
+    if (error && error !== prevErrorRef.current) {
+      prevErrorRef.current = error;
       toast.error("Repayment failed", {
         description: parseErrorMessage(error),
       });
@@ -91,7 +98,8 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
   }, [error]);
 
   useEffect(() => {
-    if (approval.error) {
+    if (approval.error && approval.error !== prevApprovalErrorRef.current) {
+      prevApprovalErrorRef.current = approval.error;
       toast.error("Approval failed", {
         description: parseErrorMessage(approval.error),
       });
@@ -110,16 +118,38 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     }
   }, [isSuccess, hash]);
 
+  // Reset pending state when amount changes to prevent stale auto-repay
+  useEffect(() => {
+    setPendingRepayAfterApproval(false);
+  }, [amount]);
+
+  // Auto-proceed with repay after approval succeeds
+  useEffect(() => {
+    if (approval.isSuccess && pendingRepayAfterApproval) {
+      setPendingRepayAfterApproval(false);
+      if (!address) return;
+      writeContract({
+        address: ADDRESSES.pool,
+        abi: POOL_ABI,
+        functionName: "repay",
+        args: [asset, approvedAmountRef.current, 2n, address],
+      });
+    }
+  }, [approval.isSuccess, pendingRepayAfterApproval]);
+
   const handleRepay = () => {
+    if (!address) return;
     if (approval.needsApproval(parsedAmount)) {
-      approval.approve();
+      approvedAmountRef.current = parsedAmount;
+      approval.approve(parsedAmount);
+      setPendingRepayAfterApproval(true);
       return;
     }
     writeContract({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "repay",
-      args: [asset, parsedAmount, 2n, address!],
+      args: [asset, parsedAmount, 2n, address],
     });
   };
 
@@ -217,7 +247,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
                 onClick={handleRepay}
                 isPending={isPending || approval.isPending}
                 isConfirming={isConfirming || approval.isConfirming}
-                disabled={!amount || parsedAmount === 0n || parsedAmount > wallet}
+                disabled={!address || !amount || parsedAmount === 0n || parsedAmount > wallet}
               >
                 {approval.needsApproval(parsedAmount) ? `Approve ${symbol}` : `Repay ${symbol}`}
               </TxButton>

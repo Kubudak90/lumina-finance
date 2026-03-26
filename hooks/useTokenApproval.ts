@@ -1,6 +1,5 @@
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { ERC20_ABI } from "@/lib/abis";
-import { maxUint256 } from "viem";
 import { useEffect } from "react";
 
 export function useTokenApproval(token: `0x${string}`, spender: `0x${string}`, owner?: `0x${string}`) {
@@ -23,12 +22,12 @@ export function useTokenApproval(token: `0x${string}`, spender: `0x${string}`, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
 
-  const approve = () => {
+  const approve = (amount: bigint) => {
     writeContract({
       address: token,
       abi: ERC20_ABI,
       functionName: "approve",
-      args: [spender, maxUint256],
+      args: [spender, amount],
     });
   };
 
