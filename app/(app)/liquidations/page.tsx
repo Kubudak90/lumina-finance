@@ -76,7 +76,7 @@ export default function LiquidationsPage() {
             currentStableDebt = (result[1] as bigint) ?? 0n;
             currentVariableDebt = (result[2] as bigint) ?? 0n;
           } else {
-            const obj = result as Record<string, unknown>;
+            const obj = result as unknown as Record<string, unknown>;
             currentATokenBalance = (obj.currentATokenBalance as bigint) ?? 0n;
             currentStableDebt = (obj.currentStableDebt as bigint) ?? 0n;
             currentVariableDebt = (obj.currentVariableDebt as bigint) ?? 0n;
