@@ -70,23 +70,26 @@ export default function LiquidationsPage() {
           let currentATokenBalance = 0n;
           let currentVariableDebt = 0n;
           let currentStableDebt = 0n;
+          let usageAsCollateralEnabled = false;
 
           if (Array.isArray(result)) {
             currentATokenBalance = (result[0] as bigint) ?? 0n;
             currentStableDebt = (result[1] as bigint) ?? 0n;
             currentVariableDebt = (result[2] as bigint) ?? 0n;
+            usageAsCollateralEnabled = (result[8] as boolean) ?? false;
           } else {
             const obj = result as unknown as Record<string, unknown>;
             currentATokenBalance = (obj.currentATokenBalance as bigint) ?? 0n;
             currentStableDebt = (obj.currentStableDebt as bigint) ?? 0n;
             currentVariableDebt = (obj.currentVariableDebt as bigint) ?? 0n;
+            usageAsCollateralEnabled = (obj.usageAsCollateralEnabled as boolean) ?? false;
           }
 
           const totalDebt = currentStableDebt + currentVariableDebt;
           if (totalDebt > 0n) {
             debtMarkets.push({ market: m, debt: totalDebt });
           }
-          if (currentATokenBalance > 0n) {
+          if (currentATokenBalance > 0n && usageAsCollateralEnabled) {
             collateralMarkets.push({ market: m, collateral: currentATokenBalance });
           }
         } catch { /* ignore parse errors */ }

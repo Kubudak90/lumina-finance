@@ -42,9 +42,8 @@ export function LiquidateModal({
 
   const parsedAmount = amount ? (safeParseUnits(amount, debtDecimals) ?? 0n) : 0n;
 
-  // F-006: Compute max liquidatable amount (50% close factor)
-  const maxDebtParsed = safeParseUnits(maxDebt, debtDecimals) ?? 0n;
-  const maxLiquidatable = maxDebtParsed / 2n; // 50% close factor
+  // maxDebt already accounts for the 50% close factor (computed by the page)
+  const maxLiquidatable = safeParseUnits(maxDebt, debtDecimals) ?? 0n;
   const exceedsMax = parsedAmount > 0n && maxLiquidatable > 0n && parsedAmount > maxLiquidatable;
 
   // F-008: Check wallet balance of debt token
