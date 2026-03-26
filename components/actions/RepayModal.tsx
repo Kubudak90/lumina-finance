@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { parseUnits, formatUnits } from "viem";
+import { formatUnits } from "viem";
+import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
@@ -30,7 +31,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const parsedAmount = amount ? parseUnits(amount, decimals) : 0n;
+  const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
   const market = getMarketByAsset(asset);
   const { healthFactor } = useHealthFactor();
@@ -179,7 +180,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
                   <Input
                     type="number"
                     value={amount}
-                    onChange={(e) => { const v = e.target.value; if (v === "" || Number(v) >= 0) setAmount(v); }}
+                    onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) setAmount(v); }}
                     placeholder="0.00"
                     min="0"
                     step="any"

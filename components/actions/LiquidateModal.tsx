@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { parseUnits } from "viem";
+import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
@@ -38,7 +38,7 @@ export function LiquidateModal({
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const parsedAmount = amount ? parseUnits(amount, debtDecimals) : 0n;
+  const parsedAmount = amount ? (safeParseUnits(amount, debtDecimals) ?? 0n) : 0n;
 
   useEffect(() => {
     if (error) {
@@ -117,7 +117,7 @@ export function LiquidateModal({
                 <Input
                   type="number"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, debtDecimals) && Number(v) >= 0)) setAmount(v); }}
                   placeholder="0.00"
                   className="h-12 text-lg bg-transparent border-border font-mono"
                 />

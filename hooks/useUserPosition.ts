@@ -3,6 +3,7 @@ import { POOL_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
 import { useUserCollateralStatus } from "./useUserCollateralStatus";
+import { safeBigInt } from "@/lib/format";
 
 export interface UserMarketPosition {
   asset: `0x${string}`;
@@ -107,22 +108,22 @@ export function useUserPosition() {
     const d = accountResult.data as unknown;
     if (Array.isArray(d)) {
       accountData = {
-        totalCollateralBase: d[0] as bigint,
-        totalDebtBase: d[1] as bigint,
-        availableBorrowsBase: d[2] as bigint,
-        currentLiquidationThreshold: d[3] as bigint,
-        ltv: d[4] as bigint,
-        healthFactor: d[5] as bigint,
+        totalCollateralBase: safeBigInt(d[0]),
+        totalDebtBase: safeBigInt(d[1]),
+        availableBorrowsBase: safeBigInt(d[2]),
+        currentLiquidationThreshold: safeBigInt(d[3]),
+        ltv: safeBigInt(d[4]),
+        healthFactor: safeBigInt(d[5]),
       };
     } else if (typeof d === "object" && d !== null) {
-      const obj = d as Record<string, bigint>;
+      const obj = d as Record<string, unknown>;
       accountData = {
-        totalCollateralBase: obj.totalCollateralBase ?? 0n,
-        totalDebtBase: obj.totalDebtBase ?? 0n,
-        availableBorrowsBase: obj.availableBorrowsBase ?? 0n,
-        currentLiquidationThreshold: obj.currentLiquidationThreshold ?? 0n,
-        ltv: obj.ltv ?? 0n,
-        healthFactor: obj.healthFactor ?? 0n,
+        totalCollateralBase: safeBigInt(obj.totalCollateralBase),
+        totalDebtBase: safeBigInt(obj.totalDebtBase),
+        availableBorrowsBase: safeBigInt(obj.availableBorrowsBase),
+        currentLiquidationThreshold: safeBigInt(obj.currentLiquidationThreshold),
+        ltv: safeBigInt(obj.ltv),
+        healthFactor: safeBigInt(obj.healthFactor),
       };
     }
   }
@@ -153,8 +154,8 @@ export function useUserPosition() {
 
   // --- Combine ---
   const positions: UserMarketPosition[] = MARKETS.map((m, i) => {
-    const supplied = (balanceResult.data?.[i * 2]?.result as bigint) ?? 0n;
-    const borrowed = (balanceResult.data?.[i * 2 + 1]?.result as bigint) ?? 0n;
+    const supplied = safeBigInt(balanceResult.data?.[i * 2]?.result);
+    const borrowed = safeBigInt(balanceResult.data?.[i * 2 + 1]?.result);
     const collEnabled = isCollateralEnabled(m.asset);
 
     return {

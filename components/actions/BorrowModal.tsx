@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { parseUnits, formatUnits } from "viem";
+import { formatUnits } from "viem";
+import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
@@ -30,7 +31,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { healthFactor } = useHealthFactor();
 
-  const parsedAmount = amount ? parseUnits(amount, decimals) : 0n;
+  const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
   // Available liquidity — In Aave V3, underlying tokens are held by the aToken contract, not the Pool
   const market = getMarketByAsset(asset);
@@ -189,7 +190,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
                   <Input
                     type="number"
                     value={amount}
-                    onChange={(e) => { const v = e.target.value; if (v === "" || Number(v) >= 0) setAmount(v); }}
+                    onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) setAmount(v); }}
                     placeholder="0.00"
                     min="0"
                     step="any"
