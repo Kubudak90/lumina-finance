@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useReadContracts, useReadContract } from "wagmi";
+import { useReadContracts } from "wagmi";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { StatCard } from "@/components/common/StatCard";
 import { RateCurveChart } from "@/components/markets/RateCurveChart";
@@ -18,8 +18,7 @@ import { useReserveConfig } from "@/hooks/useReserveConfig";
 import { usePrices } from "@/hooks/usePrices";
 import { getMarketBySymbol } from "@/lib/constants";
 import { formatTokenToUsd, formatPercent } from "@/lib/format";
-import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI, POOL_ABI, INTEREST_RATE_STRATEGY_ABI } from "@/lib/abis";
-import { ADDRESSES } from "@/lib/contracts";
+import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI, INTEREST_RATE_STRATEGY_ABI } from "@/lib/abis";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 const RAY = 1e27;

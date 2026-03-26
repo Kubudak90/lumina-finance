@@ -30,9 +30,6 @@ export default function LeveragePage() {
   const estimatedPositionSize = amountNum * leverage;
   const estimatedApy = baseApy * leverage - borrowApy * (leverage - 1);
 
-  const yieldPrice = prices?.[yieldAsset] ?? 0;
-  const debtPrice = prices?.[debtAsset] ?? 0;
-
   // TODO: The liquidation price formula requires the actual liquidation threshold
   // from the reserve configuration and proper accounting for cross-asset collateral.
   // Since this feature is "Coming Soon", we display "--" instead of an incorrect estimate.
