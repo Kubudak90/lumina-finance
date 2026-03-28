@@ -24,7 +24,7 @@ export const ADDRESSES = {
 
   // --- Underlying token addresses ---
   usdc: checksumAddress("0x57d6EB79ea08D10d7e03865cb1820f01F82255c4"),
-  weth: checksumAddress("0xDf2B23A45B9a451c002c27F83e9e55da5efdc992"),
+  lit: checksumAddress("0xDf2B23A45B9a451c002c27F83e9e55da5efdc992"),
 } as const;
 
 // =============================================================================

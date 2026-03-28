@@ -9,7 +9,7 @@ import { MARKETS } from "@/lib/constants";
  * Fetches asset prices from the Aave V3 Oracle (AaveOracle.getAssetsPrices).
  *
  * The oracle returns prices in the market's base currency (typically USD with 8 decimals).
- * This hook returns a Record<string, number> keyed by symbol (e.g., { WETH: 2000, USDC: 1 })
+ * This hook returns a Record<string, number> keyed by symbol (e.g., { LIT: 2000, USDC: 1 })
  * matching the previous CoinGecko-based API shape so all consumers stay compatible.
  */
 export function usePrices() {

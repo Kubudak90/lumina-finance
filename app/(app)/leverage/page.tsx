@@ -4,12 +4,12 @@ import { useState } from "react";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { formatPercent } from "@/lib/format";
 
-const YIELD_ASSETS = ["WETH", "USDC"];
-const DEBT_ASSETS = ["USDC", "WETH"];
+const YIELD_ASSETS = ["LIT", "USDC"];
+const DEBT_ASSETS = ["USDC", "LIT"];
 const LEVERAGE_OPTIONS = [1.5, 2, 2.5, 3];
 
 export default function LeveragePage() {
-  const [yieldAsset, setYieldAsset] = useState("WETH");
+  const [yieldAsset, setYieldAsset] = useState("LIT");
   const [debtAsset, setDebtAsset] = useState("USDC");
   const [amount, setAmount] = useState("");
   const [leverage, setLeverage] = useState(2);

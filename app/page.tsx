@@ -37,7 +37,7 @@ const FEATURES = [
 const STATS = [
   { label: "Protocol", value: "Aave V3" },
   { label: "Chain", value: "Lighter" },
-  { label: "Markets", value: "USDC, WETH" },
+  { label: "Markets", value: "USDC, LIT" },
   { label: "Status", value: "Testnet" },
 ];
 

@@ -7,7 +7,7 @@ interface TokenIconProps {
 
 const ICON_MAP: Record<string, string> = {
   USDC: "/tokens/usdc.svg",
-  WETH: "/tokens/eth.svg",
+  LIT: "/tokens/lit.svg",
   ETH: "/tokens/eth.svg",
 };
 

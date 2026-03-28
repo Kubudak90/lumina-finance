@@ -76,21 +76,31 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
     }
   } catch { /* ignore */ }
 
-  // Convert availableBorrowsBase (8 decimals USD) to token amount using oracle price
+  // Get oracle price for the asset (8-decimal base units)
   const { data: oraclePrice } = useReadContract({
     address: ADDRESSES.oracle,
     abi: [{ name: "getAssetPrice", type: "function", stateMutability: "view", inputs: [{ name: "asset", type: "address" }], outputs: [{ name: "", type: "uint256" }] }] as const,
     functionName: "getAssetPrice",
     args: [asset],
+    query: { refetchInterval: 10_000 },
   });
-  // F-004: Use 0n as fallback instead of 1n to avoid misleading calculations
   const priceRaw = (oraclePrice as bigint) ?? 0n;
-  // F-006: Use BigInt-based math to avoid Number() precision loss on large bigints.
-  // availableBorrowsBase and priceRaw are both in 8-decimal base units.
-  // borrowCapTokensBigInt = availableBorrowsBase * 10^decimals / priceRaw (result in token-native units)
+
+  // Calculate max borrow based on health factor (not LTV) so the user can borrow
+  // up to the liquidation threshold. Target HF = 1.05 for a safe margin.
+  // Formula: maxNewDebt = (collateral * liqThreshold / 10000) / targetHF - existingDebt
   const DECIMALS_FACTOR_BORROW = 10n ** BigInt(decimals);
+  const TARGET_HF_SCALED = 105n; // 1.05 * 100
+  const collateralWeighted = totalCollateralBase * currentLiquidationThreshold / 10000n;
+  const maxTotalDebtBase = TARGET_HF_SCALED > 0n ? (collateralWeighted * 100n) / TARGET_HF_SCALED : 0n;
+  const maxNewDebtBase = maxTotalDebtBase > totalDebtBase ? maxTotalDebtBase - totalDebtBase : 0n;
+
+  // Use the larger of HF-based and LTV-based capacity (HF-based is typically higher)
+  const effectiveBorrowBase = maxNewDebtBase > availableBorrowsBase ? maxNewDebtBase : availableBorrowsBase;
+
+  // Convert from base currency (8 decimals USD) to token amount
   const borrowCapTokensBigInt = priceRaw > 0n
-    ? (availableBorrowsBase * DECIMALS_FACTOR_BORROW) / priceRaw
+    ? (effectiveBorrowBase * DECIMALS_FACTOR_BORROW) / priceRaw
     : 0n;
   const borrowCapTokens = Number(formatUnits(borrowCapTokensBigInt, decimals));
   const maxBorrowTokens = Math.min(borrowCapTokens, Number(availableFormatted));
@@ -109,7 +119,6 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
     ? (parsedAmount * priceRaw) / DECIMALS_FACTOR
     : 0n;
   const newTotalDebt = totalDebtBase + borrowValueInBase;
-  const collateralWeighted = totalCollateralBase * currentLiquidationThreshold / 10000n;
 
   // Compute simulated HF as a bigint scaled by 1e18 for precision, then convert to Number only for display
   let simulatedHf: number | null = null;

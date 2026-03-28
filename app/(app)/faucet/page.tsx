@@ -28,12 +28,12 @@ const FAUCET_TOKENS = [
     description: "10,000 USDC",
   },
   {
-    symbol: "WETH",
-    name: "Wrapped Ether",
-    address: ADDRESSES.weth,
+    symbol: "LIT",
+    name: "LIT Token",
+    address: ADDRESSES.lit,
     amount: "5",
     decimals: 18,
-    description: "5 WETH",
+    description: "5 LIT",
   },
 ];
 
@@ -122,19 +122,19 @@ export default function FaucetPage() {
       <div className="technical-border bg-card animate-in-delay-3">
         <div className="p-4 border-b border-border/50">
           <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">How to use</h2>
-          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">3 steps to start testing Lumina Finance</p>
+          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">3 steps to start using Lumina Finance</p>
         </div>
         <div className="p-4">
           <ol className="list-decimal list-inside space-y-3 text-muted-foreground text-sm">
-            <li><span className="text-foreground font-medium">Mint tokens</span> — Click Mint above to get test USDC and WETH</li>
-            <li><span className="text-foreground font-medium">Supply</span> — Go to Markets, pick USDC or WETH, and supply tokens to earn yield</li>
+            <li><span className="text-foreground font-medium">Mint tokens</span> — Click Mint above to get test USDC and LIT</li>
+            <li><span className="text-foreground font-medium">Supply</span> — Go to Markets, pick USDC or LIT, and supply tokens to earn yield</li>
             <li><span className="text-foreground font-medium">Borrow</span> — Enable collateral, then borrow against it. Watch your Health Factor!</li>
           </ol>
         </div>
       </div>
 
       <div className="text-center text-[10px] font-mono uppercase tracking-wider text-muted-foreground animate-in-delay-4">
-        <p>Need Base Sepolia ETH for gas? Use the <a href="https://www.alchemy.com/faucets/base-sepolia" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-white transition-colors">Alchemy Faucet</a></p>
+        <p>Need ETH for gas on Base Sepolia? Use the official Base Sepolia faucet</p>
       </div>
     </div>
   );

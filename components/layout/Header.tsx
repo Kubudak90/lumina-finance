@@ -35,7 +35,7 @@ export function Header() {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-text-dim">Lumina</span>
+            <span className="text-text-dim">Lumina Finance</span>
             <span className="text-text-dim">/</span>
             <span className="text-foreground font-medium">{currentLabel}</span>
           </div>
