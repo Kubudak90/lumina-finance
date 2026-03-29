@@ -27,7 +27,7 @@ export const MARKETS: MarketConfig[] = [
     decimals: 18,
     aToken: "0x1Ae2e9828Ba36110A530082e3F5BC46EBa451A4e" as `0x${string}`,
     variableDebtToken: "0xC9527124adfBA28dB02930A23b2e0EB918E8160a" as `0x${string}`,
-    icon: "/tokens/lit.svg",
+    icon: "/tokens/lit.webp",
   },
 ];
 
