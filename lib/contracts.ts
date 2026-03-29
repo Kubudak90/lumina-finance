@@ -25,6 +25,11 @@ export const ADDRESSES = {
   // --- Underlying token addresses ---
   usdc: checksumAddress("0x57d6EB79ea08D10d7e03865cb1820f01F82255c4"),
   lit: checksumAddress("0xDf2B23A45B9a451c002c27F83e9e55da5efdc992"),
+
+  // --- Periphery contracts ---
+  aggregator: checksumAddress("0xe2e08840c7a0b1B832E39FEe89e89C9653eD8320"),
+  looping: checksumAddress("0xaB15f28b4e0821504c67D81E2B0B6468c2ee2429"),
+  strategyManagerFactory: checksumAddress("0xF648581eEBC720C5aCbeB1b1036846664f018F50"),
 } as const;
 
 // =============================================================================
