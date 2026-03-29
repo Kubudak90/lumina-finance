@@ -30,6 +30,12 @@ export const ADDRESSES = {
   aggregator: checksumAddress("0xe2e08840c7a0b1B832E39FEe89e89C9653eD8320"),
   looping: checksumAddress("0xaB15f28b4e0821504c67D81E2B0B6468c2ee2429"),
   strategyManagerFactory: checksumAddress("0xF648581eEBC720C5aCbeB1b1036846664f018F50"),
+
+  // --- Isolated lending ---
+  isolatedOracle: checksumAddress("0xC743eA0Dc94bc5f6B27924e7C2FC714e05C9d1c5"),
+  isolatedRegistry: checksumAddress("0x1247B132A6D2658DB8FC3e84EC522356C3D8F3bC"),
+  isolatedDeployer: checksumAddress("0xeB4FFD4A0C3b8B066174d56F02C4C1cE6F787bFB"),
+  isolatedPairLitUsdc: checksumAddress("0x837D5Bb10434Acd90008Be47201bce5b8aFaF7A5"),
 } as const;
 
 // =============================================================================
