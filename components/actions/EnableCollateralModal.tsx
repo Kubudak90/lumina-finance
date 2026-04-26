@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import Link from "next/link";
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { TxButton } from "@/components/common/TxButton";
-import { POOL_ABI } from "@/lib/abis";
+import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { toast } from "sonner";
 import { parseErrorMessage } from "@/lib/errorMessages";
 import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { formatHealthFactor } from "@/lib/format";
+import { getMarketByAsset } from "@/lib/constants";
 
 interface EnableCollateralModalProps {
   asset: `0x${string}`;
@@ -25,8 +27,23 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { healthFactor } = useHealthFactor();
 
+  const market = getMarketByAsset(asset);
+  const aTokenAddress = market?.aToken;
+
+  // Read user's aToken balance — Aave V3 reverts (error 43) on enable with zero balance.
+  const aTokenBalance = useReadContract({
+    address: aTokenAddress,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && !!aTokenAddress, refetchInterval: 15_000 },
+  });
+  const balance = (aTokenBalance.data as bigint | undefined) ?? 0n;
+  const hasSupply = balance > 0n;
+
   const newValue = !currentlyEnabled;
   const actionLabel = newValue ? "Enable" : "Disable";
+  const blockedNoSupply = newValue && !hasSupply;
   const prevErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
@@ -45,7 +62,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
   }, [isSuccess, hash, newValue]);
 
   const handleToggle = () => {
-    if (!address) return;
+    if (!address || blockedNoSupply) return;
     writeContract({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
@@ -85,7 +102,26 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
                   : `Disabling collateral means your ${symbol} will no longer back your borrows. This may lower your health factor.`}
               </p>
 
-              {healthFactor && (
+              {blockedNoSupply && (
+                <div className="technical-border bg-amber-500/10 border-amber-500/30 p-3 space-y-2">
+                  <p className="text-sm text-amber-400 font-medium">
+                    You have no {symbol} supplied
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Aave V3 requires an aToken balance before an asset can be used as collateral.
+                    Supply {symbol} first, after which it will be enabled as collateral automatically.
+                  </p>
+                  <Link
+                    href={`/markets/${symbol.toLowerCase()}`}
+                    onClick={onClose}
+                    className="inline-block mt-1 text-xs text-accent hover:underline font-mono uppercase tracking-wider"
+                  >
+                    Go to {symbol} Market &rarr;
+                  </Link>
+                </div>
+              )}
+
+              {healthFactor && !blockedNoSupply && (
                 <div className="technical-border bg-background p-3 space-y-1.5">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Health Factor</span>
@@ -101,9 +137,9 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
                 onClick={handleToggle}
                 isPending={isPending}
                 isConfirming={isConfirming}
-                disabled={!address}
+                disabled={!address || blockedNoSupply}
               >
-                {actionLabel} Collateral
+                {blockedNoSupply ? `Supply ${symbol} first` : `${actionLabel} Collateral`}
               </TxButton>
             </div>
           </>

@@ -29,6 +29,15 @@ export const MARKETS: MarketConfig[] = [
     variableDebtToken: "0xC9527124adfBA28dB02930A23b2e0EB918E8160a" as `0x${string}`,
     icon: "/tokens/lit.webp",
   },
+  {
+    asset: "0x4200000000000000000000000000000000000006" as `0x${string}`,
+    symbol: "WETH",
+    name: "Wrapped Ether",
+    decimals: 18,
+    aToken: "0x0e7DC690De33D38D074F61C078622B1007BfC748" as `0x${string}`,
+    variableDebtToken: "0xD41Ad22777E98917BBbAf41E001500EC5EbBa265" as `0x${string}`,
+    icon: "/tokens/eth.svg",
+  },
 ];
 
 export function getMarketByAsset(asset: string): MarketConfig | undefined {
