@@ -436,7 +436,65 @@ export const ISOLATED_PAIR_ABI = [
     inputs: [{ name: "_shares", type: "uint256" }],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    name: "previewWithdraw",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_amount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "maxWithdraw",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "toAssetAmount",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "_shares", type: "uint256" },
+      { name: "_roundUp", type: "bool" },
+      { name: "_previewInterest", type: "bool" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "toBorrowAmount",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "_shares", type: "uint256" },
+      { name: "_roundUp", type: "bool" },
+      { name: "_previewInterest", type: "bool" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "toBorrowShares",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "_amount", type: "uint256" },
+      { name: "_roundUp", type: "bool" },
+      { name: "_previewInterest", type: "bool" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
   // --- Mutative ---
+  {
+    name: "withdraw",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_amount", type: "uint256" },
+      { name: "_receiver", type: "address" },
+      { name: "_owner", type: "address" },
+    ],
+    outputs: [{ name: "_sharesToBurn", type: "uint256" }],
+  },
   {
     name: "deposit",
     type: "function",
