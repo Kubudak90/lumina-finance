@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useReadContract, useReadContracts } from "wagmi";
 import { formatUnits } from "viem";
 import { truncateAddress } from "@/lib/format";
 import { LiquidateModal } from "@/components/actions/LiquidateModal";
-import { POOL_ABI, DATA_PROVIDER_ABI } from "@/lib/abis";
+import { IsolatedLiquidateModal } from "@/components/actions/IsolatedLiquidateModal";
+import { POOL_ABI, DATA_PROVIDER_ABI, ISOLATED_PAIR_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
+import { useIsolatedPairs, type IsolatedPairInfo } from "@/hooks/useIsolatedPairs";
 import { Badge } from "@/components/ui/badge";
+import { TokenIcon } from "@/components/common/TokenIcon";
 
 interface LiquidationOpportunity {
   borrower: `0x${string}`;
@@ -22,10 +25,19 @@ interface LiquidationOpportunity {
   debtDecimals: number;
 }
 
+interface IsolatedLiquidationOpportunity {
+  pair: IsolatedPairInfo;
+  borrowedAmount: bigint;
+  borrowedShares: bigint;
+  collateral: bigint;
+}
+
 export default function LiquidationsPage() {
   const [selected, setSelected] = useState<LiquidationOpportunity | null>(null);
+  const [selectedIsolated, setSelectedIsolated] = useState<IsolatedLiquidationOpportunity | null>(null);
   const [searchAddress, setSearchAddress] = useState("");
   const [checkAddress, setCheckAddress] = useState<`0x${string}` | undefined>();
+  const { pairs: isolatedPairs } = useIsolatedPairs();
 
   const { data: accountData, isLoading: isLoadingHf, error: hfError } = useReadContract({
     address: ADDRESSES.pool,
@@ -118,6 +130,54 @@ export default function LiquidationsPage() {
       }
     }
   }
+
+  // ─── Isolated pair lookup for the same searched address ───
+  const isolatedSnapshotContracts = checkAddress
+    ? isolatedPairs.map((p) => ({
+        address: p.pair,
+        abi: ISOLATED_PAIR_ABI,
+        functionName: "getUserSnapshot" as const,
+        args: [checkAddress] as const,
+      }))
+    : [];
+  const isolatedSnapshots = useReadContracts({
+    contracts: isolatedSnapshotContracts,
+    query: { enabled: !!checkAddress && isolatedPairs.length > 0 },
+  });
+
+  const isolatedConvContracts = checkAddress && isolatedSnapshots.data
+    ? isolatedPairs.flatMap((p, i) => {
+        const snap = isolatedSnapshots.data?.[i]?.result as readonly [bigint, bigint, bigint] | undefined;
+        return [
+          {
+            address: p.pair,
+            abi: ISOLATED_PAIR_ABI,
+            functionName: "toBorrowAmount" as const,
+            args: [snap?.[1] ?? 0n, true, true] as const,
+          },
+        ];
+      })
+    : [];
+  const isolatedConv = useReadContracts({
+    contracts: isolatedConvContracts,
+    query: { enabled: !!checkAddress && !!isolatedSnapshots.data },
+  });
+
+  const isolatedOpportunities: IsolatedLiquidationOpportunity[] = useMemo(() => {
+    if (!checkAddress) return [];
+    return isolatedPairs
+      .map((p, i) => {
+        const snap = isolatedSnapshots.data?.[i]?.result as readonly [bigint, bigint, bigint] | undefined;
+        const borrowAmount = (isolatedConv.data?.[i]?.result as bigint | undefined) ?? 0n;
+        return {
+          pair: p,
+          borrowedShares: snap?.[1] ?? 0n,
+          borrowedAmount: borrowAmount,
+          collateral: snap?.[2] ?? 0n,
+        };
+      })
+      .filter((o) => o.borrowedShares > 0n);
+  }, [checkAddress, isolatedPairs, isolatedSnapshots.data, isolatedConv.data]);
 
   const isValidAddress = (addr: string): addr is `0x${string}` => {
     return /^0x[0-9a-fA-F]{40}$/.test(addr);
@@ -225,6 +285,62 @@ export default function LiquidationsPage() {
         </table>
       </div>
 
+      {/* Isolated pair liquidations */}
+      <div className="technical-border bg-card animate-in-delay-3">
+        <div className="p-4 border-b border-border/50 flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Isolated Pairs</h2>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">
+              Per-pair positions for the same address — pair reverts if borrower is solvent
+            </p>
+          </div>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Pair</th>
+              <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrowed</th>
+              <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Collateral</th>
+              <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {!checkAddress ? (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-xs">Enter a borrower address above to inspect isolated positions.</td></tr>
+            ) : isolatedOpportunities.length === 0 ? (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-xs">No isolated debt for this address.</td></tr>
+            ) : (
+              isolatedOpportunities.map((o) => (
+                <tr key={o.pair.pair} className="border-b border-border/50 hover:bg-white/5">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <TokenIcon symbol={o.pair.assetSymbol} size={20} />
+                      <span className="text-muted-foreground">/</span>
+                      <TokenIcon symbol={o.pair.collateralSymbol} size={20} />
+                      <span className="font-mono text-sm ml-2">{o.pair.assetSymbol}/{o.pair.collateralSymbol}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 font-mono text-sm text-right">
+                    {Number(formatUnits(o.borrowedAmount, o.pair.assetDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} {o.pair.assetSymbol}
+                  </td>
+                  <td className="px-6 py-4 font-mono text-sm text-right">
+                    {Number(formatUnits(o.collateral, o.pair.collateralDecimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })} {o.pair.collateralSymbol}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <button
+                      onClick={() => setSelectedIsolated(o)}
+                      className="h-8 px-4 bg-destructive text-destructive-foreground text-[10px] font-mono uppercase tracking-wider hover:bg-destructive/80 transition-colors"
+                    >
+                      Liquidate
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
       {selected && (
         <LiquidateModal
           borrower={selected.borrower}
@@ -234,6 +350,21 @@ export default function LiquidationsPage() {
           maxDebt={selected.maxDebt}
           debtDecimals={selected.debtDecimals}
           onClose={() => setSelected(null)}
+        />
+      )}
+      {selectedIsolated && checkAddress && (
+        <IsolatedLiquidateModal
+          pair={selectedIsolated.pair.pair}
+          asset={selectedIsolated.pair.asset}
+          assetSymbol={selectedIsolated.pair.assetSymbol}
+          assetDecimals={selectedIsolated.pair.assetDecimals}
+          collateralSymbol={selectedIsolated.pair.collateralSymbol}
+          collateralDecimals={selectedIsolated.pair.collateralDecimals}
+          borrower={checkAddress}
+          borrowerDebtAsset={selectedIsolated.borrowedAmount}
+          borrowerDebtShares={selectedIsolated.borrowedShares}
+          borrowerCollateral={selectedIsolated.collateral}
+          onClose={() => setSelectedIsolated(null)}
         />
       )}
     </div>

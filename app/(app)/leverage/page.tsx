@@ -10,9 +10,10 @@ import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { useDebtDelegation } from "@/hooks/useDebtDelegation";
+import { LeverageCloseModal } from "@/components/actions/LeverageCloseModal";
 import { ADDRESSES } from "@/lib/contracts";
 import { ERC20_ABI, LOOPING_ABI } from "@/lib/abis";
-import { MARKETS, getMarketBySymbol } from "@/lib/constants";
+import { MARKETS, getMarketBySymbol, getMarketByAsset } from "@/lib/constants";
 import { formatPercent, safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { parseErrorMessage } from "@/lib/errorMessages";
 import { Triangle } from "lucide-react";
@@ -153,6 +154,8 @@ export default function LeveragePage() {
     }
     return out;
   }, [positions]);
+
+  const [closeTarget, setCloseTarget] = useState<OpenLeveragedPos | null>(null);
 
   // -- Validations --
   const insufficientBalance = parsedAmount > balance;
@@ -401,6 +404,30 @@ export default function LeveragePage() {
         </div>
       </div>
 
+      {/* Close modal */}
+      {closeTarget && (() => {
+        const yMarket = getMarketByAsset(closeTarget.yield.asset);
+        const dMarket = getMarketByAsset(closeTarget.debt.asset);
+        if (!yMarket || !dMarket) {
+          setCloseTarget(null);
+          return null;
+        }
+        return (
+          <LeverageCloseModal
+            yieldAsset={yMarket.asset}
+            yieldSymbol={yMarket.symbol}
+            yieldDecimals={yMarket.decimals}
+            yieldAToken={yMarket.aToken}
+            debtAsset={dMarket.asset}
+            debtSymbol={dMarket.symbol}
+            debtDecimals={dMarket.decimals}
+            debtVariableToken={dMarket.variableDebtToken}
+            swapper={activeSwapper}
+            onClose={() => setCloseTarget(null)}
+          />
+        );
+      })()}
+
       {/* Existing positions */}
       <div className="animate-in-delay-3">
         <div className="technical-border bg-card">
@@ -415,32 +442,41 @@ export default function LeveragePage() {
               <tr className="border-b border-border/50">
                 <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Yield</th>
                 <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Debt</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Supplied</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrowed</th>
+                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Supplied</th>
+                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrowed</th>
+                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Action</th>
               </tr>
             </thead>
             <tbody>
               {leveraged.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="h-32 text-center text-muted-foreground">
+                  <td colSpan={5} className="h-32 text-center text-muted-foreground">
                     <p className="text-sm font-medium text-foreground">No active leveraged positions</p>
                     <p className="text-xs text-muted-foreground mt-1">Open one above to get started</p>
                   </td>
                 </tr>
               ) : (
                 leveraged.map((p) => (
-                  <tr key={`${p.yield.symbol}-${p.debt.symbol}`} className="border-b border-border/50">
+                  <tr key={`${p.yield.symbol}-${p.debt.symbol}`} className="border-b border-border/50 hover:bg-white/5">
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2"><TokenIcon symbol={p.yield.symbol} size={20} /> <span className="font-mono text-sm">{p.yield.symbol}</span></div>
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2"><TokenIcon symbol={p.debt.symbol} size={20} /> <span className="font-mono text-sm">{p.debt.symbol}</span></div>
                     </td>
-                    <td className="px-6 py-3 font-mono text-sm">
+                    <td className="px-6 py-3 font-mono text-sm text-right">
                       {Number(formatUnits(p.yield.supplied, p.yield.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })}
                     </td>
-                    <td className="px-6 py-3 font-mono text-sm">
+                    <td className="px-6 py-3 font-mono text-sm text-right">
                       {Number(formatUnits(p.debt.borrowed, p.debt.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                    </td>
+                    <td className="px-6 py-3 text-right">
+                      <button
+                        onClick={() => setCloseTarget(p)}
+                        className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                      >
+                        Close
+                      </button>
                     </td>
                   </tr>
                 ))

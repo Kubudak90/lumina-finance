@@ -557,6 +557,17 @@ export const ISOLATED_PAIR_ABI = [
     ],
     outputs: [],
   },
+  {
+    name: "liquidate",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_sharesToLiquidate", type: "uint128" },
+      { name: "_deadline", type: "uint256" },
+      { name: "_borrower", type: "address" },
+    ],
+    outputs: [{ name: "_collateralForLiquidator", type: "uint256" }],
+  },
 ] as const;
 
 // -----------------------------------------------------------------------------
