@@ -45,6 +45,9 @@ export const ADDRESSES = {
 
   // --- MockSwapper (testnet DEX adapter for Looping) ---
   swapper: checksumAddress("0x387Ec86135feAbC98F75729F75b9F3EA4e99c114"),
+
+  // --- LIT price feed (CoinGecko-driven UpdatableAggregator) ---
+  litOracleFeed: checksumAddress("0x1c2af9252306DD4Be3fF79980302C64a7BA46B1d"),
 } as const;
 
 // =============================================================================
