@@ -48,6 +48,9 @@ export const ADDRESSES = {
 
   // --- LIT price feed (CoinGecko-driven UpdatableAggregator) ---
   litOracleFeed: checksumAddress("0x1c2af9252306DD4Be3fF79980302C64a7BA46B1d"),
+
+  // --- WETH price feed (CoinGecko-driven UpdatableAggregator) ---
+  wethOracleFeed: checksumAddress("0x9966BCA6eD030256c2585D8823ecF035e296f49A"),
 } as const;
 
 // =============================================================================
