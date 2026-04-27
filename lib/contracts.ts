@@ -7,6 +7,9 @@ import {
   REWARDS_CONTROLLER_ABI,
   ERC20_ABI,
   INTEREST_RATE_STRATEGY_ABI,
+  LOOPING_ABI,
+  ISOLATED_REGISTRY_ABI,
+  ISOLATED_PAIR_ABI,
 } from "./abis";
 import { checksumAddress } from "./format";
 
@@ -36,6 +39,9 @@ export const ADDRESSES = {
   isolatedRegistry: checksumAddress("0x1247B132A6D2658DB8FC3e84EC522356C3D8F3bC"),
   isolatedDeployer: checksumAddress("0xeB4FFD4A0C3b8B066174d56F02C4C1cE6F787bFB"),
   isolatedPairLitUsdc: checksumAddress("0x837D5Bb10434Acd90008Be47201bce5b8aFaF7A5"),
+
+  // --- Faucet (rate-limited public mint of USDC + LIT) ---
+  faucet: checksumAddress("0x158b2a57C84C9C150b4D9CE5f8b78949145652d0"),
 } as const;
 
 // =============================================================================
@@ -50,5 +56,8 @@ export {
   REWARDS_CONTROLLER_ABI,
   ERC20_ABI,
   INTEREST_RATE_STRATEGY_ABI,
+  LOOPING_ABI,
+  ISOLATED_REGISTRY_ABI,
+  ISOLATED_PAIR_ABI,
 };
 

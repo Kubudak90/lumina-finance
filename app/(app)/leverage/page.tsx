@@ -1,36 +1,176 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { formatUnits } from "viem";
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { toast } from "sonner";
+import { TxButton } from "@/components/common/TxButton";
+import { TokenIcon } from "@/components/common/TokenIcon";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
-import { formatPercent } from "@/lib/format";
+import { useUserPosition } from "@/hooks/useUserPosition";
+import { useTokenApproval } from "@/hooks/useTokenApproval";
+import { useDebtDelegation } from "@/hooks/useDebtDelegation";
+import { ADDRESSES } from "@/lib/contracts";
+import { ERC20_ABI, LOOPING_ABI } from "@/lib/abis";
+import { MARKETS, getMarketBySymbol } from "@/lib/constants";
+import { formatPercent, safeParseUnits, isValidDecimalInput } from "@/lib/format";
+import { parseErrorMessage } from "@/lib/errorMessages";
+import { Triangle } from "lucide-react";
 
-const YIELD_ASSETS = ["LIT", "USDC"];
-const DEBT_ASSETS = ["USDC", "LIT"];
-const LEVERAGE_OPTIONS = [1.5, 2, 2.5, 3];
+const LEVERAGE_OPTIONS = [1.5, 2, 2.5, 3] as const;
+
+// Candidate swapper addresses to probe — extend when a Base Sepolia DEX adapter is deployed.
+const KNOWN_SWAPPER_CANDIDATES: `0x${string}`[] = [];
+
+const MAX_UINT256 = 2n ** 256n - 1n;
 
 export default function LeveragePage() {
-  const [yieldAsset, setYieldAsset] = useState("LIT");
-  const [debtAsset, setDebtAsset] = useState("USDC");
-  const [amount, setAmount] = useState("");
-  const [leverage, setLeverage] = useState(2);
-
+  const { address } = useAccount();
   const { markets } = useAllMarkets();
+  const { positions } = useUserPosition();
 
-  const yieldMarket = markets.find((m) => m.symbol === yieldAsset);
-  const debtMarket = markets.find((m) => m.symbol === debtAsset);
+  const [yieldAssetSym, setYieldAssetSym] = useState("LIT");
+  const [debtAssetSym, setDebtAssetSym] = useState("USDC");
+  const [amountInput, setAmountInput] = useState("");
+  const [leverage, setLeverage] = useState<number>(2);
 
-  // Real supply APY (RAY = 1e27, convert to percentage)
-  const baseApy = yieldMarket ? Number(yieldMarket.supplyRate) / 1e25 : 0;
-  const borrowApy = debtMarket ? Number(debtMarket.borrowRate) / 1e25 : 0;
+  const yieldMarket = getMarketBySymbol(yieldAssetSym);
+  const debtMarket = getMarketBySymbol(debtAssetSym);
+  const sameAsset = yieldAssetSym === debtAssetSym;
 
-  const amountNum = parseFloat(amount) || 0;
-  const estimatedPositionSize = amountNum * leverage;
+  // -- On-chain looping state --
+  const poolWhitelisted = useReadContract({
+    address: ADDRESSES.looping,
+    abi: LOOPING_ABI,
+    functionName: "pools",
+    args: [ADDRESSES.pool],
+    query: { refetchInterval: 60_000 },
+  });
+
+  const swapperProbes = useReadContracts({
+    contracts: KNOWN_SWAPPER_CANDIDATES.map((addr) => ({
+      address: ADDRESSES.looping,
+      abi: LOOPING_ABI,
+      functionName: "swappers" as const,
+      args: [addr] as const,
+    })),
+    query: { enabled: KNOWN_SWAPPER_CANDIDATES.length > 0, refetchInterval: 60_000 },
+  });
+  const activeSwapper = useMemo(() => {
+    if (!swapperProbes.data) return undefined;
+    for (let i = 0; i < swapperProbes.data.length; i++) {
+      if (swapperProbes.data[i]?.result === true) return KNOWN_SWAPPER_CANDIDATES[i];
+    }
+    return undefined;
+  }, [swapperProbes.data]);
+
+  // -- Amount + leverage calc --
+  const decimals = debtMarket?.decimals ?? 18;
+  const parsedAmount = amountInput ? (safeParseUnits(amountInput, decimals) ?? 0n) : 0n;
+  const flashloanAmount = parsedAmount * BigInt(Math.round(leverage * 100)) / 100n;
+
+  // Wallet balance of debt asset (initial deposit)
+  const walletBalance = useReadContract({
+    address: debtMarket?.asset,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && !!debtMarket },
+  });
+  const balance = (walletBalance.data as bigint | undefined) ?? 0n;
+  const balanceFormatted = debtMarket ? formatUnits(balance, decimals) : "0";
+
+  // -- Approvals --
+  const tokenApproval = useTokenApproval(debtMarket?.asset ?? ("0x0" as `0x${string}`), ADDRESSES.looping, address);
+  const delegationApproval = useDebtDelegation(debtMarket?.variableDebtToken, ADDRESSES.looping, address);
+
+  // -- openPosition writeContract --
+  const { writeContract, data: openHash, isPending: openPending, error: openError } = useWriteContract();
+  const { isLoading: openConfirming, isSuccess: openSuccess } = useWaitForTransactionReceipt({ hash: openHash });
+
+  const prevOpenErr = useRef<Error | null>(null);
+  useEffect(() => {
+    if (openError && openError !== prevOpenErr.current) {
+      prevOpenErr.current = openError;
+      toast.error("Open Position failed", { description: parseErrorMessage(openError) });
+    }
+  }, [openError]);
+
+  useEffect(() => {
+    if (openSuccess && openHash) {
+      toast.success("Position opened", {
+        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${openHash}`, "_blank") },
+      });
+    }
+  }, [openSuccess, openHash]);
+
+  const handleOpen = () => {
+    if (!address || !yieldMarket || !debtMarket || !activeSwapper) return;
+    if (sameAsset || parsedAmount === 0n) return;
+    const path: `0x${string}`[] = [debtMarket.asset, yieldMarket.asset];
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
+    writeContract({
+      address: ADDRESSES.looping,
+      abi: LOOPING_ABI,
+      functionName: "openPosition",
+      args: [
+        ADDRESSES.pool,
+        activeSwapper,
+        debtMarket.asset,
+        yieldMarket.asset,
+        parsedAmount,
+        flashloanAmount,
+        0n, // _minAmountOut (debt → yield) — testnet, no slippage protection
+        path,
+        false, // _startWithYield: user provides debt token
+        0n, // _minInitialAmountOut
+        deadline,
+      ],
+    });
+  };
+
+  // -- Display estimates --
+  const yieldRate = markets.find((m) => m.symbol === yieldAssetSym)?.supplyRate ?? 0n;
+  const borrowRate = markets.find((m) => m.symbol === debtAssetSym)?.borrowRate ?? 0n;
+  const baseApy = Number(yieldRate) / 1e25;
+  const borrowApy = Number(borrowRate) / 1e25;
   const estimatedApy = baseApy * leverage - borrowApy * (leverage - 1);
+  const estimatedPosition = Number(amountInput || 0) * leverage;
 
-  // TODO: The liquidation price formula requires the actual liquidation threshold
-  // from the reserve configuration and proper accounting for cross-asset collateral.
-  // Since this feature is "Coming Soon", we display "--" instead of an incorrect estimate.
-  const estimatedLiqPrice = 0;
+  // -- Existing positions: any market with both supply > 0 and borrow > 0 in DIFFERENT assets --
+  type OpenLeveragedPos = {
+    yield: typeof positions[number];
+    debt: typeof positions[number];
+  };
+  const leveraged: OpenLeveragedPos[] = useMemo(() => {
+    const supplied = positions.filter((p) => p.supplied > 0n);
+    const borrowed = positions.filter((p) => p.borrowed > 0n);
+    const out: OpenLeveragedPos[] = [];
+    for (const s of supplied) {
+      for (const b of borrowed) {
+        if (s.symbol !== b.symbol) out.push({ yield: s, debt: b });
+      }
+    }
+    return out;
+  }, [positions]);
+
+  // -- Validations --
+  const insufficientBalance = parsedAmount > balance;
+  const needsTokenApproval = tokenApproval.needsApproval(parsedAmount);
+  const needsDelegation = delegationApproval.needsApproval(flashloanAmount);
+  const ready =
+    !!address &&
+    !!yieldMarket &&
+    !!debtMarket &&
+    !sameAsset &&
+    parsedAmount > 0n &&
+    !insufficientBalance &&
+    !needsTokenApproval &&
+    !needsDelegation &&
+    !!activeSwapper &&
+    poolWhitelisted.data === true;
+
+  const noSwapper = KNOWN_SWAPPER_CANDIDATES.length === 0 || !activeSwapper;
 
   return (
     <div className="space-y-6">
@@ -41,226 +181,270 @@ export default function LeveragePage() {
         </p>
       </div>
 
-      {/* How It Works */}
+      {noSwapper && (
+        <div className="technical-border bg-amber-500/10 border-amber-500/30 p-4 flex items-start gap-3 animate-in-delay-1">
+          <Triangle size={14} className="text-amber-400 shrink-0 mt-1" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-amber-400">DEX adapter not yet whitelisted</p>
+            <p className="text-xs text-muted-foreground">
+              The Looping contract is deployed at <span className="font-mono">{ADDRESSES.looping.slice(0, 8)}…{ADDRESSES.looping.slice(-4)}</span>{" "}
+              and the Aave Pool is approved, but no swap adapter is currently whitelisted on Base Sepolia.
+              Open Position will be enabled as soon as a DEX adapter is configured.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="animate-in-delay-1">
         <div className="technical-border bg-card">
           <div className="p-4 border-b border-border/50">
             <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">How It Works</h2>
             <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">
-              The Looping contract uses flash loans to create leveraged positions in a single transaction
+              The Looping contract uses Aave V3 flash loans to build leverage in a single transaction
             </p>
           </div>
-          <div className="p-4">
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <h3 className="text-[10px] font-mono uppercase tracking-wider text-accent">
-                  Open Position
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Deposit collateral &rarr; Flash loan &rarr; Swap &rarr;
-                  Supply &rarr; Borrow &rarr; Repay flash loan
-                </p>
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-[10px] font-mono uppercase tracking-wider text-accent">
-                  Close Position
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Flash loan &rarr; Repay debt &rarr; Withdraw &rarr; Swap
-                  &rarr; Repay flash loan
-                </p>
-              </div>
+          <div className="p-4 grid md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <h3 className="text-[10px] font-mono uppercase tracking-wider text-accent">Open Position</h3>
+              <p className="text-sm text-muted-foreground">
+                Deposit debt-asset &rarr; flash-loan more &rarr; swap to yield asset &rarr; supply &rarr; borrow &rarr; repay flash loan
+              </p>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-[10px] font-mono uppercase tracking-wider text-accent">Close Position</h3>
+              <p className="text-sm text-muted-foreground">
+                Flash-loan debt &rarr; repay debt &rarr; withdraw yield collateral &rarr; swap back &rarr; repay flash loan
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Open Position Form */}
       <div className="animate-in-delay-2">
         <div className="technical-border bg-card">
           <div className="p-4 border-b border-border/50">
             <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Open Leveraged Position</h2>
             <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">
-              Select assets and leverage multiplier to open a position
+              Select assets, deposit, and leverage multiplier
             </p>
           </div>
-          <div className="p-4">
-            <div className="space-y-6">
-              {/* Asset Selection */}
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    Yield Asset (Long)
-                  </label>
-                  <select
-                    value={yieldAsset}
-                    onChange={(e) => setYieldAsset(e.target.value)}
-                    className="w-full h-10 border border-border bg-background px-3 text-sm font-mono text-foreground focus:border-accent/50 focus:outline-none"
-                  >
-                    {YIELD_ASSETS.map((a) => (
-                      <option key={a} value={a} className="bg-background">
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                  {yieldMarket && (
-                    <p className="text-[10px] font-mono text-muted-foreground">
-                      Supply APY: {formatPercent(yieldMarket.supplyRate)}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    Debt Asset (Borrow)
-                  </label>
-                  <select
-                    value={debtAsset}
-                    onChange={(e) => setDebtAsset(e.target.value)}
-                    className="w-full h-10 border border-border bg-background px-3 text-sm font-mono text-foreground focus:border-accent/50 focus:outline-none"
-                  >
-                    {DEBT_ASSETS.map((a) => (
-                      <option key={a} value={a} className="bg-background">
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                  {debtMarket && (
-                    <p className="text-[10px] font-mono text-muted-foreground">
-                      Borrow APY: {formatPercent(debtMarket.borrowRate)}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Amount Input */}
+          <div className="p-4 space-y-6">
+            {/* Asset selection */}
+            <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Initial Amount
+                  Yield Asset (long)
                 </label>
-                <input
-                  type="number"
-                  placeholder="0.0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full h-12 text-lg font-mono bg-background border border-border px-4 text-foreground placeholder:text-muted-foreground focus:border-accent/50 focus:outline-none"
-                />
-              </div>
-
-              {/* Leverage Multiplier */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Leverage Multiplier
-                </label>
-                <div className="flex gap-2">
-                  {LEVERAGE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt}
-                      className={`flex-1 h-10 font-mono font-bold text-sm transition-colors ${
-                        leverage === opt
-                          ? "bg-accent text-background shadow-[0_0_20px_rgba(176,196,255,0.2)]"
-                          : "border border-accent/30 text-accent hover:bg-accent hover:text-background"
-                      }`}
-                      onClick={() => setLeverage(opt)}
-                    >
-                      {opt}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Estimated Values */}
-              {amountNum > 0 && (
-                <div className="border border-border/50 bg-background/50 p-4 space-y-3">
-                  <h4 className="text-[10px] font-mono uppercase tracking-wider text-accent">
-                    Position Estimate <span className="text-muted-foreground">(Illustrative)</span>
-                  </h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        Position Size
-                      </p>
-                      <p className="text-sm font-mono font-medium text-foreground">
-                        {estimatedPositionSize.toFixed(4)} {yieldAsset}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        Estimated Net APY
-                      </p>
-                      <p
-                        className={`text-sm font-mono font-medium ${
-                          estimatedApy >= 0 ? "text-green-500" : "text-destructive"
-                        }`}
-                      >
-                        {estimatedApy >= 0 ? "+" : ""}
-                        {estimatedApy.toFixed(2)}%
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        Est. Liq. Price
-                      </p>
-                      <p className="text-sm font-mono font-medium text-foreground">
-                        {estimatedLiqPrice > 0 ? `$${estimatedLiqPrice.toFixed(2)}` : "--"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Open Position Button */}
-              <div className="space-y-2">
-                <button
-                  className="w-full h-12 bg-accent text-background font-bold uppercase tracking-[0.2em] text-xs hover:bg-white shadow-[0_0_20px_rgba(176,196,255,0.2)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  disabled
+                <select
+                  value={yieldAssetSym}
+                  onChange={(e) => setYieldAssetSym(e.target.value)}
+                  className="w-full h-10 border border-border bg-background px-3 text-sm font-mono text-foreground focus:border-accent/50 focus:outline-none"
                 >
-                  Open Position
-                </button>
-                <p className="text-[10px] text-center font-mono uppercase tracking-wider text-muted-foreground">
-                  Coming soon &mdash; Looping contract deployment pending
+                  {MARKETS.map((m) => (
+                    <option key={m.symbol} value={m.symbol} className="bg-background">{m.symbol}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] font-mono text-muted-foreground">
+                  Supply APY: {formatPercent(yieldRate)}
                 </p>
               </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Debt Asset (initial deposit + borrow)
+                </label>
+                <select
+                  value={debtAssetSym}
+                  onChange={(e) => setDebtAssetSym(e.target.value)}
+                  className="w-full h-10 border border-border bg-background px-3 text-sm font-mono text-foreground focus:border-accent/50 focus:outline-none"
+                >
+                  {MARKETS.map((m) => (
+                    <option key={m.symbol} value={m.symbol} className="bg-background">{m.symbol}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] font-mono text-muted-foreground">
+                  Borrow APY: {formatPercent(borrowRate)}
+                </p>
+              </div>
+            </div>
+
+            {sameAsset && (
+              <p className="text-xs text-amber-400 font-mono">Yield and debt assets must differ</p>
+            )}
+
+            {/* Amount */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Initial Deposit ({debtAssetSym})
+                </label>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  Wallet: {Number(balanceFormatted).toLocaleString("en-US", { maximumFractionDigits: 4 })} {debtAssetSym}
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={amountInput}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) setAmountInput(v);
+                  }}
+                  placeholder="0.0"
+                  min="0"
+                  step="any"
+                  className="w-full h-12 text-lg font-mono bg-background border border-border px-4 pr-16 text-foreground placeholder:text-muted-foreground focus:border-accent/50 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAmountInput(balanceFormatted)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
+                >
+                  MAX
+                </button>
+              </div>
+              {insufficientBalance && (
+                <p className="text-xs text-destructive">Insufficient balance</p>
+              )}
+            </div>
+
+            {/* Leverage */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                Leverage Multiplier
+              </label>
+              <div className="flex gap-2">
+                {LEVERAGE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    className={`flex-1 h-10 font-mono font-bold text-sm transition-colors ${
+                      leverage === opt
+                        ? "bg-accent text-background shadow-[0_0_20px_rgba(176,196,255,0.2)]"
+                        : "border border-accent/30 text-accent hover:bg-accent hover:text-background"
+                    }`}
+                    onClick={() => setLeverage(opt)}
+                  >
+                    {opt}x
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Estimate */}
+            {parsedAmount > 0n && !sameAsset && (
+              <div className="border border-border/50 bg-background/50 p-4 space-y-3">
+                <h4 className="text-[10px] font-mono uppercase tracking-wider text-accent">
+                  Position Estimate
+                </h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      Position Size
+                    </p>
+                    <p className="text-sm font-mono font-medium text-foreground">
+                      ~{estimatedPosition.toFixed(4)} {yieldAssetSym}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      Flash Loan
+                    </p>
+                    <p className="text-sm font-mono font-medium text-foreground">
+                      {formatUnits(flashloanAmount, decimals)} {debtAssetSym}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      Net APY
+                    </p>
+                    <p className={`text-sm font-mono font-medium ${estimatedApy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {estimatedApy >= 0 ? "+" : ""}{estimatedApy.toFixed(2)}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="space-y-2">
+              {needsTokenApproval && parsedAmount > 0n && !insufficientBalance && (
+                <TxButton
+                  onClick={() => tokenApproval.approve(parsedAmount)}
+                  isPending={tokenApproval.isPending}
+                  isConfirming={tokenApproval.isConfirming}
+                  disabled={!address}
+                >
+                  Step 1: Approve {debtAssetSym}
+                </TxButton>
+              )}
+              {!needsTokenApproval && needsDelegation && parsedAmount > 0n && (
+                <TxButton
+                  onClick={() => delegationApproval.approve(MAX_UINT256)}
+                  isPending={delegationApproval.isPending}
+                  isConfirming={delegationApproval.isConfirming}
+                  disabled={!address}
+                >
+                  Step 2: Approve credit delegation
+                </TxButton>
+              )}
+              {!needsTokenApproval && !needsDelegation && (
+                <TxButton
+                  onClick={handleOpen}
+                  isPending={openPending}
+                  isConfirming={openConfirming}
+                  disabled={!ready}
+                >
+                  {noSwapper ? "DEX adapter required" : "Open Position"}
+                </TxButton>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Active Positions */}
+      {/* Existing positions */}
       <div className="animate-in-delay-3">
         <div className="technical-border bg-card">
           <div className="p-4 border-b border-border/50">
             <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Active Positions</h2>
             <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-1">
-              Your leveraged positions and their current status
+              Cross-asset positions detected from your supply + borrow balances
             </p>
           </div>
           <table className="w-full">
             <thead>
               <tr className="border-b border-border/50">
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Asset</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Size</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Leverage</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Health Factor</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">PnL</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Actions</th>
+                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Yield</th>
+                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Debt</th>
+                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Supplied</th>
+                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrowed</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td
-                  colSpan={6}
-                  className="h-40 text-center text-muted-foreground"
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <p className="text-sm font-medium text-foreground">
-                      No active leveraged positions
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Open a position above to get started
-                    </p>
-                  </div>
-                </td>
-              </tr>
+              {leveraged.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="h-32 text-center text-muted-foreground">
+                    <p className="text-sm font-medium text-foreground">No active leveraged positions</p>
+                    <p className="text-xs text-muted-foreground mt-1">Open one above to get started</p>
+                  </td>
+                </tr>
+              ) : (
+                leveraged.map((p) => (
+                  <tr key={`${p.yield.symbol}-${p.debt.symbol}`} className="border-b border-border/50">
+                    <td className="px-6 py-3">
+                      <div className="flex items-center gap-2"><TokenIcon symbol={p.yield.symbol} size={20} /> <span className="font-mono text-sm">{p.yield.symbol}</span></div>
+                    </td>
+                    <td className="px-6 py-3">
+                      <div className="flex items-center gap-2"><TokenIcon symbol={p.debt.symbol} size={20} /> <span className="font-mono text-sm">{p.debt.symbol}</span></div>
+                    </td>
+                    <td className="px-6 py-3 font-mono text-sm">
+                      {Number(formatUnits(p.yield.supplied, p.yield.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                    </td>
+                    <td className="px-6 py-3 font-mono text-sm">
+                      {Number(formatUnits(p.debt.borrowed, p.debt.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

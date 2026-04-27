@@ -331,6 +331,244 @@ export const VARIABLE_DEBT_TOKEN_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "address" }],
   },
+  {
+    name: "approveDelegation",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "delegatee", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "borrowAllowance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "fromUser", type: "address" },
+      { name: "toUser", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// LightlendPairRegistry (isolated lending registry)
+// -----------------------------------------------------------------------------
+export const ISOLATED_REGISTRY_ABI = [
+  {
+    name: "getAllPairAddresses",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]" }],
+  },
+  {
+    name: "deployedPairsLength",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// LightlendPair (isolated lending pair)
+// -----------------------------------------------------------------------------
+export const ISOLATED_PAIR_ABI = [
+  // --- Views ---
+  { name: "asset", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { name: "collateralContract", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { name: "maxLTV", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { name: "decimals", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] },
+  { name: "name", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] },
+  { name: "symbol", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] },
+  {
+    name: "totalAsset",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "amount", type: "uint128" },
+      { name: "shares", type: "uint128" },
+    ],
+  },
+  {
+    name: "totalBorrow",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "amount", type: "uint128" },
+      { name: "shares", type: "uint128" },
+    ],
+  },
+  {
+    name: "getUserSnapshot",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_address", type: "address" }],
+    outputs: [
+      { name: "_userAssetShares", type: "uint256" },
+      { name: "_userBorrowShares", type: "uint256" },
+      { name: "_userCollateralBalance", type: "uint256" },
+    ],
+  },
+  {
+    name: "userCollateralBalance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "previewDeposit",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_assets", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "previewRedeem",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_shares", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  // --- Mutative ---
+  {
+    name: "deposit",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_amount", type: "uint256" },
+      { name: "_receiver", type: "address" },
+    ],
+    outputs: [{ name: "_sharesReceived", type: "uint256" }],
+  },
+  {
+    name: "redeem",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_shares", type: "uint256" },
+      { name: "_receiver", type: "address" },
+      { name: "_owner", type: "address" },
+    ],
+    outputs: [{ name: "_amountToReturn", type: "uint256" }],
+  },
+  {
+    name: "addCollateral",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_collateralAmount", type: "uint256" },
+      { name: "_borrower", type: "address" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "borrowAsset",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_borrowAmount", type: "uint256" },
+      { name: "_collateralAmount", type: "uint256" },
+      { name: "_receiver", type: "address" },
+    ],
+    outputs: [{ name: "_shares", type: "uint256" }],
+  },
+  {
+    name: "repayAsset",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_shares", type: "uint256" },
+      { name: "_borrower", type: "address" },
+    ],
+    outputs: [{ name: "_amountToRepay", type: "uint256" }],
+  },
+  {
+    name: "removeCollateral",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_collateralAmount", type: "uint256" },
+      { name: "_receiver", type: "address" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// Looping (Lumina leveraged-position contract)
+// -----------------------------------------------------------------------------
+export const LOOPING_ABI = [
+  {
+    name: "openPosition",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_pool", type: "address" },
+      { name: "_swapper", type: "address" },
+      { name: "_debtAsset", type: "address" },
+      { name: "_yieldAsset", type: "address" },
+      { name: "_initialAmount", type: "uint256" },
+      { name: "_flashloanAmount", type: "uint256" },
+      { name: "_minAmountOut", type: "uint256" },
+      { name: "_path", type: "address[]" },
+      { name: "_startWithYield", type: "bool" },
+      { name: "_minInitialAmountOut", type: "uint256" },
+      { name: "_deadline", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "closePosition",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_pool", type: "address" },
+      { name: "_swapper", type: "address" },
+      { name: "_debtAsset", type: "address" },
+      { name: "_yieldAsset", type: "address" },
+      { name: "_flashloanAmount", type: "uint256" },
+      { name: "_minAmountOut", type: "uint256" },
+      { name: "_path", type: "address[]" },
+      { name: "_withdrawAmount", type: "uint256" },
+      { name: "_deadline", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "pools",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "swappers",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "referralAddress",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    name: "owner",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
 ] as const;
 
 // -----------------------------------------------------------------------------
