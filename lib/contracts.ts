@@ -42,6 +42,9 @@ export const ADDRESSES = {
 
   // --- Faucet (rate-limited public mint of USDC + LIT) ---
   faucet: checksumAddress("0x158b2a57C84C9C150b4D9CE5f8b78949145652d0"),
+
+  // --- MockSwapper (testnet DEX adapter for Looping) ---
+  swapper: checksumAddress("0x387Ec86135feAbC98F75729F75b9F3EA4e99c114"),
 } as const;
 
 // =============================================================================

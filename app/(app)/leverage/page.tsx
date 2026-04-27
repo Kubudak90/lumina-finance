@@ -19,8 +19,8 @@ import { Triangle } from "lucide-react";
 
 const LEVERAGE_OPTIONS = [1.5, 2, 2.5, 3] as const;
 
-// Candidate swapper addresses to probe — extend when a Base Sepolia DEX adapter is deployed.
-const KNOWN_SWAPPER_CANDIDATES: `0x${string}`[] = [];
+// Candidate swapper addresses to probe — extend when more DEX adapters are deployed.
+const KNOWN_SWAPPER_CANDIDATES: `0x${string}`[] = [ADDRESSES.swapper];
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 
