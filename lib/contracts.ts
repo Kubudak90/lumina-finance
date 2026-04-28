@@ -10,6 +10,7 @@ import {
   LOOPING_ABI,
   ISOLATED_REGISTRY_ABI,
   ISOLATED_PAIR_ABI,
+  ASSET_LISTING_PROXY_ABI,
 } from "./abis";
 import { checksumAddress } from "./format";
 
@@ -51,6 +52,10 @@ export const ADDRESSES = {
 
   // --- WETH price feed (CoinGecko-driven UpdatableAggregator) ---
   wethOracleFeed: checksumAddress("0x9966BCA6eD030256c2585D8823ecF035e296f49A"),
+
+  // --- Aave V3 asset listing helpers ---
+  configEngine: checksumAddress("0x84198a3f1646270d307b1a79a5b71e7f27966f8a"),
+  assetListingProxy: checksumAddress("0x0A52d5e36A8E63f96c497D683422e0d609760Ec2"),
 } as const;
 
 // =============================================================================
@@ -68,5 +73,6 @@ export {
   LOOPING_ABI,
   ISOLATED_REGISTRY_ABI,
   ISOLATED_PAIR_ABI,
+  ASSET_LISTING_PROXY_ABI,
 };
 

@@ -571,6 +571,66 @@ export const ISOLATED_PAIR_ABI = [
 ] as const;
 
 // -----------------------------------------------------------------------------
+// AssetListingProxy (forwards Aave V3 ConfigEngine.listAssets via delegatecall)
+// -----------------------------------------------------------------------------
+export const ASSET_LISTING_PROXY_ABI = [
+  {
+    name: "listAssets",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "context",
+        type: "tuple",
+        components: [
+          { name: "networkName", type: "string" },
+          { name: "networkAbbreviation", type: "string" },
+        ],
+      },
+      {
+        name: "listings",
+        type: "tuple[]",
+        components: [
+          { name: "asset", type: "address" },
+          { name: "assetSymbol", type: "string" },
+          { name: "priceFeed", type: "address" },
+          {
+            name: "rateStrategyParams",
+            type: "tuple",
+            components: [
+              { name: "optimalUsageRatio", type: "uint256" },
+              { name: "baseVariableBorrowRate", type: "uint256" },
+              { name: "variableRateSlope1", type: "uint256" },
+              { name: "variableRateSlope2", type: "uint256" },
+            ],
+          },
+          { name: "enabledToBorrow", type: "uint256" },
+          { name: "borrowableInIsolation", type: "uint256" },
+          { name: "withSiloedBorrowing", type: "uint256" },
+          { name: "flashloanable", type: "uint256" },
+          { name: "ltv", type: "uint256" },
+          { name: "liqThreshold", type: "uint256" },
+          { name: "liqBonus", type: "uint256" },
+          { name: "reserveFactor", type: "uint256" },
+          { name: "supplyCap", type: "uint256" },
+          { name: "borrowCap", type: "uint256" },
+          { name: "debtCeiling", type: "uint256" },
+          { name: "liqProtocolFee", type: "uint256" },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+  {
+    name: "owner",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
 // Looping (Lumina leveraged-position contract)
 // -----------------------------------------------------------------------------
 export const LOOPING_ABI = [
