@@ -26,17 +26,14 @@ interface Props {
 }
 
 const MAX_UINT256 = 2n ** 256n - 1n;
+const PERCENTAGES = [25, 50, 75, 100] as const;
+type Percent = (typeof PERCENTAGES)[number];
 
 /**
- * Closes a leveraged position via Looping.closePosition().
- *
- * Flow:
- *   1. Read user's current aToken (yield) and variableDebt (debt) balances
- *   2. User approves aToken to Looping (max) so the contract can pull collateral
- *   3. Call closePosition with withdrawAmount=MAX (full close), flashloanAmount
- *      sized to current debt — Looping flash-loans debt, repays user's debt,
- *      withdraws yield collateral, swaps it back, repays the flash loan, and
- *      refunds any leftover to the user.
+ * Closes a leveraged position via Looping.closePosition() — supports partial
+ * close via 25/50/75/100% buttons. 100% uses withdrawAmount=MAX so the
+ * contract reads live balances; other percentages compute proportional
+ * withdrawAmount and flashloanAmount values.
  */
 export function LeverageCloseModal({
   yieldAsset,
@@ -51,11 +48,11 @@ export function LeverageCloseModal({
   onClose,
 }: Props) {
   const { address } = useAccount();
+  const [percent, setPercent] = useState<Percent>(100);
   const [pendingCloseAfterApproval, setPendingCloseAfterApproval] = useState(false);
 
   const aTokenApproval = useTokenApproval(yieldAToken, ADDRESSES.looping, address);
 
-  // Read current balances
   const aTokenBalance = useReadContract({
     address: yieldAToken,
     abi: ATOKEN_ABI,
@@ -87,11 +84,11 @@ export function LeverageCloseModal({
 
   useEffect(() => {
     if (isSuccess && hash) {
-      toast.success("Position closed", {
+      toast.success(`Closed ${percent}% of position`, {
         action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
       });
     }
-  }, [isSuccess, hash]);
+  }, [isSuccess, hash, percent]);
 
   // Auto-chain close after approval
   useEffect(() => {
@@ -102,13 +99,27 @@ export function LeverageCloseModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aTokenApproval.isSuccess, pendingCloseAfterApproval]);
 
+  // For partial close we need to approve enough aToken; for full close we use MAX
+  const requiredAtokenApproval = percent === 100 ? yieldRaw : (yieldRaw * BigInt(percent)) / 100n;
+
   const executeClose = () => {
     if (!address || !swapper) return;
     const path: `0x${string}`[] = [yieldAsset, debtAsset];
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
-    // flashloanAmount must cover the actual debt; use current debt + 0.1% buffer
-    // for any interest accrued between read and execution.
-    const flashloanAmount = (debtRaw * 1001n) / 1000n + 1n;
+
+    let withdrawAmount: bigint;
+    let flashloanAmount: bigint;
+    if (percent === 100) {
+      // Contract reads live balances; pass MAX for withdrawAmount and live debt + 0.1% buffer for flashloan
+      withdrawAmount = MAX_UINT256;
+      flashloanAmount = (debtRaw * 1001n) / 1000n + 1n;
+    } else {
+      const fraction = BigInt(percent);
+      withdrawAmount = (yieldRaw * fraction) / 100n;
+      // For partial close, flashloanAmount becomes repaymentAmount.
+      // Add 0.1% buffer for interest accrued between read and tx.
+      flashloanAmount = ((debtRaw * fraction) / 100n) * 1001n / 1000n + 1n;
+    }
 
     writeContract({
       address: ADDRESSES.looping,
@@ -120,15 +131,15 @@ export function LeverageCloseModal({
         debtAsset,
         yieldAsset,
         flashloanAmount,
-        0n,             // minAmountOut (testnet)
+        0n,
         path,
-        MAX_UINT256,    // withdrawAmount = MAX → contract reads actual balances
+        withdrawAmount,
         deadline,
       ],
     });
   };
 
-  const needsApproval = aTokenApproval.needsApproval(yieldRaw);
+  const needsApproval = aTokenApproval.needsApproval(requiredAtokenApproval);
 
   const handleClose = () => {
     if (!address || !swapper || debtRaw === 0n || yieldRaw === 0n) return;
@@ -140,6 +151,9 @@ export function LeverageCloseModal({
     executeClose();
   };
 
+  const portionYield = (yieldRaw * BigInt(percent)) / 100n;
+  const portionDebt = (debtRaw * BigInt(percent)) / 100n;
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-md">
@@ -147,10 +161,12 @@ export function LeverageCloseModal({
           <div className="text-center py-4">
             <div className="text-4xl mb-4 text-accent">&#10003;</div>
             <DialogHeader className="items-center">
-              <DialogTitle className="text-xl">Position Closed</DialogTitle>
+              <DialogTitle className="text-xl">{percent === 100 ? "Position Closed" : `Closed ${percent}%`}</DialogTitle>
             </DialogHeader>
             <p className="text-muted-foreground mt-2 mb-4">
-              {yieldSymbol} collateral was withdrawn, debt repaid, and any leftover refunded
+              {percent === 100
+                ? `${yieldSymbol} collateral was withdrawn, debt repaid, and any leftover refunded`
+                : `${percent}% of the position was closed; remainder stays open`}
             </p>
             <Button variant="link" onClick={onClose}>Close</Button>
           </div>
@@ -161,19 +177,50 @@ export function LeverageCloseModal({
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Flash-loans {debtSymbol} to repay debt, withdraws your {yieldSymbol} collateral,
-                swaps it back to {debtSymbol} to repay the flash loan, and refunds any
-                surplus to your wallet.
+                Flash-loans {debtSymbol} to repay debt, withdraws {yieldSymbol} collateral,
+                swaps it back, and refunds any surplus.
               </p>
 
+              {/* Percentage selector */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Close Percentage
+                </label>
+                <div className="flex gap-2">
+                  {PERCENTAGES.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPercent(p)}
+                      className={`flex-1 h-10 font-mono font-bold text-sm transition-colors ${
+                        percent === p
+                          ? "bg-accent text-background shadow-[0_0_20px_rgba(176,196,255,0.2)]"
+                          : "border border-accent/30 text-accent hover:bg-accent hover:text-background"
+                      }`}
+                    >
+                      {p}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Position summary */}
               <div className="technical-border bg-background p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Collateral ({yieldSymbol})</span>
-                  <span className="font-mono">{Number(formatUnits(yieldRaw, yieldDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
+                  <span className="text-muted-foreground">Total Collateral</span>
+                  <span className="font-mono">{Number(formatUnits(yieldRaw, yieldDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} {yieldSymbol}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Debt ({debtSymbol})</span>
-                  <span className="font-mono">{Number(formatUnits(debtRaw, debtDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
+                  <span className="text-muted-foreground">Total Debt</span>
+                  <span className="font-mono">{Number(formatUnits(debtRaw, debtDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} {debtSymbol}</span>
+                </div>
+                <hr className="border-border/50" />
+                <div className="flex justify-between text-accent">
+                  <span>Withdraw ({percent}%)</span>
+                  <span className="font-mono">{Number(formatUnits(portionYield, yieldDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} {yieldSymbol}</span>
+                </div>
+                <div className="flex justify-between text-accent">
+                  <span>Repay ({percent}%)</span>
+                  <span className="font-mono">{Number(formatUnits(portionDebt, debtDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} {debtSymbol}</span>
                 </div>
               </div>
 
@@ -187,7 +234,7 @@ export function LeverageCloseModal({
                 isConfirming={isConfirming || aTokenApproval.isConfirming}
                 disabled={!address || debtRaw === 0n || yieldRaw === 0n || !swapper}
               >
-                {needsApproval ? `Approve a${yieldSymbol}` : "Close Position"}
+                {needsApproval ? `Approve a${yieldSymbol}` : `Close ${percent}%`}
               </TxButton>
             </div>
           </>

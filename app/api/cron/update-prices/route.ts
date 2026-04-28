@@ -30,7 +30,7 @@ const FEEDS: FeedConfig[] = [
     feed: "0x9966BCA6eD030256c2585D8823ecF035e296f49A",
     token: "0x4200000000000000000000000000000000000006",
     decimals: 18,
-    syncToSwapper: false,
+    syncToSwapper: true,
   },
 ];
 

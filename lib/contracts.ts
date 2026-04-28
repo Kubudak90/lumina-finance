@@ -10,7 +10,11 @@ import {
   LOOPING_ABI,
   ISOLATED_REGISTRY_ABI,
   ISOLATED_PAIR_ABI,
+  ISOLATED_DEPLOYER_ABI,
+  ISOLATED_WHITELIST_ABI,
   ASSET_LISTING_PROXY_ABI,
+  POOL_CONFIGURATOR_ABI,
+  ACL_MANAGER_ABI,
 } from "./abis";
 import { checksumAddress } from "./format";
 
@@ -56,6 +60,7 @@ export const ADDRESSES = {
   // --- Aave V3 asset listing helpers ---
   configEngine: checksumAddress("0x84198a3f1646270d307b1a79a5b71e7f27966f8a"),
   assetListingProxy: checksumAddress("0x0A52d5e36A8E63f96c497D683422e0d609760Ec2"),
+  aclManager: checksumAddress("0x3c2d4De687bb02741b6910fE5470c86F15bd6a2e"),
 } as const;
 
 // =============================================================================
@@ -73,6 +78,10 @@ export {
   LOOPING_ABI,
   ISOLATED_REGISTRY_ABI,
   ISOLATED_PAIR_ABI,
+  ISOLATED_DEPLOYER_ABI,
+  ISOLATED_WHITELIST_ABI,
   ASSET_LISTING_PROXY_ABI,
+  POOL_CONFIGURATOR_ABI,
+  ACL_MANAGER_ABI,
 };
 

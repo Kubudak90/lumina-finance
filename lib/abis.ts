@@ -571,6 +571,103 @@ export const ISOLATED_PAIR_ABI = [
 ] as const;
 
 // -----------------------------------------------------------------------------
+// PoolConfigurator (admin ops: E-Mode categories, asset configs)
+// -----------------------------------------------------------------------------
+export const POOL_CONFIGURATOR_ABI = [
+  {
+    name: "setEModeCategory",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "categoryId", type: "uint8" },
+      { name: "ltv", type: "uint16" },
+      { name: "liquidationThreshold", type: "uint16" },
+      { name: "liquidationBonus", type: "uint16" },
+      { name: "label", type: "string" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "setAssetCollateralInEMode",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "categoryId", type: "uint8" },
+      { name: "allowed", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "setAssetBorrowableInEMode",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "categoryId", type: "uint8" },
+      { name: "borrowable", type: "bool" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// ACLManager
+// -----------------------------------------------------------------------------
+export const ACL_MANAGER_ABI = [
+  { name: "isPoolAdmin", type: "function", stateMutability: "view", inputs: [{ name: "admin", type: "address" }], outputs: [{ name: "", type: "bool" }] },
+  { name: "isRiskAdmin", type: "function", stateMutability: "view", inputs: [{ name: "admin", type: "address" }], outputs: [{ name: "", type: "bool" }] },
+  { name: "isAssetListingAdmin", type: "function", stateMutability: "view", inputs: [{ name: "admin", type: "address" }], outputs: [{ name: "", type: "bool" }] },
+] as const;
+
+// -----------------------------------------------------------------------------
+// LightlendPairDeployer (deploys new isolated pairs)
+// -----------------------------------------------------------------------------
+export const ISOLATED_DEPLOYER_ABI = [
+  {
+    name: "deploy",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_configData", type: "bytes" }],
+    outputs: [{ name: "_pairAddress", type: "address" }],
+  },
+  {
+    name: "amountToSeed",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "lightlendWhitelistAddress",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    name: "deployedPairsLength",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// LightlendWhitelist (whitelist for isolated pair deployers)
+// -----------------------------------------------------------------------------
+export const ISOLATED_WHITELIST_ABI = [
+  {
+    name: "lightlendDeployerWhitelist",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
 // AssetListingProxy (forwards Aave V3 ConfigEngine.listAssets via delegatecall)
 // -----------------------------------------------------------------------------
 export const ASSET_LISTING_PROXY_ABI = [
