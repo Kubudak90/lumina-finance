@@ -36,7 +36,7 @@ interface FormState {
 const DEFAULTS: FormState = {
   asset: "",
   collateral: "",
-  oracle: "0xC743eA0Dc94bc5f6B27924e7C2FC714e05C9d1c5", // ADDRESSES.isolatedOracle
+  oracle: ADDRESSES.isolatedOracle,
   maxOracleDeviationPct: "1.5",
   rateContract: "",
   fullUtilizationRatePct: "100",

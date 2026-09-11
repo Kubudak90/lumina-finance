@@ -1,4 +1,5 @@
-import { ADDRESSES } from "./contracts";
+import baseSepolia from "../deployments/base-sepolia.json";
+import { checksumAddress } from "./format";
 
 export interface MarketConfig {
   asset: `0x${string}`;
@@ -10,35 +11,21 @@ export interface MarketConfig {
   icon: string; // path to icon
 }
 
-export const MARKETS: MarketConfig[] = [
-  {
-    asset: ADDRESSES.usdc,
-    symbol: "USDC",
-    name: "USD Coin",
-    decimals: 6, // Note: USDC uses 6 decimals in Aave V3
-    aToken: "0x99Dcf52AbEbAf469d56A212A52fC45e29C2b718A" as `0x${string}`,
-    variableDebtToken: "0xBD00FD0340461082CAc240cAa5AEbae62bb55cA1" as `0x${string}`,
-    icon: "/tokens/usdc.svg",
-  },
-  {
-    asset: ADDRESSES.lit,
-    symbol: "LIT",
-    name: "LIT Token",
-    decimals: 18,
-    aToken: "0x1Ae2e9828Ba36110A530082e3F5BC46EBa451A4e" as `0x${string}`,
-    variableDebtToken: "0xC9527124adfBA28dB02930A23b2e0EB918E8160a" as `0x${string}`,
-    icon: "/tokens/lit.webp",
-  },
-  {
-    asset: "0x4200000000000000000000000000000000000006" as `0x${string}`,
-    symbol: "WETH",
-    name: "Wrapped Ether",
-    decimals: 18,
-    aToken: "0x0e7DC690De33D38D074F61C078622B1007BfC748" as `0x${string}`,
-    variableDebtToken: "0xD41Ad22777E98917BBbAf41E001500EC5EbBa265" as `0x${string}`,
-    icon: "/tokens/eth.svg",
-  },
-];
+const MARKET_ICONS: Record<string, string> = {
+  USDC: "/tokens/usdc.svg",
+  LIT: "/tokens/lit.webp",
+  WETH: "/tokens/eth.svg",
+};
+
+export const MARKETS: MarketConfig[] = baseSepolia.markets.map((market) => ({
+  asset: checksumAddress(market.asset),
+  symbol: market.symbol,
+  name: market.name,
+  decimals: market.decimals,
+  aToken: checksumAddress(market.aToken),
+  variableDebtToken: checksumAddress(market.variableDebtToken),
+  icon: MARKET_ICONS[market.symbol] ?? "/tokens/eth.svg",
+}));
 
 export function getMarketByAsset(asset: string): MarketConfig | undefined {
   return MARKETS.find((m) => m.asset.toLowerCase() === asset.toLowerCase());
