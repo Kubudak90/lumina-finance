@@ -14,7 +14,7 @@ const config = createConfig(
     walletConnectProjectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "",
     appName: "Lumina Finance",
     // Dev warning is emitted below after config creation
-    appDescription: "The first lending protocol on Lighter",
+    appDescription: "EVM lending and leverage with integrated Lighter portfolio",
   })
 );
 

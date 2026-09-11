@@ -75,14 +75,14 @@ export default function LandingPage() {
             </div>
 
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter leading-[0.9]">
-              <span className="glow-text">Lending</span>
+              <span className="glow-text">EVM lending</span>
               <br />
-              <span className="text-text-dim">on Lighter</span>
+              <span className="text-text-dim">with Lighter</span>
             </h1>
 
             <p className="text-lg md:text-xl text-text-dim max-w-xl mx-auto leading-relaxed">
-              The first lending protocol on the Lighter ecosystem.
-              Supply, borrow, and earn — powered by Aave V3.
+              Supply, borrow, and loop on Base Sepolia, with Lighter portfolio
+              and hedging as a separate trading domain.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

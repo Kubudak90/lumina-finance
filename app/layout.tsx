@@ -8,8 +8,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: "Lumina Finance — Lending on Lighter",
-  description: "The first lending protocol on Lighter",
+  title: "Lumina Finance — EVM lending with Lighter",
+  description: "EVM lending and leverage with integrated Lighter portfolio and hedging",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -7,10 +7,11 @@
 .yarn/install-state.gz
 
 # testing
-/coverage
+coverage
+**/.coverage
 
 # next.js
-/.next/
+**/.next/
 /out/
 
 # production
@@ -19,6 +20,9 @@
 # misc
 .DS_Store
 *.pem
+*.key
+.claude/
+**/.claude/
 
 # debug
 npm-debug.log*
@@ -26,6 +30,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
 
 # vercel

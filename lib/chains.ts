@@ -14,22 +14,8 @@ export const baseSepolia = defineChain({
 });
 
 /**
- * LighterEVM chains - reserved for mainnet launch
- */
-export const lighterEVM = defineChain({
-  id: 304,
-  name: "Lighter",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://mainnet.zklighter.elliot.ai"] },
-  },
-  blockExplorers: {
-    default: { name: "Lighter Explorer", url: "https://scan.lighter.xyz" },
-  },
-  testnet: false,
-});
-
-/**
- * Default chain — Base Sepolia for now, switch to lighterEVM at mainnet launch
+ * Default wagmi/viem chain for Lumina lending contracts.
+ * Lighter is a separate trading domain — see `lib/lighter/config.ts`.
+ * Do not add a fake EVM chain for Lighter REST (`mainnet.zklighter.elliot.ai`).
  */
 export const defaultChain = baseSepolia;
