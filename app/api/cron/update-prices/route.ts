@@ -62,8 +62,12 @@ async function fetchPrices(coinIds: string[], apiKey?: string) {
 export async function GET(req: Request) {
   // Vercel Cron sends an Authorization header with CRON_SECRET; require it.
   const auth = req.headers.get("authorization");
-  const expected = `Bearer ${process.env.CRON_SECRET}`;
-  if (process.env.CRON_SECRET && auth !== expected) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret?.trim()) {
+    return Response.json({ error: "price updater disabled" }, { status: 503 });
+  }
+  const expected = `Bearer ${secret}`;
+  if (auth !== expected) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -82,7 +86,7 @@ export async function GET(req: Request) {
 
   for (const f of FEEDS) {
     const usd = cg[f.coinId]?.usd;
-    if (typeof usd !== "number") {
+    if (typeof usd !== "number" || !Number.isFinite(usd) || usd <= 0 || !Number.isSafeInteger(Math.round(usd * 1e8)) || Math.round(usd * 1e8) <= 0) {
       log.push({ label: f.label, status: "no-price", coinId: f.coinId });
       continue;
     }
@@ -104,6 +108,8 @@ export async function GET(req: Request) {
         functionName: "setAnswer",
         args: [newAnswer],
       });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: tx });
+      if (receipt.status !== "success") throw new Error(`${f.label} feed update reverted`);
       entry.feedTx = tx;
       entry.feedFrom = prev.toString();
     } else {
@@ -126,6 +132,8 @@ export async function GET(req: Request) {
           functionName: "setPrice",
           args: [f.token, newAnswer, f.decimals],
         });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: tx });
+        if (receipt.status !== "success") throw new Error(`${f.label} swapper update reverted`);
         entry.swapperTx = tx;
         entry.swapperFrom = swapperPrev.toString();
       } else {
