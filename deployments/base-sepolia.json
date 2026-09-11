@@ -1,0 +1,81 @@
+{
+  "environment": "base-sepolia",
+  "chainId": 84532,
+  "deploymentBlock": 0,
+  "explorer": "https://sepolia.basescan.org",
+  "notes": "Canonical Lumina Base Sepolia inventory. Role EOAs are 0x0 until GOV-01 snapshots ACL. Do not treat Lighter REST as this chain.",
+  "contracts": {
+    "pool": "0xCe390a9B81841c077bC4541f16D53d2a01bdEb39",
+    "poolConfigurator": "0xE4F797d68111F0635E5423EFc7035688CF78BB0c",
+    "oracle": "0x0103951a20eD2bd84Bd79FE3719553A358893911",
+    "dataProvider": "0x7949865603B716A442f65249D428D03F10950825",
+    "rewardsController": "0x0903A0e176375F11C86E74e316E1B806DDD49A2b",
+    "aclManager": "0x3c2d4De687bb02741b6910fE5470c86F15bd6a2e",
+    "configEngine": "0x84198a3f1646270d307b1a79a5b71e7f27966f8a",
+    "assetListingProxy": "0x0A52d5e36A8E63f96c497D683422e0d609760Ec2",
+    "usdc": "0x57d6EB79ea08D10d7e03865cb1820f01F82255c4",
+    "lit": "0xDf2B23A45B9a451c002c27F83e9e55da5efdc992",
+    "weth": "0x4200000000000000000000000000000000000006",
+    "aggregator": "0xe2e08840c7a0b1B832E39FEe89e89C9653eD8320",
+    "looping": "0xaB15f28b4e0821504c67D81E2B0B6468c2ee2429",
+    "strategyManagerFactory": "0xF648581eEBC720C5aCbeB1b1036846664f018F50",
+    "isolatedOracle": "0xC743eA0Dc94bc5f6B27924e7C2FC714e05C9d1c5",
+    "isolatedRegistry": "0x1247B132A6D2658DB8FC3e84EC522356C3D8F3bC",
+    "isolatedDeployer": "0xeB4FFD4A0C3b8B066174d56F02C4C1cE6F787bFB",
+    "isolatedPairLitUsdc": "0x837D5Bb10434Acd90008Be47201bce5b8aFaF7A5",
+    "faucet": "0x158b2a57C84C9C150b4D9CE5f8b78949145652d0",
+    "swapper": "0x387Ec86135feAbC98F75729F75b9F3EA4e99c114",
+    "litOracleFeed": "0x1c2af9252306DD4Be3fF79980302C64a7BA46B1d",
+    "wethOracleFeed": "0x9966BCA6eD030256c2585D8823ecF035e296f49A"
+  },
+  "markets": [
+    {
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "decimals": 6,
+      "asset": "0x57d6EB79ea08D10d7e03865cb1820f01F82255c4",
+      "aToken": "0x99Dcf52AbEbAf469d56A212A52fC45e29C2b718A",
+      "variableDebtToken": "0xBD00FD0340461082CAc240cAa5AEbae62bb55cA1"
+    },
+    {
+      "symbol": "LIT",
+      "name": "LIT Token",
+      "decimals": 18,
+      "asset": "0xDf2B23A45B9a451c002c27F83e9e55da5efdc992",
+      "aToken": "0x1Ae2e9828Ba36110A530082e3F5BC46EBa451A4e",
+      "variableDebtToken": "0xC9527124adfBA28dB02930A23b2e0EB918E8160a"
+    },
+    {
+      "symbol": "WETH",
+      "name": "Wrapped Ether",
+      "decimals": 18,
+      "asset": "0x4200000000000000000000000000000000000006",
+      "aToken": "0x0e7DC690De33D38D074F61C078622B1007BfC748",
+      "variableDebtToken": "0xD41Ad22777E98917BBbAf41E001500EC5EbBa265"
+    }
+  ],
+  "feeds": [
+    {
+      "label": "LIT",
+      "coinId": "lighter",
+      "feed": "0x1c2af9252306DD4Be3fF79980302C64a7BA46B1d",
+      "asset": "0xDf2B23A45B9a451c002c27F83e9e55da5efdc992",
+      "decimals": 18,
+      "syncToSwapper": true
+    },
+    {
+      "label": "WETH",
+      "coinId": "ethereum",
+      "feed": "0x9966BCA6eD030256c2585D8823ecF035e296f49A",
+      "asset": "0x4200000000000000000000000000000000000006",
+      "decimals": 18,
+      "syncToSwapper": true
+    }
+  ],
+  "roles": {
+    "poolAdmin": "0x0000000000000000000000000000000000000000",
+    "riskAdmin": "0x0000000000000000000000000000000000000000",
+    "emergencyAdmin": "0x0000000000000000000000000000000000000000",
+    "keeper": "0x0000000000000000000000000000000000000000"
+  }
+}
