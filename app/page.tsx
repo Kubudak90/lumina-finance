@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ConnectKitButton } from "connectkit";
+import { WalletButton } from "@/components/common/WalletButton";
 import {
   Zap,
   ArrowRight,
@@ -60,7 +60,7 @@ export default function LandingPage() {
             >
               App <ChevronRight className="w-3 h-3" />
             </Link>
-            <ConnectKitButton />
+            <WalletButton />
           </div>
         </div>
       </nav>
