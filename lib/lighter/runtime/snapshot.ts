@@ -73,6 +73,6 @@ export function useLighterSnapshot(): LighterSnapshot {
     availableBalance: account?.available_balance ?? null,
     balances,
     positions,
-    updatedAt: Date.now(),
+    updatedAt: lastPongAt ?? 0,
   };
 }

@@ -13,7 +13,7 @@ import {
   ChartLine,
   X,
 } from "lucide-react";
-import { isLighterPath } from "@/lib/lighter";
+import { isLighterPath } from "@/lib/lighter/config";
 import { useSidebar } from "@/providers/SidebarProvider";
 
 const MAIN_NAV = [

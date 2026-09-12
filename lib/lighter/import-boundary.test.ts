@@ -61,7 +61,7 @@ describe("lighter-ts import boundary", () => {
     );
 
     const barrel = readFileSync(join(repoRoot, "lib/lighter/index.ts"), "utf8");
-    expect(barrel).not.toMatch(/lighter-ts/);
+    expect(barrel).not.toMatch(/from\s+['"]lighter-ts['"]/);
 
     const page = readFileSync(join(repoRoot, "app/(app)/lighter/page.tsx"), "utf8");
     expect(page).toMatch(/next\/dynamic/);

@@ -2,7 +2,7 @@
 
 import { useAccount, useSwitchChain } from "wagmi";
 import { defaultChain } from "@/lib/chains";
-import { isLighterPath } from "@/lib/lighter";
+import { isLighterPath } from "@/lib/lighter/config";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 

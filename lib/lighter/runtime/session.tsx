@@ -388,12 +388,10 @@ function LighterReadOnlyInner() {
 }
 
 export function LighterReadOnlyView() {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
+  useState(() => {
     ensureLighterRuntime();
-    setReady(true);
-  }, []);
-  if (!ready) return <p className="text-sm text-text-dim">Starting Lighter runtime…</p>;
+    return null;
+  });
   return (
     <QueryClientProvider client={queryClient}>
       <LighterReadOnlyInner />
