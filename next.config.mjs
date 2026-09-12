@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  transpilePackages: ["lighter-ts", "zklighter-perps"],
   serverExternalPackages: ["pino-pretty", "lokijs", "encoding"],
   turbopack: {
     resolveAlias: {

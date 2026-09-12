@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { WagmiProvider, http } from "wagmi";
+import { mainnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, darkTheme, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { defaultChain } from "@/lib/chains";
@@ -13,9 +14,12 @@ const walletConnectProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
 const config = getDefaultConfig({
   appName: "Lumina Finance",
   projectId: walletConnectProjectId,
-  chains: [defaultChain],
+  // Ethereum is the L1 used by the official lighter-ts example. Lending stays
+  // on Base Sepolia; NetworkGuard only auto-switches off `/lighter`.
+  chains: [defaultChain, mainnet],
   transports: {
     [defaultChain.id]: http(),
+    [mainnet.id]: http(),
   },
   ssr: true,
 });
@@ -42,7 +46,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={rainbowTheme} modalSize="compact">
+        <RainbowKitProvider theme={rainbowTheme} modalSize="compact" initialChain={defaultChain}>
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>
