@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
@@ -44,8 +46,7 @@ export function IsolatedBorrowModal({
   const { address } = useAccount();
   const collateralApproval = useTokenApproval(collateral, pair, address);
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsedCollateral = collateralInput ? (safeParseUnits(collateralInput, collateralDecimals) ?? 0n) : 0n;
   const parsedBorrow = borrowInput ? (safeParseUnits(borrowInput, assetDecimals) ?? 0n) : 0n;
@@ -72,7 +73,7 @@ export function IsolatedBorrowModal({
     if (isSuccess && hash) {
       toast.success("Borrow successful", {
         description: `Borrowed ${borrowInput} ${assetSymbol} against ${collateralInput} ${collateralSymbol}`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, borrowInput, collateralInput, assetSymbol, collateralSymbol]);
@@ -85,14 +86,14 @@ export function IsolatedBorrowModal({
     if (collateralApproval.isSuccess && pendingBorrowAfterApproval && pendingArgsRef.current) {
       setPendingBorrowAfterApproval(false);
       if (!address) return;
-      writeContract({
+      void send({
         address: pair,
         abi: ISOLATED_PAIR_ABI,
         functionName: "borrowAsset",
         args: [pendingArgsRef.current.borrow, pendingArgsRef.current.collateral, address],
       });
     }
-  }, [collateralApproval.isSuccess, pendingBorrowAfterApproval, pair, address, writeContract]);
+  }, [collateralApproval.isSuccess, pendingBorrowAfterApproval, pair, address, send]);
 
   const handleBorrow = () => {
     if (!address) return;
@@ -102,7 +103,7 @@ export function IsolatedBorrowModal({
       setPendingBorrowAfterApproval(true);
       return;
     }
-    writeContract({
+    void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "borrowAsset",
@@ -206,6 +207,7 @@ export function IsolatedBorrowModal({
               <TxButton
                 onClick={handleBorrow}
                 isPending={isPending || collateralApproval.isPending}
+                isSimulating={isSimulating || collateralApproval.isSimulating}
                 isConfirming={isConfirming || collateralApproval.isConfirming}
                 disabled={!address || parsedCollateral === 0n || parsedBorrow === 0n || insufficientCollateral}
               >

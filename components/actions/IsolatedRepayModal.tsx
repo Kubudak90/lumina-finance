@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
@@ -44,8 +46,7 @@ export function IsolatedRepayModal({
   const { address } = useAccount();
   const approval = useTokenApproval(asset, pair, address);
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(borrowedAmount, assetDecimals);
@@ -84,7 +85,7 @@ export function IsolatedRepayModal({
     if (isSuccess && hash) {
       toast.success("Debt repaid", {
         description: `Repaid ~${amount} ${assetSymbol}`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, amount, assetSymbol]);
@@ -98,14 +99,14 @@ export function IsolatedRepayModal({
     if (approval.isSuccess && pendingRepayAfterApproval && pendingSharesRef.current > 0n) {
       setPendingRepayAfterApproval(false);
       if (!address) return;
-      writeContract({
+      void send({
         address: pair,
         abi: ISOLATED_PAIR_ABI,
         functionName: "repayAsset",
         args: [pendingSharesRef.current, address],
       });
     }
-  }, [approval.isSuccess, pendingRepayAfterApproval, pair, address, writeContract]);
+  }, [approval.isSuccess, pendingRepayAfterApproval, pair, address, send]);
 
   const handleRepay = () => {
     if (!address) return;
@@ -119,7 +120,7 @@ export function IsolatedRepayModal({
       setPendingRepayAfterApproval(true);
       return;
     }
-    writeContract({
+    void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "repayAsset",
@@ -182,6 +183,7 @@ export function IsolatedRepayModal({
               <TxButton
                 onClick={handleRepay}
                 isPending={isPending || approval.isPending}
+                isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
                 disabled={!address || parsed === 0n || insufficientWallet}
               >

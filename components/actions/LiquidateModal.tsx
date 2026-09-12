@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
@@ -37,8 +39,7 @@ export function LiquidateModal({
   const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
   const approval = useTokenApproval(debtAsset, ADDRESSES.pool, address);
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsedAmount = amount ? (safeParseUnits(amount, debtDecimals) ?? 0n) : 0n;
 
@@ -85,7 +86,7 @@ export function LiquidateModal({
         description: "Transaction confirmed",
         action: {
           label: "View on Explorer",
-          onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank"),
+          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
         },
       });
     }
@@ -100,14 +101,14 @@ export function LiquidateModal({
   useEffect(() => {
     if (approval.isSuccess && pendingLiquidateAfterApproval) {
       setPendingLiquidateAfterApproval(false);
-      writeContract({
+      void send({
         address: ADDRESSES.pool,
         abi: POOL_ABI,
         functionName: "liquidationCall",
         args: [collateralAsset, debtAsset, borrower, approvedAmountRef.current, false],
       });
     }
-  }, [approval.isSuccess, pendingLiquidateAfterApproval]);
+  }, [approval.isSuccess, pendingLiquidateAfterApproval, collateralAsset, debtAsset, borrower, send]);
 
   const handleLiquidate = () => {
     if (approval.needsApproval(parsedAmount)) {
@@ -117,7 +118,7 @@ export function LiquidateModal({
       return;
     }
     // Aave V3: liquidationCall(collateralAsset, debtAsset, user, debtToCover, receiveAToken)
-    writeContract({
+    void send({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "liquidationCall",
@@ -136,7 +137,7 @@ export function LiquidateModal({
             </DialogHeader>
             {hash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${hash}`}
+                href={txExplorerUrl(hash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-accent hover:underline font-mono mt-2"
@@ -174,6 +175,7 @@ export function LiquidateModal({
               <TxButton
                 onClick={handleLiquidate}
                 isPending={isPending || approval.isPending}
+                isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
                 disabled={!address || !amount || parsedAmount === 0n || exceedsMax || insufficientBalance}
               >

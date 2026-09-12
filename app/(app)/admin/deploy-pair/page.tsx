@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { encodeAbiParameters, formatUnits, isAddress } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ADDRESSES } from "@/lib/contracts";
+import { QUERY } from "@/lib/queryPolicy";
 import { ERC20_ABI, ISOLATED_DEPLOYER_ABI, ISOLATED_WHITELIST_ABI } from "@/lib/abis";
 import { parseErrorMessage } from "@/lib/errorMessages";
+import { txExplorerUrl } from "@/lib/explorer";
 
 const CONFIG_DATA_TYPES = [
   { type: "address", name: "_asset" },
@@ -68,7 +71,7 @@ export default function DeployPairPage() {
     address: ADDRESSES.isolatedDeployer,
     abi: ISOLATED_DEPLOYER_ABI,
     functionName: "amountToSeed",
-    query: { refetchInterval: 30_000 },
+    query: { ...QUERY.config },
   });
   const whitelistAddr = useReadContract({
     address: ADDRESSES.isolatedDeployer,
@@ -98,7 +101,7 @@ export default function DeployPairPage() {
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: [ADDRESSES.isolatedDeployer],
-    query: { enabled: validAsset, refetchInterval: 15_000 },
+    query: { enabled: validAsset, ...QUERY.config },
   });
   const userAssetBal = useReadContract({
     address: validAsset ? (form.asset as `0x${string}`) : undefined,
@@ -115,10 +118,8 @@ export default function DeployPairPage() {
   const seedReady = seedAmount > 0n && deployerBal >= seedAmount;
 
   // Two transactions: optional seed transfer + deploy
-  const seedTx = useWriteContract();
-  const seedReceipt = useWaitForTransactionReceipt({ hash: seedTx.data });
-  const deployTx = useWriteContract();
-  const deployReceipt = useWaitForTransactionReceipt({ hash: deployTx.data });
+  const seedTx = useSimulatedWrite();
+  const deployTx = useSimulatedWrite();
 
   const prevSeedErr = useRef<Error | null>(null);
   useEffect(() => {
@@ -137,25 +138,26 @@ export default function DeployPairPage() {
   }, [deployTx.error]);
 
   useEffect(() => {
-    if (seedReceipt.isSuccess) {
+    if (seedTx.isSuccess) {
       toast.success("Seed transferred to deployer");
       deployerAssetBal.refetch();
       userAssetBal.refetch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedReceipt.isSuccess]);
+  }, [seedTx.isSuccess]);
 
   useEffect(() => {
-    if (deployReceipt.isSuccess && deployTx.data) {
+    if (deployTx.isSuccess && deployTx.hash) {
+      const hash = deployTx.hash;
       toast.success("Pair deployed", {
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${deployTx.data}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
-  }, [deployReceipt.isSuccess, deployTx.data]);
+  }, [deployTx.isSuccess, deployTx.hash]);
 
   const handleSeed = () => {
     if (!validAsset || seedShortfall === 0n) return;
-    seedTx.writeContract({
+    void seedTx.send({
       address: form.asset as `0x${string}`,
       abi: ERC20_ABI,
       functionName: "transfer",
@@ -176,7 +178,7 @@ export default function DeployPairPage() {
       pctTo1e5(form.liquidationFeePct),
       pctTo1e5(form.protocolLiquidationFeePct),
     ]);
-    deployTx.writeContract({
+    void deployTx.send({
       address: ADDRESSES.isolatedDeployer,
       abi: ISOLATED_DEPLOYER_ABI,
       functionName: "deploy",
@@ -263,7 +265,8 @@ export default function DeployPairPage() {
                 <TxButton
                   onClick={handleSeed}
                   isPending={seedTx.isPending}
-                  isConfirming={seedReceipt.isLoading}
+                  isSimulating={seedTx.isSimulating}
+                  isConfirming={seedTx.isConfirming}
                   disabled={!validAsset || userBal < seedShortfall}
                 >
                   Step 1: Send {formatUnits(seedShortfall, decimals)} asset to deployer
@@ -274,7 +277,8 @@ export default function DeployPairPage() {
             <TxButton
               onClick={handleDeploy}
               isPending={deployTx.isPending}
-              isConfirming={deployReceipt.isLoading}
+              isSimulating={deployTx.isSimulating}
+              isConfirming={deployTx.isConfirming}
               disabled={!formValid || !seedReady}
             >
               {seedReady ? "Deploy Pair" : "Seed deployer first"}

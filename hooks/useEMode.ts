@@ -1,6 +1,8 @@
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { useReadContract, useAccount } from "wagmi";
 import { POOL_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
+import { QUERY } from "@/lib/queryPolicy";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 
 export interface EModeCategoryData {
   ltv: number;                    // basis points (e.g. 9700 = 97%)
@@ -22,13 +24,12 @@ export interface EModeCategoryData {
 export function useEMode() {
   const { address } = useAccount();
 
-  // Get user's current E-Mode category
   const userEMode = useReadContract({
     address: ADDRESSES.pool as `0x${string}`,
     abi: POOL_ABI,
     functionName: "getUserEMode",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 30_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
 
   let currentCategoryId = 0;
@@ -40,13 +41,12 @@ export function useEMode() {
     currentCategoryId = 0;
   }
 
-  // Get E-Mode category data for the user's current category
   const categoryResult = useReadContract({
     address: ADDRESSES.pool as `0x${string}`,
     abi: POOL_ABI,
     functionName: "getEModeCategoryData",
     args: [currentCategoryId],
-    query: { enabled: currentCategoryId > 0, refetchInterval: 60_000 },
+    query: { enabled: currentCategoryId > 0, ...QUERY.config },
   });
 
   let categoryData: EModeCategoryData | undefined;
@@ -76,12 +76,10 @@ export function useEMode() {
     categoryData = undefined;
   }
 
-  // Set user E-Mode
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const tx = useSimulatedWrite();
 
   const setEMode = (categoryId: number) => {
-    writeContract({
+    void tx.send({
       address: ADDRESSES.pool as `0x${string}`,
       abi: POOL_ABI,
       functionName: "setUserEMode",
@@ -93,10 +91,11 @@ export function useEMode() {
     currentCategoryId,
     categoryData,
     setEMode,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
+    isPending: tx.isPending,
+    isConfirming: tx.isConfirming,
+    isSimulating: tx.isSimulating,
+    isSuccess: tx.isSuccess,
+    error: tx.error,
     isLoading: userEMode.isLoading,
   };
 }

@@ -1,5 +1,6 @@
 import { useReadContracts, useReadContract, useAccount } from "wagmi";
 import { POOL_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
 import { useUserCollateralStatus } from "./useUserCollateralStatus";
@@ -68,7 +69,7 @@ export function useUserPosition() {
 
   const reserveResult = useReadContracts({
     contracts: reserveContracts,
-    query: { refetchInterval: 30_000 },
+    query: { ...QUERY.market },
   });
 
   const reserveParsed = MARKETS.map((_m, i) => {
@@ -103,7 +104,7 @@ export function useUserPosition() {
     abi: POOL_ABI,
     functionName: "getUserAccountData",
     args: address ? [address] : undefined,
-    query: { enabled, refetchInterval: 10_000 },
+    query: { enabled, ...QUERY.user },
   });
 
   // viem may return as array or named object depending on ABI shape
@@ -153,7 +154,7 @@ export function useUserPosition() {
 
   const balanceResult = useReadContracts({
     contracts: balanceContracts,
-    query: { enabled: enabled && !!hasReserveData, refetchInterval: 10_000 },
+    query: { enabled: enabled && !!hasReserveData, ...QUERY.user },
   });
 
   // --- Combine ---

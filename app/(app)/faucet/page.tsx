@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { ADDRESSES } from "@/lib/contracts";
+import { QUERY } from "@/lib/queryPolicy";
 import { TxButton } from "@/components/common/TxButton";
 import { toast } from "sonner";
 import { parseErrorMessage } from "@/lib/errorMessages";
@@ -48,15 +51,14 @@ function formatRemaining(secs: number): string {
 
 export default function FaucetPage() {
   const { address, isConnected } = useAccount();
-  const { writeContract, data: hash, isPending, error, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating, reset } = useSimulatedWrite();
 
   const remaining = useReadContract({
     address: ADDRESSES.faucet,
     abi: FAUCET_ABI,
     functionName: "timeUntilNext",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 15_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const remainingSeconds = Number((remaining.data as bigint | undefined) ?? 0n);
   const onCooldown = remainingSeconds > 0;
@@ -73,7 +75,7 @@ export default function FaucetPage() {
     if (isSuccess && hash) {
       toast.success("Tokens minted", {
         description: "10,000 USDC + 5 LIT sent to your wallet",
-        action: { label: "View on Explorer", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View on Explorer", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
       remaining.refetch();
     }
@@ -81,7 +83,7 @@ export default function FaucetPage() {
 
   const handleDrip = () => {
     if (!address) return;
-    writeContract({
+    void send({
       address: ADDRESSES.faucet,
       abi: FAUCET_ABI,
       functionName: "drip",
@@ -134,6 +136,7 @@ export default function FaucetPage() {
               <TxButton
                 onClick={handleDrip}
                 isPending={isPending}
+                isSimulating={isSimulating}
                 isConfirming={isConfirming}
                 disabled={!address || onCooldown}
               >

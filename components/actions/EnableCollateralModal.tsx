@@ -2,9 +2,12 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { TxButton } from "@/components/common/TxButton";
 import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -23,8 +26,7 @@ interface EnableCollateralModalProps {
 
 export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose }: EnableCollateralModalProps) {
   const { address } = useAccount();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
   const { healthFactor } = useHealthFactor();
 
   const market = getMarketByAsset(asset);
@@ -36,7 +38,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address && !!aTokenAddress, refetchInterval: 15_000 },
+    query: { enabled: !!address && !!aTokenAddress, ...QUERY.user },
   });
   const balance = (aTokenBalance.data as bigint | undefined) ?? 0n;
   const hasSupply = balance > 0n;
@@ -56,14 +58,14 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
   useEffect(() => {
     if (isSuccess && hash) {
       toast.success(`Collateral ${newValue ? "enabled" : "disabled"}`, {
-        action: { label: "View on Explorer", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View on Explorer", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, newValue]);
 
   const handleToggle = () => {
     if (!address || blockedNoSupply) return;
-    writeContract({
+    void send({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "setUserUseReserveAsCollateral",
@@ -84,7 +86,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
               You {newValue ? "enabled" : "disabled"} {symbol} as collateral
             </p>
             {hash && (
-              <a href={`https://sepolia.basescan.org/tx/${hash}`} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline font-mono">
+              <a href={txExplorerUrl(hash)} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline font-mono">
                 View transaction
               </a>
             )}
@@ -136,6 +138,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
               <TxButton
                 onClick={handleToggle}
                 isPending={isPending}
+                isSimulating={isSimulating}
                 isConfirming={isConfirming}
                 disabled={!address || blockedNoSupply}
               >

@@ -6,12 +6,20 @@ interface TxButtonProps {
   onClick: () => void;
   isPending: boolean;
   isConfirming?: boolean;
+  isSimulating?: boolean;
   disabled?: boolean;
   children: React.ReactNode;
 }
 
-export function TxButton({ onClick, isPending, isConfirming, disabled, children }: TxButtonProps) {
-  const isLoading = isPending || isConfirming;
+export function TxButton({
+  onClick,
+  isPending,
+  isConfirming,
+  isSimulating,
+  disabled,
+  children,
+}: TxButtonProps) {
+  const isLoading = isPending || isConfirming || !!isSimulating;
 
   return (
     <Button
@@ -21,7 +29,13 @@ export function TxButton({ onClick, isPending, isConfirming, disabled, children 
       onClick={onClick}
       disabled={disabled || isLoading}
     >
-      {isPending ? "Confirm in wallet..." : isConfirming ? "Confirming..." : children}
+      {isSimulating
+        ? "Simulating..."
+        : isPending
+          ? "Confirm in wallet..."
+          : isConfirming
+            ? "Confirming..."
+            : children}
     </Button>
   );
 }
