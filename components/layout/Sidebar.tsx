@@ -10,8 +10,10 @@ import {
   Zap,
   Lock,
   Coins,
+  ChartLine,
   X,
 } from "lucide-react";
+import { isLighterPath } from "@/lib/lighter";
 import { useSidebar } from "@/providers/SidebarProvider";
 
 const MAIN_NAV = [
@@ -21,6 +23,7 @@ const MAIN_NAV = [
   { href: "/leverage", label: "Leverage", icon: Zap },
   { href: "/portfolio", label: "Portfolio", icon: Coins },
   { href: "/liquidations", label: "Liquidations", icon: Activity },
+  { href: "/lighter", label: "Lighter", icon: ChartLine },
 ];
 
 const ACCOUNT_NAV = [
@@ -123,7 +126,7 @@ export function Sidebar() {
             </span>
           </div>
           <p className="mt-1.5 text-xs font-mono text-foreground">
-            Base Sepolia
+            {isLighterPath(pathname) ? "Lighter · Ethereum L1" : "Base Sepolia"}
           </p>
           <div className="mt-2 h-1 rounded-full bg-border overflow-hidden">
             <div className="h-full w-3/4 rounded-full bg-accent/50" />

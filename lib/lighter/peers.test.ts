@@ -10,7 +10,7 @@ const pkg = JSON.parse(
   devDependencies: Record<string, string>;
 };
 
-/** `lighter-ts@1.0.2` peer ranges. The SDK itself is added in a later PR. */
+/** `lighter-ts@1.0.2` peer ranges plus the exact SDK pin. */
 const LIGHTER_TS_PEERS: Record<string, RegExp> = {
   react: /^19\.(?:[1-9]\d*|[2-9])\./,
   "@tanstack/react-query": /^\^?5\.(?:10[0-9]|1[1-9]\d|[2-9]\d{2})\./,
@@ -31,6 +31,8 @@ describe("lighter-ts peer pins", () => {
 
   it("pins every lighter-ts@1.0.2 peer without --legacy-peer-deps", () => {
     expect(pkg.devDependencies["@types/react"]).toMatch(/^19\.(?:[1-9]\d*|[2-9])\./);
+
+    expect(pkg.dependencies["lighter-ts"]).toBe("1.0.2");
 
     for (const [name, range] of Object.entries(LIGHTER_TS_PEERS)) {
       const version = pkg.dependencies[name];
