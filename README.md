@@ -7,9 +7,9 @@ Lighter is a separate trading/account domain (REST + WebSocket + signing chain i
 
 Requires **Node.js 20.9+**. Install with `npm ci` — do not use `--legacy-peer-deps`. ConnectKit is not used because its peers are React 17/18 only; the wallet modal is RainbowKit.
 
-`lighter-ts@1.0.2` is isolated behind `lib/lighter/`. UI code imports the public barrel (`@/lib/lighter`); only `lib/lighter/runtime/` and the lazy `/lighter` page may load the SDK. The 7.5 MiB Go WASM signer is fetched at runtime (override with `NEXT_PUBLIC_LIGHTER_WASM_URL`) and is not vendored.
+`lighter-ts@1.0.2` is isolated behind `lib/lighter/`. UI code imports the public barrel (`@/lib/lighter`); only `lib/lighter/runtime/` and the lazy `/lighter` and `/portfolio` pages may load the SDK. The 7.5 MiB Go WASM signer is fetched at runtime (override with `NEXT_PUBLIC_LIGHTER_WASM_URL`) and is not vendored.
 
-The `/lighter` route is read-only: account discovery, REST bootstrap, websocket status, and official multiplier helpers. Trading signer methods throw. API keys are stored in namespaced `localStorage` (`lumina.lighter.auth`) and are XSS-equivalent to a trading capability — see the on-page threat model.
+The `/lighter` route is read-only: account discovery, REST bootstrap, websocket status, and official multiplier helpers. `/portfolio` adds a unified Lumina + Lighter summary (USD totals, isolated positions, freshness badges). Trading signer methods throw. API keys are stored in namespaced `localStorage` (`lumina.lighter.auth`) and are XSS-equivalent to a trading capability — see the on-page threat model.
 
 ## Getting Started
 

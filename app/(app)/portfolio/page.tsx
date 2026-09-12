@@ -1,24 +1,38 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useAccount } from "wagmi";
 import { formatUnits } from "viem";
 import { HealthFactorBar } from "@/components/common/HealthFactorBar";
 import { SupplyTable } from "@/components/portfolio/SupplyTable";
 import { BorrowTable } from "@/components/portfolio/BorrowTable";
 import { CollateralTable } from "@/components/portfolio/CollateralTable";
+import { IsolatedPositionsTable } from "@/components/portfolio/IsolatedPositionsTable";
+import { FreshnessBadge } from "@/components/portfolio/FreshnessBadge";
 import { useUserPosition } from "@/hooks/useUserPosition";
+import { useUserIsolatedPositions } from "@/hooks/useUserIsolatedPositions";
 import { usePrices } from "@/hooks/usePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useReserveConfig } from "@/hooks/useReserveConfig";
 import { getMarketBySymbol, type MarketConfig } from "@/lib/constants";
 import { formatPercent } from "@/lib/format";
+import { luminaFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
+
+const LighterPortfolioEmbed = dynamic(
+  () => import("@/lib/lighter/runtime/session").then((mod) => mod.LighterPortfolioEmbed),
+  {
+    ssr: false,
+    loading: () => <p className="text-sm text-text-dim">Loading Lighter…</p>,
+  }
+);
 
 export default function PortfolioPage() {
   const { isConnected } = useAccount();
   const { positions, accountData, isLoading: positionsLoading } = useUserPosition();
+  const { positions: isolatedPositions, isLoading: isolatedLoading } = useUserIsolatedPositions();
   const healthFactor = accountData?.healthFactor;
   const { data: prices } = usePrices();
   const { markets } = useAllMarkets();
@@ -53,7 +67,29 @@ export default function PortfolioPage() {
     return acc + Number(formatUnits(p.borrowed, p.decimals)) * price;
   }, 0);
 
+  const isolatedSupplyUsd = isolatedPositions.reduce((acc, p) => {
+    const price = prices?.[p.assetSymbol] ?? 0;
+    return acc + Number(formatUnits(p.suppliedAssets, p.assetDecimals)) * price;
+  }, 0);
+  const isolatedDebtUsd = isolatedPositions.reduce((acc, p) => {
+    const price = prices?.[p.assetSymbol] ?? 0;
+    return acc + Number(formatUnits(p.borrowedAssets, p.assetDecimals)) * price;
+  }, 0);
+  const isolatedCollateralUsd = isolatedPositions.reduce((acc, p) => {
+    const price = prices?.[p.collateralSymbol] ?? 0;
+    return acc + Number(formatUnits(p.collateralAmount, p.collateralDecimals)) * price;
+  }, 0);
+
+  const lumina: LuminaLegs = {
+    poolSupplyUsd: totalSuppliedUsd,
+    poolDebtUsd: totalBorrowedUsd,
+    isolatedSupplyUsd,
+    isolatedDebtUsd,
+    isolatedCollateralUsd,
+  };
+
   const netWorth = totalSuppliedUsd - totalBorrowedUsd;
+  const luminaStatus = luminaFreshness(Boolean(accountData), Boolean(prices));
 
   const supplies = positions
     .filter((p) => p.supplied > 0n)
@@ -93,16 +129,25 @@ export default function PortfolioPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between animate-in">
+      <div className="flex flex-wrap items-center justify-between gap-3 animate-in">
         <h1 className="text-4xl font-bold tracking-tighter uppercase glow-text">Portfolio</h1>
-        {healthFactor && (
-          <div className="w-64">
-            <HealthFactorBar healthFactor={healthFactor} />
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <FreshnessBadge source="Lumina pool" status={luminaStatus} detail="Base Sepolia" />
+          <FreshnessBadge
+            source="Isolated"
+            status={isolatedLoading ? "unknown" : luminaStatus}
+            detail="on-chain"
+          />
+          {healthFactor && (
+            <div className="w-64">
+              <HealthFactorBar healthFactor={healthFactor} />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Net Worth Summary */}
+      <LighterPortfolioEmbed lumina={lumina} />
+
       <div className="grid md:grid-cols-3 gap-4 animate-in">
         <div className="technical-border bg-card p-4">
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Total Supplied</div>
@@ -117,14 +162,13 @@ export default function PortfolioPage() {
           </div>
         </div>
         <div className="technical-border bg-card p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Net Worth</div>
+          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Pool net</div>
           <div className={`text-2xl font-bold font-mono tracking-tight ${netWorth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
             ${netWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
 
-      {/* Claim Rewards */}
       <div className="technical-border bg-card p-4 animate-in">
         <div className="flex items-center justify-between">
           <div>
@@ -170,6 +214,19 @@ export default function PortfolioPage() {
         </div>
         <div className="p-4">
           <CollateralTable rows={collateral} />
+        </div>
+      </div>
+
+      <div className="technical-border bg-card">
+        <div className="p-4 border-b border-border/50">
+          <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Isolated positions</h2>
+        </div>
+        <div className="p-4">
+          {isolatedLoading ? (
+            <p className="text-sm text-muted-foreground">Loading isolated pairs…</p>
+          ) : (
+            <IsolatedPositionsTable positions={isolatedPositions} />
+          )}
         </div>
       </div>
 
