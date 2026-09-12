@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { isAddress } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ADDRESSES } from "@/lib/contracts";
@@ -71,8 +73,7 @@ export default function ListAssetPage() {
   });
   const isOwner = !!address && (owner.data as `0x${string}` | undefined)?.toLowerCase() === address.toLowerCase();
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const prevError = useRef<Error | null>(null);
   useEffect(() => {
@@ -86,7 +87,7 @@ export default function ListAssetPage() {
     if (isSuccess && hash) {
       toast.success("Asset listed", {
         description: `${form.assetSymbol} added to the pool`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, form.assetSymbol]);
@@ -133,7 +134,7 @@ export default function ListAssetPage() {
 
   const handleSubmit = () => {
     if (!isOwner || !formValid) return;
-    writeContract({
+    void send({
       address: ADDRESSES.assetListingProxy,
       abi: ASSET_LISTING_PROXY_ABI,
       functionName: "listAssets",
@@ -197,6 +198,7 @@ export default function ListAssetPage() {
           <TxButton
             onClick={handleSubmit}
             isPending={isPending}
+            isSimulating={isSimulating}
             isConfirming={isConfirming}
             disabled={!formValid}
           >

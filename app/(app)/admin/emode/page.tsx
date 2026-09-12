@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract, useReadContracts } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ADDRESSES } from "@/lib/contracts";
+import { QUERY } from "@/lib/queryPolicy";
 import { POOL_ABI, POOL_CONFIGURATOR_ABI, ACL_MANAGER_ABI } from "@/lib/abis";
 import { MARKETS } from "@/lib/constants";
 import { parseErrorMessage } from "@/lib/errorMessages";
@@ -57,7 +59,7 @@ export default function EModeAdminPage() {
       functionName: "getEModeCategoryData" as const,
       args: [id] as const,
     })),
-    query: { refetchInterval: 30_000 },
+    query: { ...QUERY.config },
   });
 
   const categories: CategoryRow[] = CATEGORY_IDS.map((id, i) => {
@@ -91,8 +93,7 @@ export default function EModeAdminPage() {
   const [defForm, setDefForm] = useState({ id: "1", ltvPct: "97", liqThresholdPct: "97.5", liqBonusPct: "1", label: "Stablecoins" });
   const setDef = <K extends keyof typeof defForm>(k: K, v: string) => setDefForm((s) => ({ ...s, [k]: v }));
 
-  const defTx = useWriteContract();
-  const defReceipt = useWaitForTransactionReceipt({ hash: defTx.data });
+  const defTx = useSimulatedWrite();
   const prevDefErr = useRef<Error | null>(null);
   useEffect(() => {
     if (defTx.error && defTx.error !== prevDefErr.current) {
@@ -101,8 +102,8 @@ export default function EModeAdminPage() {
     }
   }, [defTx.error]);
   useEffect(() => {
-    if (defReceipt.isSuccess) toast.success(`Category ${defForm.id} updated`);
-  }, [defReceipt.isSuccess, defForm.id]);
+    if (defTx.isSuccess) toast.success(`Category ${defForm.id} updated`);
+  }, [defTx.isSuccess, defForm.id]);
 
   const handleDefine = () => {
     const id = Number(defForm.id);
@@ -115,7 +116,7 @@ export default function EModeAdminPage() {
       toast.error("Invalid params", { description: "ltv ≤ liqThreshold ≤ 100%" });
       return;
     }
-    defTx.writeContract({
+    void defTx.send({
       address: ADDRESSES.poolConfigurator,
       abi: POOL_CONFIGURATOR_ABI,
       functionName: "setEModeCategory",
@@ -131,21 +132,19 @@ export default function EModeAdminPage() {
     asBorrowable: true,
   });
 
-  const collateralTx = useWriteContract();
-  const collateralReceipt = useWaitForTransactionReceipt({ hash: collateralTx.data });
-  const borrowableTx = useWriteContract();
-  const borrowableReceipt = useWaitForTransactionReceipt({ hash: borrowableTx.data });
+  const collateralTx = useSimulatedWrite();
+  const borrowableTx = useSimulatedWrite();
 
   useEffect(() => {
-    if (collateralReceipt.isSuccess) toast.success("Asset collateral flag updated");
-  }, [collateralReceipt.isSuccess]);
+    if (collateralTx.isSuccess) toast.success("Asset collateral flag updated");
+  }, [collateralTx.isSuccess]);
   useEffect(() => {
-    if (borrowableReceipt.isSuccess) toast.success("Asset borrowable flag updated");
-  }, [borrowableReceipt.isSuccess]);
+    if (borrowableTx.isSuccess) toast.success("Asset borrowable flag updated");
+  }, [borrowableTx.isSuccess]);
 
   const setCollateral = (allowed: boolean) => {
     if (!toggleForm.asset) return;
-    collateralTx.writeContract({
+    void collateralTx.send({
       address: ADDRESSES.poolConfigurator,
       abi: POOL_CONFIGURATOR_ABI,
       functionName: "setAssetCollateralInEMode",
@@ -154,7 +153,7 @@ export default function EModeAdminPage() {
   };
   const setBorrowable = (borrowable: boolean) => {
     if (!toggleForm.asset) return;
-    borrowableTx.writeContract({
+    void borrowableTx.send({
       address: ADDRESSES.poolConfigurator,
       abi: POOL_CONFIGURATOR_ABI,
       functionName: "setAssetBorrowableInEMode",
@@ -231,7 +230,8 @@ export default function EModeAdminPage() {
             <TxButton
               onClick={handleDefine}
               isPending={defTx.isPending}
-              isConfirming={defReceipt.isLoading}
+              isSimulating={defTx.isSimulating}
+              isConfirming={defTx.isConfirming}
               disabled={false}
             >
               Set Category {defForm.id}
@@ -262,14 +262,14 @@ export default function EModeAdminPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setCollateral(true)}
-                    disabled={collateralTx.isPending || collateralReceipt.isLoading}
+                    disabled={collateralTx.isPending || collateralTx.isConfirming}
                     className="flex-1 h-9 border border-emerald-500/30 text-emerald-400 text-[10px] uppercase tracking-wider hover:bg-emerald-500 hover:text-background transition-all font-mono disabled:opacity-50"
                   >
-                    {collateralTx.isPending ? "Confirm…" : collateralReceipt.isLoading ? "Confirming…" : "Allow"}
+                    {collateralTx.isPending ? "Confirm…" : collateralTx.isConfirming ? "Confirming…" : "Allow"}
                   </button>
                   <button
                     onClick={() => setCollateral(false)}
-                    disabled={collateralTx.isPending || collateralReceipt.isLoading}
+                    disabled={collateralTx.isPending || collateralTx.isConfirming}
                     className="flex-1 h-9 border border-rose-500/30 text-rose-400 text-[10px] uppercase tracking-wider hover:bg-rose-500 hover:text-background transition-all font-mono disabled:opacity-50"
                   >
                     Disallow
@@ -281,14 +281,14 @@ export default function EModeAdminPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setBorrowable(true)}
-                    disabled={borrowableTx.isPending || borrowableReceipt.isLoading}
+                    disabled={borrowableTx.isPending || borrowableTx.isConfirming}
                     className="flex-1 h-9 border border-emerald-500/30 text-emerald-400 text-[10px] uppercase tracking-wider hover:bg-emerald-500 hover:text-background transition-all font-mono disabled:opacity-50"
                   >
-                    {borrowableTx.isPending ? "Confirm…" : borrowableReceipt.isLoading ? "Confirming…" : "Allow"}
+                    {borrowableTx.isPending ? "Confirm…" : borrowableTx.isConfirming ? "Confirming…" : "Allow"}
                   </button>
                   <button
                     onClick={() => setBorrowable(false)}
-                    disabled={borrowableTx.isPending || borrowableReceipt.isLoading}
+                    disabled={borrowableTx.isPending || borrowableTx.isConfirming}
                     className="flex-1 h-9 border border-rose-500/30 text-rose-400 text-[10px] uppercase tracking-wider hover:bg-rose-500 hover:text-background transition-all font-mono disabled:opacity-50"
                   >
                     Disallow

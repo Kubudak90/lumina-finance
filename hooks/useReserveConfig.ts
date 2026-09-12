@@ -1,5 +1,6 @@
 import { useReadContracts } from "wagmi";
 import { DATA_PROVIDER_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
 
@@ -30,7 +31,7 @@ export function useReserveConfig() {
 
   const result = useReadContracts({
     contracts,
-    query: { refetchInterval: 60_000 },
+    query: { ...QUERY.config },
   });
 
   const configs: ReserveConfig[] = MARKETS.map((m, i) => {

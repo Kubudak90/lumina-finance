@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
@@ -29,8 +31,7 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
   const { address } = useAccount();
   const approval = useTokenApproval(asset, pair, address);
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
 
@@ -56,7 +57,7 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
     if (isSuccess && hash) {
       toast.success("Asset deposited", {
         description: `Lent ${amount} ${assetSymbol}`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, amount, assetSymbol]);
@@ -70,14 +71,14 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
     if (approval.isSuccess && pendingDepositAfterApproval) {
       setPendingDepositAfterApproval(false);
       if (!address) return;
-      writeContract({
+      void send({
         address: pair,
         abi: ISOLATED_PAIR_ABI,
         functionName: "deposit",
         args: [pendingAmountRef.current, address],
       });
     }
-  }, [approval.isSuccess, pendingDepositAfterApproval, pair, address, writeContract]);
+  }, [approval.isSuccess, pendingDepositAfterApproval, pair, address, send]);
 
   const handleLend = () => {
     if (!address) return;
@@ -87,7 +88,7 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
       setPendingDepositAfterApproval(true);
       return;
     }
-    writeContract({
+    void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "deposit",
@@ -149,6 +150,7 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
               <TxButton
                 onClick={handleLend}
                 isPending={isPending || approval.isPending}
+                isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
                 disabled={!address || !amount || parsed === 0n || parsed > balanceRaw}
               >

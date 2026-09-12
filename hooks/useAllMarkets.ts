@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useReadContracts } from "wagmi";
 import { POOL_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS, type MarketConfig } from "@/lib/constants";
 
@@ -55,7 +56,7 @@ export function useAllMarkets() {
 
   const reserveResult = useReadContracts({
     contracts: reserveContracts,
-    query: { refetchInterval: 15_000 },
+    query: { ...QUERY.market },
   });
 
   // Extract data from reserve results — defensive parsing
@@ -120,7 +121,7 @@ export function useAllMarkets() {
     contracts: supplyContracts,
     query: {
       enabled: !!hasReserveData,
-      refetchInterval: 15_000,
+      ...QUERY.market,
     },
   });
 

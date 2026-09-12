@@ -1,6 +1,7 @@
-import { useEffect } from "react";
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useReadContract } from "wagmi";
 import { VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 
@@ -21,20 +22,14 @@ export function useDebtDelegation(
     abi: VARIABLE_DEBT_TOKEN_ABI,
     functionName: "borrowAllowance",
     args: owner ? [owner, delegatee] : undefined,
-    query: { enabled: !!owner && !!variableDebtToken, refetchInterval: 15_000 },
+    query: { enabled: !!owner && !!variableDebtToken, ...QUERY.user },
   });
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  useEffect(() => {
-    if (isSuccess) allowance.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuccess]);
+  const tx = useSimulatedWrite();
 
   const approve = (amount: bigint = MAX_UINT256) => {
     if (!variableDebtToken) return;
-    writeContract({
+    void tx.send({
       address: variableDebtToken,
       abi: VARIABLE_DEBT_TOKEN_ABI,
       functionName: "approveDelegation",
@@ -51,10 +46,11 @@ export function useDebtDelegation(
   return {
     approve,
     needsApproval,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
+    isPending: tx.isPending,
+    isConfirming: tx.isConfirming,
+    isSimulating: tx.isSimulating,
+    isSuccess: tx.isSuccess,
+    error: tx.error,
     allowance: allowance.data as bigint | undefined,
   };
 }

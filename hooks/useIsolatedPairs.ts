@@ -1,5 +1,6 @@
 import { useReadContract, useReadContracts } from "wagmi";
 import { ISOLATED_REGISTRY_ABI, ISOLATED_PAIR_ABI, ERC20_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 
 export interface IsolatedPairInfo {
@@ -31,7 +32,7 @@ export function useIsolatedPairs() {
     address: ADDRESSES.isolatedRegistry,
     abi: ISOLATED_REGISTRY_ABI,
     functionName: "getAllPairAddresses",
-    query: { refetchInterval: 60_000 },
+    query: { ...QUERY.config },
   });
   const pairs = (list.data as `0x${string}`[] | undefined) ?? [];
 
@@ -46,7 +47,7 @@ export function useIsolatedPairs() {
 
   const pairResults = useReadContracts({
     contracts: pairContracts,
-    query: { enabled: pairs.length > 0, refetchInterval: 30_000 },
+    query: { enabled: pairs.length > 0, ...QUERY.market },
   });
 
   // 3. Resolve token symbols/decimals — collected from per-pair token addresses

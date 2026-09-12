@@ -3,7 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { txExplorerUrl } from "@/lib/explorer";
+import { QUERY } from "@/lib/queryPolicy";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { POOL_ABI, ATOKEN_ABI } from "@/lib/abis";
@@ -26,8 +29,7 @@ interface WithdrawModalProps {
 export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModalProps) {
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
@@ -55,7 +57,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
     abi: POOL_ABI,
     functionName: "getUserAccountData",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 10_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
 
   const oraclePriceResult = useReadContract({
@@ -124,7 +126,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
         description: "Transaction confirmed",
         action: {
           label: "View on Explorer",
-          onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank"),
+          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
         },
       });
     }
@@ -132,7 +134,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
 
   const handleWithdraw = () => {
     if (!address) return;
-    writeContract({
+    void send({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "withdraw",
@@ -152,7 +154,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
             <p className="text-muted-foreground mt-2 mb-4">You withdrew {amount} {symbol}</p>
             {hash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${hash}`}
+                href={txExplorerUrl(hash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-accent hover:underline font-mono"
@@ -238,6 +240,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
               <TxButton
                 onClick={handleWithdraw}
                 isPending={isPending}
+                isSimulating={isSimulating}
                 isConfirming={isConfirming}
                 disabled={!address || !amount || parsedAmount === 0n || parsedAmount > supplied}
               >

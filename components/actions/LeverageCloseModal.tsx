@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { SlippageSelector } from "@/components/common/SlippageSelector";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { LOOPING_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -71,21 +73,20 @@ export function LeverageCloseModal({
     abi: ATOKEN_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 15_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const debtBalance = useReadContract({
     address: debtVariableToken,
     abi: VARIABLE_DEBT_TOKEN_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 15_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
 
   const yieldRaw = (aTokenBalance.data as bigint | undefined) ?? 0n;
   const debtRaw = (debtBalance.data as bigint | undefined) ?? 0n;
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const prevError = useRef<Error | null>(null);
   useEffect(() => {
@@ -148,7 +149,7 @@ export function LeverageCloseModal({
     const path: `0x${string}`[] = [yieldAsset, debtAsset];
     const withdrawAmount = percent === 100 ? MAX_UINT256 : portionYield;
 
-    writeContract({
+    void send({
       address: ADDRESSES.looping,
       abi: LOOPING_ABI,
       functionName: "closePosition",
@@ -275,6 +276,7 @@ export function LeverageCloseModal({
               <TxButton
                 onClick={handleClose}
                 isPending={isPending || aTokenApproval.isPending}
+                isSimulating={isSimulating || aTokenApproval.isSimulating}
                 isConfirming={isConfirming || aTokenApproval.isConfirming}
                 disabled={!address || debtRaw === 0n || yieldRaw === 0n || !swapper || !canClose}
               >

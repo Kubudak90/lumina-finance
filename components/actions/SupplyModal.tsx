@@ -3,9 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
+import { TxPreviewCard } from "@/components/common/TxPreview";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
@@ -30,8 +33,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
   const { address } = useAccount();
   const approval = useTokenApproval(asset, ADDRESSES.pool, address);
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating, preview } = useSimulatedWrite();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
@@ -78,7 +80,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
         description: "Transaction confirmed",
         action: {
           label: "View on Explorer",
-          onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank"),
+          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
         },
       });
     }
@@ -94,14 +96,14 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
     if (approval.isSuccess && pendingSupplyAfterApproval) {
       setPendingSupplyAfterApproval(false);
       if (!address) return;
-      writeContract({
+      void send({
         address: ADDRESSES.pool,
         abi: POOL_ABI,
         functionName: "supply",
         args: [asset, approvedAmountRef.current, address, 0],
       });
     }
-  }, [approval.isSuccess, pendingSupplyAfterApproval]);
+  }, [approval.isSuccess, pendingSupplyAfterApproval, address, asset, send]);
 
   const handleSupply = () => {
     if (!address) return;
@@ -111,7 +113,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
       setPendingSupplyAfterApproval(true);
       return;
     }
-    writeContract({
+    void send({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "supply",
@@ -131,7 +133,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
             <p className="text-muted-foreground mt-2 mb-4">You supplied {amount} {symbol}</p>
             {hash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${hash}`}
+                href={txExplorerUrl(hash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-accent hover:underline font-mono"
@@ -179,11 +181,13 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
               <TxButton
                 onClick={handleSupply}
                 isPending={isPending || approval.isPending}
+                isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
                 disabled={!address || !amount || parsedAmount === 0n || parsedAmount > balance}
               >
                 {approval.needsApproval(parsedAmount) ? `Approve ${symbol}` : `Supply ${symbol}`}
               </TxButton>
+              <TxPreviewCard preview={preview} />
 
               {/* Health Factor */}
               {healthFactor && (

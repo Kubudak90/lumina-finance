@@ -3,7 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { txExplorerUrl } from "@/lib/explorer";
+import { QUERY } from "@/lib/queryPolicy";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
@@ -30,8 +33,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
   const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
   const approval = useTokenApproval(asset, ADDRESSES.pool, address);
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
@@ -55,7 +57,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     abi: VARIABLE_DEBT_TOKEN_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address && !!market, refetchInterval: 5_000 },
+    query: { enabled: !!address && !!market, ...QUERY.user },
   });
   const debtFromToken = (debtBalanceResult.data as bigint) ?? 0n;
 
@@ -65,7 +67,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     abi: POOL_ABI,
     functionName: "getUserAccountData",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 5_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
   let totalDebtBase = 0n;
   try {
@@ -112,7 +114,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
         description: "Transaction confirmed",
         action: {
           label: "View on Explorer",
-          onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank"),
+          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
         },
       });
     }
@@ -128,14 +130,14 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     if (approval.isSuccess && pendingRepayAfterApproval) {
       setPendingRepayAfterApproval(false);
       if (!address) return;
-      writeContract({
+      void send({
         address: ADDRESSES.pool,
         abi: POOL_ABI,
         functionName: "repay",
         args: [asset, approvedAmountRef.current, 2n, address],
       });
     }
-  }, [approval.isSuccess, pendingRepayAfterApproval]);
+  }, [approval.isSuccess, pendingRepayAfterApproval, address, asset, send]);
 
   const handleRepay = () => {
     if (!address) return;
@@ -145,7 +147,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
       setPendingRepayAfterApproval(true);
       return;
     }
-    writeContract({
+    void send({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "repay",
@@ -165,7 +167,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
             <p className="text-muted-foreground mt-2 mb-4">You repaid {amount} {symbol}</p>
             {hash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${hash}`}
+                href={txExplorerUrl(hash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-accent hover:underline font-mono"
@@ -246,6 +248,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
               <TxButton
                 onClick={handleRepay}
                 isPending={isPending || approval.isPending}
+                isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
                 disabled={!address || !amount || parsedAmount === 0n || parsedAmount > wallet}
               >

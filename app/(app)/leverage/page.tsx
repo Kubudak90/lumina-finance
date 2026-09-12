@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract, useReadContracts } from "wagmi";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { TokenIcon } from "@/components/common/TokenIcon";
@@ -12,8 +12,10 @@ import { useUserPosition } from "@/hooks/useUserPosition";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { useDebtDelegation } from "@/hooks/useDebtDelegation";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { LeverageCloseModal } from "@/components/actions/LeverageCloseModal";
 import { ADDRESSES } from "@/lib/contracts";
+import { QUERY } from "@/lib/queryPolicy";
 import { ERC20_ABI, LOOPING_ABI } from "@/lib/abis";
 import { MARKETS, getMarketBySymbol, getMarketByAsset } from "@/lib/constants";
 import { formatPercent, formatTokenAmount, safeParseUnits, isValidDecimalInput } from "@/lib/format";
@@ -57,7 +59,7 @@ export default function LeveragePage() {
     abi: LOOPING_ABI,
     functionName: "pools",
     args: [ADDRESSES.pool],
-    query: { refetchInterval: 60_000 },
+    query: { ...QUERY.config },
   });
 
   const swapperProbes = useReadContracts({
@@ -67,7 +69,7 @@ export default function LeveragePage() {
       functionName: "swappers" as const,
       args: [addr] as const,
     })),
-    query: { enabled: KNOWN_SWAPPER_CANDIDATES.length > 0, refetchInterval: 60_000 },
+    query: { enabled: KNOWN_SWAPPER_CANDIDATES.length > 0, ...QUERY.config },
   });
   const activeSwapper = useMemo(() => {
     if (!swapperProbes.data) return undefined;
@@ -98,8 +100,7 @@ export default function LeveragePage() {
   const delegationApproval = useDebtDelegation(debtMarket?.variableDebtToken, ADDRESSES.looping, address);
 
   // -- openPosition writeContract --
-  const { writeContract, data: openHash, isPending: openPending, error: openError } = useWriteContract();
-  const { isLoading: openConfirming, isSuccess: openSuccess } = useWaitForTransactionReceipt({ hash: openHash });
+  const { send: openSend, hash: openHash, isPending: openPending, isConfirming: openConfirming, isSuccess: openSuccess, error: openError, isSimulating: openSimulating } = useSimulatedWrite();
 
   const prevOpenErr = useRef<Error | null>(null);
   useEffect(() => {
@@ -135,7 +136,7 @@ export default function LeveragePage() {
       return;
     }
     const path: `0x${string}`[] = [debtMarket.asset, yieldMarket.asset];
-    writeContract({
+    void openSend({
       address: ADDRESSES.looping,
       abi: LOOPING_ABI,
       functionName: "openPosition",
@@ -426,6 +427,7 @@ export default function LeveragePage() {
                 <TxButton
                   onClick={() => tokenApproval.approve(parsedAmount)}
                   isPending={tokenApproval.isPending}
+                  isSimulating={tokenApproval.isSimulating}
                   isConfirming={tokenApproval.isConfirming}
                   disabled={!address}
                 >
@@ -436,6 +438,7 @@ export default function LeveragePage() {
                 <TxButton
                   onClick={() => delegationApproval.approve(MAX_UINT256)}
                   isPending={delegationApproval.isPending}
+                  isSimulating={delegationApproval.isSimulating}
                   isConfirming={delegationApproval.isConfirming}
                   disabled={!address}
                 >
@@ -446,6 +449,7 @@ export default function LeveragePage() {
                 <TxButton
                   onClick={handleOpen}
                   isPending={openPending}
+                  isSimulating={openSimulating}
                   isConfirming={openConfirming}
                   disabled={!ready}
                 >

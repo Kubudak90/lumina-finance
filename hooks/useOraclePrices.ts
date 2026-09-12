@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from "react";
 import { useReadContract } from "wagmi";
 import { AAVE_ORACLE_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
 
@@ -17,7 +18,7 @@ export function useOraclePrices() {
     abi: AAVE_ORACLE_ABI,
     functionName: "getAssetsPrices",
     args: [assets],
-    query: { refetchInterval: 30_000 },
+    query: { ...QUERY.prices },
   });
 
   const prices = useMemo(() => {

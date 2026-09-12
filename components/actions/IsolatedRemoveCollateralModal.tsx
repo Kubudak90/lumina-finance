@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
@@ -34,8 +36,7 @@ export function IsolatedRemoveCollateralModal({
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsed = amount ? (safeParseUnits(amount, collateralDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(collateralAmount, collateralDecimals);
@@ -53,14 +54,14 @@ export function IsolatedRemoveCollateralModal({
     if (isSuccess && hash) {
       toast.success("Collateral removed", {
         description: `Removed ${amount} ${collateralSymbol}`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, amount, collateralSymbol]);
 
   const handleRemove = () => {
     if (!address) return;
-    writeContract({
+    void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "removeCollateral",
@@ -119,6 +120,7 @@ export function IsolatedRemoveCollateralModal({
               <TxButton
                 onClick={handleRemove}
                 isPending={isPending}
+                isSimulating={isSimulating}
                 isConfirming={isConfirming}
                 disabled={!address || parsed === 0n || overMax}
               >

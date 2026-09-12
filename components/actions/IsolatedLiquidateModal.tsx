@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
@@ -55,8 +57,7 @@ export function IsolatedLiquidateModal({
   const { address } = useAccount();
   const approval = useTokenApproval(asset, pair, address);
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(borrowerDebtAsset, assetDecimals);
@@ -94,7 +95,7 @@ export function IsolatedLiquidateModal({
     if (isSuccess && hash) {
       toast.success("Liquidation successful", {
         description: `Received ${collateralSymbol} collateral`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, collateralSymbol]);
@@ -116,7 +117,7 @@ export function IsolatedLiquidateModal({
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
     let shares = parsed >= borrowerDebtAsset ? borrowerDebtShares : pendingSharesRef.current || computedShares;
     if (shares > MAX_UINT128) shares = MAX_UINT128;
-    writeContract({
+    void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "liquidate",
@@ -213,6 +214,7 @@ export function IsolatedLiquidateModal({
               <TxButton
                 onClick={handleLiquidate}
                 isPending={isPending || approval.isPending}
+                isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
                 disabled={!address || parsed === 0n || insufficientWallet || borrowerDebtShares === 0n}
               >

@@ -17,6 +17,7 @@ import { useUserCollateralStatus } from "@/hooks/useUserCollateralStatus";
 import { useReserveConfig } from "@/hooks/useReserveConfig";
 import { usePrices } from "@/hooks/usePrices";
 import { getMarketBySymbol } from "@/lib/constants";
+import { QUERY } from "@/lib/queryPolicy";
 import { formatTokenToUsd, formatPercent } from "@/lib/format";
 import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI, INTEREST_RATE_STRATEGY_ABI } from "@/lib/abis";
 
@@ -45,7 +46,7 @@ export default function MarketDetailPage() {
       { address: market.aToken, abi: ATOKEN_ABI, functionName: "totalSupply" as const },
       { address: market.variableDebtToken, abi: VARIABLE_DEBT_TOKEN_ABI, functionName: "totalSupply" as const },
     ] : [],
-    query: { enabled: !!market, refetchInterval: 15_000 },
+    query: { enabled: !!market, ...QUERY.market },
   });
 
   // F-010: Read interest rate strategy address from reserve data, then read on-chain rate params
@@ -61,7 +62,7 @@ export default function MarketDetailPage() {
 
   const strategyResult = useReadContracts({
     contracts: strategyContracts,
-    query: { enabled: hasStrategy, refetchInterval: 60_000 },
+    query: { enabled: hasStrategy, ...QUERY.market },
   });
 
   const [modal, setModal] = useState<"supply" | "borrow" | "withdraw" | "repay" | "collateral" | null>(null);

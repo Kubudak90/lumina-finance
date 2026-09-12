@@ -4,6 +4,7 @@ import { WagmiProvider, createConfig, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectKitProvider, getDefaultConfig } from "connectkit";
 import { defaultChain } from "@/lib/chains";
+import { defaultQueryClientOptions } from "@/lib/queryPolicy";
 
 const config = createConfig(
   getDefaultConfig({
@@ -26,12 +27,7 @@ if (process.env.NODE_ENV === "development" && !process.env.NEXT_PUBLIC_WC_PROJEC
 }
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchInterval: 15_000,
-      staleTime: 10_000,
-    },
-  },
+  defaultOptions: defaultQueryClientOptions(),
 });
 
 export function Web3Provider({ children }: { children: React.ReactNode }) {
