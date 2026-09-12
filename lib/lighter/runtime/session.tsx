@@ -47,6 +47,9 @@ import { ensureLighterRuntime } from "./bootstrap";
 import { useLighterSnapshot } from "./snapshot";
 import { initWASM, waitForWasm } from "./wasm";
 import type { LighterSnapshot } from "../types";
+import { combinePortfolio, lighterFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
+import { FreshnessBadge } from "@/components/portfolio/FreshnessBadge";
+import Link from "next/link";
 
 const ENCODING = "json" as Encoding;
 
@@ -395,6 +398,91 @@ export function LighterReadOnlyView() {
   return (
     <QueryClientProvider client={queryClient}>
       <LighterReadOnlyInner />
+    </QueryClientProvider>
+  );
+}
+
+function LighterPortfolioEmbedInner({ lumina }: { lumina: LuminaLegs }) {
+  const snapshot = useLighterSnapshot();
+  const combined = combinePortfolio(lumina, snapshot);
+  const status = lighterFreshness(snapshot.wsConnected, snapshot.lastPongAt);
+
+  return (
+    <>
+      <LighterSideEffects />
+      <section className="technical-border bg-card p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-accent">Unified</p>
+            <h2 className="text-sm font-bold">Lumina + Lighter</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <FreshnessBadge
+              source="Lighter"
+              status={status}
+              detail={snapshot.existence === "Exists" ? "authenticated" : snapshot.existence}
+            />
+            <Link href="/lighter" className="text-[10px] font-mono uppercase tracking-wider text-accent hover:text-white">
+              Full Lighter view
+            </Link>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Combined USD" value={usd(combined.totalUsd)} />
+          <Stat label="Lumina net" value={usd(combined.luminaNetUsd)} />
+          <Stat label="Lighter equity" value={usd(combined.lighterEquityUsd)} />
+          <Stat label="Net delta" value={usd(combined.netDeltaUsd)} />
+        </div>
+        <p className="text-[10px] text-text-dim">
+          Combined USD is Lumina net worth plus Lighter equity. Net delta adds signed perp notional
+          (long +, short −). Legs are not atomic.
+        </p>
+        <DataGate>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Stat label="Perps equity" value={usd(snapshot.equity.perps)} />
+            <Stat label="Spot equity" value={usd(snapshot.equity.spot)} />
+            <Stat label="Perp delta" value={usd(combined.lighterPerpDeltaUsd)} />
+          </div>
+          {snapshot.positions.length === 0 ? (
+            <p className="text-sm text-text-dim">No Lighter positions.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-text-dim">
+                  <th className="py-1">Market</th>
+                  <th className="py-1">Side</th>
+                  <th className="py-1">Size</th>
+                  <th className="py-1">uPnL</th>
+                  <th className="py-1">Funding</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.positions.map((position) => (
+                  <tr key={position.marketId} className="border-t border-border">
+                    <td className="py-1.5 font-mono">{position.symbol}</td>
+                    <td className="py-1.5">{position.side}</td>
+                    <td className="py-1.5 font-mono">{position.displaySize}</td>
+                    <td className="py-1.5 font-mono">{usd(position.unrealizedPnl)}</td>
+                    <td className="py-1.5 font-mono">{usd(position.funding)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </DataGate>
+      </section>
+    </>
+  );
+}
+
+export function LighterPortfolioEmbed({ lumina }: { lumina: LuminaLegs }) {
+  useState(() => {
+    ensureLighterRuntime();
+    return null;
+  });
+  return (
+    <QueryClientProvider client={queryClient}>
+      <LighterPortfolioEmbedInner lumina={lumina} />
     </QueryClientProvider>
   );
 }
