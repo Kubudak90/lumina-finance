@@ -6,6 +6,8 @@
  * as an HTTP transport for Solidity contract calls.
  *
  * Only files under `lib/lighter/` may import `lighter-ts`.
+ * App-level `package.json` already pins every `lighter-ts@1.0.2` peer so
+ * the SDK can be added without `--legacy-peer-deps`.
  */
 
 export const LIGHTER_SIGNING_CHAIN_ID = 304;

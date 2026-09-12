@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { ConnectKitButton } from "connectkit";
+import { WalletButton } from "@/components/common/WalletButton";
 import { Menu } from "lucide-react";
 import { useSidebar } from "@/providers/SidebarProvider";
 
@@ -41,7 +41,7 @@ export function Header() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <ConnectKitButton />
+          <WalletButton />
         </div>
       </div>
     </header>

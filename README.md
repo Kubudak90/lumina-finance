@@ -1,9 +1,13 @@
 # Lumina Finance — Frontend
 
-Next.js (App Router) UI for the Lumina Finance lending markets on **Base Sepolia (chainId 84532)**.
+Next.js 16 (App Router) + React 19 UI for the Lumina Finance lending markets on **Base Sepolia (chainId 84532)**.
 
 This app talks to the Lumina Aave V3 fork (core, isolated, looping) over a verified EVM.
 Lighter is a separate trading/account domain and is not used as a wagmi chain.
+
+Requires **Node.js 20.9+**. Install with `npm ci` — do not use `--legacy-peer-deps`. ConnectKit is not used because its peers are React 17/18 only; the wallet modal is RainbowKit.
+
+`lighter-ts` peer dependencies (React 19.1+, TanStack Query 5.100+, Zustand, Zod, i18next, date-fns, decimal.js, lodash-es, `zklighter-perps`) are pinned so the later adapter PR can add the SDK without a peer override. Do not import `lighter-ts` outside `lib/lighter/`.
 
 ## Getting Started
 
@@ -39,7 +43,7 @@ project at `luminafinance.xyz`. There is **no GitHub integration**; pushing to
 - `lib/` — chain config, contract addresses, ABIs, helpers
 - `lib/lighter/` — Lighter REST/signing config (no Solidity RPC)
 - `hooks/` — wagmi hooks for reserves, health factor, e-mode, rewards, prices
-- `providers/Web3Provider.tsx` — wagmi + WalletConnect setup
+- `providers/Web3Provider.tsx` — wagmi + RainbowKit (WalletConnect) setup
 
 ## Learn More
 

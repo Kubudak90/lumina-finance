@@ -1,28 +1,29 @@
 "use client";
 
-import { WagmiProvider, createConfig, http } from "wagmi";
+import type { ReactNode } from "react";
+import { WagmiProvider, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ConnectKitProvider, getDefaultConfig } from "connectkit";
+import { RainbowKitProvider, darkTheme, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { defaultChain } from "@/lib/chains";
 import { defaultQueryClientOptions } from "@/lib/queryPolicy";
+import "@rainbow-me/rainbowkit/styles.css";
 
-const config = createConfig(
-  getDefaultConfig({
-    chains: [defaultChain],
-    transports: {
-      [defaultChain.id]: http(),
-    },
-    walletConnectProjectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "",
-    appName: "Lumina Finance",
-    // Dev warning is emitted below after config creation
-    appDescription: "EVM lending and leverage with integrated Lighter portfolio",
-  })
-);
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
 
-if (process.env.NODE_ENV === "development" && !process.env.NEXT_PUBLIC_WC_PROJECT_ID) {
+const config = getDefaultConfig({
+  appName: "Lumina Finance",
+  projectId: walletConnectProjectId,
+  chains: [defaultChain],
+  transports: {
+    [defaultChain.id]: http(),
+  },
+  ssr: true,
+});
+
+if (process.env.NODE_ENV === "development" && !walletConnectProjectId) {
   console.warn(
     "[Web3Provider] NEXT_PUBLIC_WC_PROJECT_ID is not set. WalletConnect will not work. " +
-    "Get a project ID at https://cloud.walletconnect.com and add it to your .env.local file."
+      "Get a project ID at https://cloud.walletconnect.com and add it to your .env.local file."
   );
 }
 
@@ -30,13 +31,20 @@ const queryClient = new QueryClient({
   defaultOptions: defaultQueryClientOptions(),
 });
 
-export function Web3Provider({ children }: { children: React.ReactNode }) {
+const rainbowTheme = darkTheme({
+  accentColor: "#B0C4FF",
+  accentColorForeground: "#09090b",
+  borderRadius: "none",
+  overlayBlur: "small",
+});
+
+export function Web3Provider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ConnectKitProvider mode="dark" theme="midnight">
+        <RainbowKitProvider theme={rainbowTheme} modalSize="compact">
           {children}
-        </ConnectKitProvider>
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
