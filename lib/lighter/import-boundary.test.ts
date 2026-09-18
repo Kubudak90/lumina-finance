@@ -52,6 +52,7 @@ describe("lighter-ts import boundary", () => {
 
     const allowedRuntime = runtimeImports.filter((rel) => {
       if (rel === "app/(app)/lighter/page.tsx") return true;
+      if (rel === "app/(app)/portfolio/page.tsx") return true;
       if (rel.startsWith("lib/lighter/runtime/")) return true;
       if (rel.endsWith(".test.ts") || rel.endsWith(".test.tsx")) return true;
       return false;
@@ -66,5 +67,9 @@ describe("lighter-ts import boundary", () => {
     const page = readFileSync(join(repoRoot, "app/(app)/lighter/page.tsx"), "utf8");
     expect(page).toMatch(/next\/dynamic/);
     expect(page).toMatch(/ssr:\s*false/);
+
+    const portfolio = readFileSync(join(repoRoot, "app/(app)/portfolio/page.tsx"), "utf8");
+    expect(portfolio).toMatch(/next\/dynamic/);
+    expect(portfolio).toMatch(/ssr:\s*false/);
   });
 });
