@@ -6,16 +6,26 @@ import { useAccount, useReadContract, useReadContracts, useWriteContract, useWai
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { TokenIcon } from "@/components/common/TokenIcon";
+import { SlippageSelector } from "@/components/common/SlippageSelector";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { useDebtDelegation } from "@/hooks/useDebtDelegation";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { LeverageCloseModal } from "@/components/actions/LeverageCloseModal";
 import { ADDRESSES } from "@/lib/contracts";
 import { ERC20_ABI, LOOPING_ABI } from "@/lib/abis";
 import { MARKETS, getMarketBySymbol, getMarketByAsset } from "@/lib/constants";
-import { formatPercent, safeParseUnits, isValidDecimalInput } from "@/lib/format";
+import { formatPercent, formatTokenAmount, safeParseUnits, isValidDecimalInput } from "@/lib/format";
 import { parseErrorMessage } from "@/lib/errorMessages";
+import { txExplorerUrl } from "@/lib/explorer";
+import {
+  DEFAULT_SLIPPAGE_BPS,
+  applySlippage,
+  quoteExactIn,
+  swapDeadline,
+  type SlippageBps,
+} from "@/lib/slippage";
 import { Triangle } from "lucide-react";
 
 const LEVERAGE_OPTIONS = [1.5, 2, 2.5, 3] as const;
@@ -34,6 +44,8 @@ export default function LeveragePage() {
   const [debtAssetSym, setDebtAssetSym] = useState("USDC");
   const [amountInput, setAmountInput] = useState("");
   const [leverage, setLeverage] = useState<number>(2);
+  const [slippageBps, setSlippageBps] = useState<SlippageBps>(DEFAULT_SLIPPAGE_BPS);
+  const oracle = useOraclePrices();
 
   const yieldMarket = getMarketBySymbol(yieldAssetSym);
   const debtMarket = getMarketBySymbol(debtAssetSym);
@@ -100,16 +112,29 @@ export default function LeveragePage() {
   useEffect(() => {
     if (openSuccess && openHash) {
       toast.success("Position opened", {
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${openHash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(openHash), "_blank") },
       });
     }
   }, [openSuccess, openHash]);
 
+  const debtPrice = oracle.priceOf(debtMarket?.asset);
+  const yieldPrice = oracle.priceOf(yieldMarket?.asset);
+  const expectedYieldOut =
+    debtMarket && yieldMarket && flashloanAmount > 0n && debtPrice !== undefined && yieldPrice !== undefined
+      ? quoteExactIn(flashloanAmount, debtMarket.decimals, yieldMarket.decimals, debtPrice, yieldPrice)
+      : 0n;
+  const minYieldOut = applySlippage(expectedYieldOut, slippageBps);
+
   const handleOpen = () => {
     if (!address || !yieldMarket || !debtMarket || !activeSwapper) return;
     if (sameAsset || parsedAmount === 0n) return;
+    if (minYieldOut === 0n) {
+      toast.error("Open Position blocked", {
+        description: "Need a live oracle quote and a nonzero minAmountOut",
+      });
+      return;
+    }
     const path: `0x${string}`[] = [debtMarket.asset, yieldMarket.asset];
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
     writeContract({
       address: ADDRESSES.looping,
       abi: LOOPING_ABI,
@@ -121,11 +146,11 @@ export default function LeveragePage() {
         yieldMarket.asset,
         parsedAmount,
         flashloanAmount,
-        0n, // _minAmountOut (debt → yield) — testnet, no slippage protection
+        minYieldOut,
         path,
-        false, // _startWithYield: user provides debt token
-        0n, // _minInitialAmountOut
-        deadline,
+        false, // _startWithYield: user provides debt token; initial-swap min is unused
+        0n,
+        swapDeadline(),
       ],
     });
   };
@@ -136,7 +161,6 @@ export default function LeveragePage() {
   const baseApy = Number(yieldRate) / 1e25;
   const borrowApy = Number(borrowRate) / 1e25;
   const estimatedApy = baseApy * leverage - borrowApy * (leverage - 1);
-  const estimatedPosition = Number(amountInput || 0) * leverage;
 
   // -- Existing positions: any market with both supply > 0 and borrow > 0 in DIFFERENT assets --
   type OpenLeveragedPos = {
@@ -161,6 +185,7 @@ export default function LeveragePage() {
   const insufficientBalance = parsedAmount > balance;
   const needsTokenApproval = tokenApproval.needsApproval(parsedAmount);
   const needsDelegation = delegationApproval.needsApproval(flashloanAmount);
+  const missingQuote = parsedAmount > 0n && !sameAsset && minYieldOut === 0n;
   const ready =
     !!address &&
     !!yieldMarket &&
@@ -171,7 +196,8 @@ export default function LeveragePage() {
     !needsTokenApproval &&
     !needsDelegation &&
     !!activeSwapper &&
-    poolWhitelisted.data === true;
+    poolWhitelisted.data === true &&
+    minYieldOut > 0n;
 
   const noSwapper = KNOWN_SWAPPER_CANDIDATES.length === 0 || !activeSwapper;
 
@@ -332,6 +358,8 @@ export default function LeveragePage() {
               </div>
             </div>
 
+            <SlippageSelector value={slippageBps} onChange={setSlippageBps} />
+
             {/* Estimate */}
             {parsedAmount > 0n && !sameAsset && (
               <div className="border border-border/50 bg-background/50 p-4 space-y-3">
@@ -341,10 +369,12 @@ export default function LeveragePage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                      Position Size
+                      Expected yield
                     </p>
                     <p className="text-sm font-mono font-medium text-foreground">
-                      ~{estimatedPosition.toFixed(4)} {yieldAssetSym}
+                      {minYieldOut > 0n
+                        ? `~${formatTokenAmount(expectedYieldOut, yieldMarket?.decimals ?? 18)} ${yieldAssetSym}`
+                        : "—"}
                     </p>
                   </div>
                   <div>
@@ -364,6 +394,29 @@ export default function LeveragePage() {
                     </p>
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      Min received
+                    </p>
+                    <p className="text-sm font-mono font-medium text-foreground">
+                      {minYieldOut > 0n
+                        ? `${formatTokenAmount(minYieldOut, yieldMarket?.decimals ?? 18)} ${yieldAssetSym}`
+                        : "quote unavailable"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      Deadline
+                    </p>
+                    <p className="text-sm font-mono font-medium text-foreground">5 minutes</p>
+                  </div>
+                </div>
+                {missingQuote && (
+                  <p className="text-xs text-amber-400 font-mono">
+                    Live oracle quote required — open is blocked until minAmountOut is nonzero
+                  </p>
+                )}
               </div>
             )}
 
@@ -396,7 +449,11 @@ export default function LeveragePage() {
                   isConfirming={openConfirming}
                   disabled={!ready}
                 >
-                  {noSwapper ? "DEX adapter required" : "Open Position"}
+                  {noSwapper
+                    ? "DEX adapter required"
+                    : missingQuote
+                      ? "Oracle quote required"
+                      : "Open Position"}
                 </TxButton>
               )}
             </div>

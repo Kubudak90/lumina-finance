@@ -5,12 +5,23 @@ import { formatUnits } from "viem";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
+import { SlippageSelector } from "@/components/common/SlippageSelector";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { LOOPING_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { parseErrorMessage } from "@/lib/errorMessages";
+import { txExplorerUrl } from "@/lib/explorer";
+import { formatTokenAmount } from "@/lib/format";
+import {
+  DEFAULT_SLIPPAGE_BPS,
+  applySlippage,
+  quoteExactIn,
+  swapDeadline,
+  type SlippageBps,
+} from "@/lib/slippage";
 
 interface Props {
   yieldAsset: `0x${string}`;
@@ -49,7 +60,9 @@ export function LeverageCloseModal({
 }: Props) {
   const { address } = useAccount();
   const [percent, setPercent] = useState<Percent>(100);
+  const [slippageBps, setSlippageBps] = useState<SlippageBps>(DEFAULT_SLIPPAGE_BPS);
   const [pendingCloseAfterApproval, setPendingCloseAfterApproval] = useState(false);
+  const oracle = useOraclePrices();
 
   const aTokenApproval = useTokenApproval(yieldAToken, ADDRESSES.looping, address);
 
@@ -85,7 +98,7 @@ export function LeverageCloseModal({
   useEffect(() => {
     if (isSuccess && hash) {
       toast.success(`Closed ${percent}% of position`, {
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, percent]);
@@ -101,25 +114,39 @@ export function LeverageCloseModal({
 
   // For partial close we need to approve enough aToken; for full close we use MAX
   const requiredAtokenApproval = percent === 100 ? yieldRaw : (yieldRaw * BigInt(percent)) / 100n;
+  const portionYield = (yieldRaw * BigInt(percent)) / 100n;
+  const portionDebt = (debtRaw * BigInt(percent)) / 100n;
+  const flashloanAmount =
+    percent === 100
+      ? (debtRaw * 1001n) / 1000n + 1n
+      : ((debtRaw * BigInt(percent)) / 100n) * 1001n / 1000n + 1n;
+
+  const yieldPrice = oracle.priceOf(yieldAsset);
+  const debtPrice = oracle.priceOf(debtAsset);
+  const expectedDebtOut =
+    portionYield > 0n && yieldPrice !== undefined && debtPrice !== undefined
+      ? quoteExactIn(portionYield, yieldDecimals, debtDecimals, yieldPrice, debtPrice)
+      : 0n;
+  const minDebtOut = applySlippage(expectedDebtOut, slippageBps);
+  const quoteCannotCoverRepay = minDebtOut > 0n && minDebtOut < flashloanAmount;
+  const canClose = minDebtOut > 0n && !quoteCannotCoverRepay;
 
   const executeClose = () => {
     if (!address || !swapper) return;
-    const path: `0x${string}`[] = [yieldAsset, debtAsset];
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
-
-    let withdrawAmount: bigint;
-    let flashloanAmount: bigint;
-    if (percent === 100) {
-      // Contract reads live balances; pass MAX for withdrawAmount and live debt + 0.1% buffer for flashloan
-      withdrawAmount = MAX_UINT256;
-      flashloanAmount = (debtRaw * 1001n) / 1000n + 1n;
-    } else {
-      const fraction = BigInt(percent);
-      withdrawAmount = (yieldRaw * fraction) / 100n;
-      // For partial close, flashloanAmount becomes repaymentAmount.
-      // Add 0.1% buffer for interest accrued between read and tx.
-      flashloanAmount = ((debtRaw * fraction) / 100n) * 1001n / 1000n + 1n;
+    if (minDebtOut === 0n) {
+      toast.error("Close Position blocked", {
+        description: "Need a live oracle quote and a nonzero minAmountOut",
+      });
+      return;
     }
+    if (quoteCannotCoverRepay) {
+      toast.error("Close Position blocked", {
+        description: "Quoted min output cannot cover the flash-loan repayment",
+      });
+      return;
+    }
+    const path: `0x${string}`[] = [yieldAsset, debtAsset];
+    const withdrawAmount = percent === 100 ? MAX_UINT256 : portionYield;
 
     writeContract({
       address: ADDRESSES.looping,
@@ -131,10 +158,10 @@ export function LeverageCloseModal({
         debtAsset,
         yieldAsset,
         flashloanAmount,
-        0n,
+        minDebtOut,
         path,
         withdrawAmount,
-        deadline,
+        swapDeadline(),
       ],
     });
   };
@@ -142,7 +169,7 @@ export function LeverageCloseModal({
   const needsApproval = aTokenApproval.needsApproval(requiredAtokenApproval);
 
   const handleClose = () => {
-    if (!address || !swapper || debtRaw === 0n || yieldRaw === 0n) return;
+    if (!address || !swapper || debtRaw === 0n || yieldRaw === 0n || !canClose) return;
     if (needsApproval) {
       aTokenApproval.approve(MAX_UINT256);
       setPendingCloseAfterApproval(true);
@@ -150,9 +177,6 @@ export function LeverageCloseModal({
     }
     executeClose();
   };
-
-  const portionYield = (yieldRaw * BigInt(percent)) / 100n;
-  const portionDebt = (debtRaw * BigInt(percent)) / 100n;
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -222,19 +246,45 @@ export function LeverageCloseModal({
                   <span>Repay ({percent}%)</span>
                   <span className="font-mono">{Number(formatUnits(portionDebt, debtDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} {debtSymbol}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Min received</span>
+                  <span className="font-mono">
+                    {minDebtOut > 0n
+                      ? `${formatTokenAmount(minDebtOut, debtDecimals)} ${debtSymbol}`
+                      : "quote unavailable"}
+                  </span>
+                </div>
               </div>
+
+              <SlippageSelector value={slippageBps} onChange={setSlippageBps} />
 
               {!swapper && (
                 <p className="text-xs text-amber-400 font-mono">No DEX adapter whitelisted — close will revert</p>
+              )}
+              {minDebtOut === 0n && yieldRaw > 0n && (
+                <p className="text-xs text-amber-400 font-mono">
+                  Live oracle quote required — close is blocked until minAmountOut is nonzero
+                </p>
+              )}
+              {quoteCannotCoverRepay && (
+                <p className="text-xs text-amber-400 font-mono">
+                  Quoted min output is below the flash-loan repayment
+                </p>
               )}
 
               <TxButton
                 onClick={handleClose}
                 isPending={isPending || aTokenApproval.isPending}
                 isConfirming={isConfirming || aTokenApproval.isConfirming}
-                disabled={!address || debtRaw === 0n || yieldRaw === 0n || !swapper}
+                disabled={!address || debtRaw === 0n || yieldRaw === 0n || !swapper || !canClose}
               >
-                {needsApproval ? `Approve a${yieldSymbol}` : `Close ${percent}%`}
+                {needsApproval
+                  ? `Approve a${yieldSymbol}`
+                  : minDebtOut === 0n
+                    ? "Oracle quote required"
+                    : quoteCannotCoverRepay
+                      ? "Quote cannot cover repay"
+                      : `Close ${percent}%`}
               </TxButton>
             </div>
           </>
