@@ -1,7 +1,9 @@
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { useReadContract, useAccount } from "wagmi";
 import { REWARDS_CONTROLLER_ABI } from "@/lib/abis";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
+import { QUERY } from "@/lib/queryPolicy";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 
 /**
  * Hook for Aave V3 Rewards (incentives).
@@ -18,16 +20,14 @@ export function useRewards() {
   const { address } = useAccount();
   const enabled = !!address && !!ADDRESSES.rewardsController;
 
-  // RewardsController expects aToken + debtToken addresses, not underlying
   const rewardAssets = MARKETS.flatMap((m) => [m.aToken, m.variableDebtToken]);
 
-  // Fetch all unclaimed rewards for user
   const allRewards = useReadContract({
     address: ADDRESSES.rewardsController as `0x${string}`,
     abi: REWARDS_CONTROLLER_ABI,
     functionName: "getAllUserRewards",
     args: address ? [rewardAssets, address] : undefined,
-    query: { enabled, refetchInterval: 30_000 },
+    query: { enabled, ...QUERY.user },
   });
 
   const rawAllRewards = allRewards.data as
@@ -44,13 +44,11 @@ export function useRewards() {
 
   const totalUnclaimed = rewards.reduce((sum, r) => sum + r.unclaimedAmount, 0n);
 
-  // Claim all rewards
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const tx = useSimulatedWrite();
 
   const claimAll = () => {
     if (!address) return;
-    writeContract({
+    void tx.send({
       address: ADDRESSES.rewardsController as `0x${string}`,
       abi: REWARDS_CONTROLLER_ABI,
       functionName: "claimAllRewards",
@@ -62,10 +60,11 @@ export function useRewards() {
     rewards,
     totalUnclaimed,
     claimAll,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
+    isPending: tx.isPending,
+    isConfirming: tx.isConfirming,
+    isSimulating: tx.isSimulating,
+    isSuccess: tx.isSuccess,
+    error: tx.error,
     isLoading: allRewards.isLoading,
   };
 }

@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { txExplorerUrl } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -27,15 +30,14 @@ export function IsolatedWithdrawModal({ pair, assetSymbol, assetDecimals, onClos
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
 
   const max = useReadContract({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "maxWithdraw",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 10_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const maxRaw = (max.data as bigint | undefined) ?? 0n;
   const maxFmt = formatUnits(maxRaw, assetDecimals);
@@ -54,14 +56,14 @@ export function IsolatedWithdrawModal({ pair, assetSymbol, assetDecimals, onClos
     if (isSuccess && hash) {
       toast.success("Withdraw successful", {
         description: `Withdrew ${amount} ${assetSymbol}`,
-        action: { label: "View", onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank") },
+        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
       });
     }
   }, [isSuccess, hash, amount, assetSymbol]);
 
   const handleWithdraw = () => {
     if (!address) return;
-    writeContract({
+    void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "withdraw",
@@ -119,6 +121,7 @@ export function IsolatedWithdrawModal({ pair, assetSymbol, assetDecimals, onClos
               <TxButton
                 onClick={handleWithdraw}
                 isPending={isPending}
+                isSimulating={isSimulating}
                 isConfirming={isConfirming}
                 disabled={!address || parsed === 0n || overMax}
               >

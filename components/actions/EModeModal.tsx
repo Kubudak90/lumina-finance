@@ -48,6 +48,7 @@ export function EModeModal({ onClose }: EModeModalProps) {
     setEMode,
     isPending,
     isConfirming,
+    isSimulating,
     isSuccess,
     error,
   } = useEMode();
@@ -176,6 +177,7 @@ export function EModeModal({ onClose }: EModeModalProps) {
             <TxButton
               onClick={handleSetEMode}
               isPending={isPending}
+              isSimulating={isSimulating}
               isConfirming={isConfirming}
               disabled={!hasChanged}
             >

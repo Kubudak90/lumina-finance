@@ -1,5 +1,6 @@
 import { useReadContract } from "wagmi";
 import { POOL_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 
 export interface ReserveData {
@@ -49,7 +50,7 @@ export function useMarketData(asset: `0x${string}`) {
     abi: POOL_ABI,
     functionName: "getReserveData",
     args: [asset],
-    query: { refetchInterval: 15_000 },
+    query: { ...QUERY.market },
   });
 
   // Runtime validation: ensure the data has the expected shape before casting

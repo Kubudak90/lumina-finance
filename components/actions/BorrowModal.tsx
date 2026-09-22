@@ -3,7 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { txExplorerUrl } from "@/lib/explorer";
+import { QUERY } from "@/lib/queryPolicy";
+import { useAccount, useReadContract } from "wagmi";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { HealthFactorBar } from "@/components/common/HealthFactorBar";
@@ -27,8 +30,7 @@ interface BorrowModalProps {
 export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalProps) {
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
   const { healthFactor } = useHealthFactor();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
@@ -51,7 +53,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
     abi: POOL_ABI,
     functionName: "getUserAccountData",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 10_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
 
   let availableBorrowsBase = 0n;
@@ -82,7 +84,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
     abi: [{ name: "getAssetPrice", type: "function", stateMutability: "view", inputs: [{ name: "asset", type: "address" }], outputs: [{ name: "", type: "uint256" }] }] as const,
     functionName: "getAssetPrice",
     args: [asset],
-    query: { refetchInterval: 10_000 },
+    query: { ...QUERY.user },
   });
   const priceRaw = (oraclePrice as bigint) ?? 0n;
 
@@ -152,7 +154,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
         description: "Transaction confirmed",
         action: {
           label: "View on Explorer",
-          onClick: () => window.open(`https://sepolia.basescan.org/tx/${hash}`, "_blank"),
+          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
         },
       });
     }
@@ -160,7 +162,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
 
   const handleBorrow = () => {
     if (!address) return;
-    writeContract({
+    void send({
       address: ADDRESSES.pool,
       abi: POOL_ABI,
       functionName: "borrow",
@@ -180,7 +182,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
             <p className="text-muted-foreground mt-2 mb-4">You borrowed {amount} {symbol}</p>
             {hash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${hash}`}
+                href={txExplorerUrl(hash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-accent hover:underline font-mono"
@@ -285,6 +287,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
               <TxButton
                 onClick={handleBorrow}
                 isPending={isPending}
+                isSimulating={isSimulating}
                 isConfirming={isConfirming}
                 disabled={!address || !amount || parsedAmount === 0n || (availableLiquidity > 0n && parsedAmount > availableLiquidity) || (simulatedHf !== null && simulatedHf < 1.0)}
               >

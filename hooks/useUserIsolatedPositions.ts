@@ -1,5 +1,6 @@
 import { useReadContracts, useAccount } from "wagmi";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { useIsolatedPairs, type IsolatedPairInfo } from "./useIsolatedPairs";
 
 export interface UserIsolatedPosition extends IsolatedPairInfo {
@@ -31,7 +32,7 @@ export function useUserIsolatedPositions() {
   }));
   const snapshots = useReadContracts({
     contracts: enabled ? snapshotContracts : [],
-    query: { enabled, refetchInterval: 15_000 },
+    query: { enabled, ...QUERY.user },
   });
 
   type Snapshot = readonly [bigint, bigint, bigint];
@@ -62,7 +63,7 @@ export function useUserIsolatedPositions() {
 
   const conversions = useReadContracts({
     contracts: enabled && snapshots.data ? conversionContracts : [],
-    query: { enabled: enabled && !!snapshots.data, refetchInterval: 15_000 },
+    query: { enabled: enabled && !!snapshots.data, ...QUERY.user },
   });
 
   const positions: UserIsolatedPosition[] = pairs

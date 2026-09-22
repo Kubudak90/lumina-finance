@@ -1,6 +1,7 @@
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useReadContract } from "wagmi";
 import { ERC20_ABI } from "@/lib/abis";
-import { useEffect } from "react";
+import { QUERY } from "@/lib/queryPolicy";
+import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
 
 export function useTokenApproval(token: `0x${string}`, spender: `0x${string}`, owner?: `0x${string}`) {
   const allowance = useReadContract({
@@ -8,22 +9,13 @@ export function useTokenApproval(token: `0x${string}`, spender: `0x${string}`, o
     abi: ERC20_ABI,
     functionName: "allowance",
     args: owner ? [owner, spender] : undefined,
-    query: { enabled: !!owner },
+    query: { enabled: !!owner, ...QUERY.user },
   });
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  // Refetch allowance once approval tx is confirmed
-  useEffect(() => {
-    if (isSuccess) {
-      allowance.refetch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuccess]);
+  const tx = useSimulatedWrite();
 
   const approve = (amount: bigint) => {
-    writeContract({
+    void tx.send({
       address: token,
       abi: ERC20_ABI,
       functionName: "approve",
@@ -39,10 +31,11 @@ export function useTokenApproval(token: `0x${string}`, spender: `0x${string}`, o
   return {
     approve,
     needsApproval,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
+    isPending: tx.isPending,
+    isConfirming: tx.isConfirming,
+    isSimulating: tx.isSimulating,
+    isSuccess: tx.isSuccess,
+    error: tx.error,
     allowance: allowance.data as bigint | undefined,
   };
 }

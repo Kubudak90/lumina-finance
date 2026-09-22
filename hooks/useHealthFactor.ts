@@ -1,5 +1,6 @@
 import { useReadContract, useAccount } from "wagmi";
 import { POOL_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 
 /**
@@ -19,7 +20,7 @@ export function useHealthFactor() {
     abi: POOL_ABI,
     functionName: "getUserAccountData",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 10_000 },
+    query: { enabled: !!address, ...QUERY.user },
   });
 
   // getUserAccountData returns 6 values; viem may return as array or object

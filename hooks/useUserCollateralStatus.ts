@@ -1,5 +1,6 @@
 import { useReadContracts, useAccount } from "wagmi";
 import { DATA_PROVIDER_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
 import { ADDRESSES } from "@/lib/contracts";
 import { MARKETS } from "@/lib/constants";
 
@@ -31,7 +32,7 @@ export function useUserCollateralStatus() {
 
   const result = useReadContracts({
     contracts,
-    query: { enabled, refetchInterval: 10_000 },
+    query: { enabled, ...QUERY.user },
   });
 
   const userReserves: UserReserveInfo[] = MARKETS.map((m, i) => {
