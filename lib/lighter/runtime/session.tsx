@@ -47,6 +47,7 @@ import { ensureLighterRuntime } from "./bootstrap";
 import { useLighterSnapshot } from "./snapshot";
 import { initWASM, waitForWasm } from "./wasm";
 import type { LighterSnapshot } from "../types";
+import { useFreshnessNow } from "@/lib/portfolio/clock";
 import { combinePortfolio, lighterFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
 import { FreshnessBadge } from "@/components/portfolio/FreshnessBadge";
 import Link from "next/link";
@@ -404,8 +405,9 @@ export function LighterReadOnlyView() {
 
 function LighterPortfolioEmbedInner({ lumina }: { lumina: LuminaLegs }) {
   const snapshot = useLighterSnapshot();
+  const now = useFreshnessNow();
   const combined = combinePortfolio(lumina, snapshot);
-  const status = lighterFreshness(snapshot.wsConnected, snapshot.lastPongAt);
+  const status = lighterFreshness(snapshot.wsConnected, snapshot.lastPongAt, now);
 
   return (
     <>

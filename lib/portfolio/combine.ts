@@ -65,11 +65,11 @@ export type FreshnessStatus = "live" | "stale" | "offline" | "unknown";
 export function lighterFreshness(
   wsConnected: boolean,
   lastPongAt: number | null,
-  now?: number,
+  now: number,
   staleAfterMs = 15_000
 ): FreshnessStatus {
   if (!wsConnected && lastPongAt == null) return "offline";
-  if (now != null && lastPongAt != null && now - lastPongAt > staleAfterMs) return "stale";
+  if (lastPongAt != null && now - lastPongAt > staleAfterMs) return "stale";
   if (wsConnected) return "live";
   return "stale";
 }
