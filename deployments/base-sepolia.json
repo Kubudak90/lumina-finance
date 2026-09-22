@@ -3,8 +3,14 @@
   "chainId": 84532,
   "deploymentBlock": 0,
   "explorer": "https://sepolia.basescan.org",
-  "notes": "Canonical Lumina Base Sepolia inventory. Role EOAs are 0x0 until GOV-01 snapshots ACL. Do not treat Lighter REST as this chain.",
+  "notes": "Canonical Lumina Base Sepolia inventory. GOV-01 snapshot 2026-09-12: a single EOA holds owner/admin/keeper. Move to a multisig/timelock before real-value markets. Do not treat Lighter REST as this chain.",
+  "governance": {
+    "snapshotAt": "2026-09-12T08:40:00Z",
+    "centralization": "single-eoa-testnet",
+    "riskAdminSet": false
+  },
   "contracts": {
+    "poolAddressesProvider": "0xAa9d1c9Fa205aEdbdDd6bc4a5380a5Fc0DA1013C",
     "pool": "0xCe390a9B81841c077bC4541f16D53d2a01bdEb39",
     "poolConfigurator": "0xE4F797d68111F0635E5423EFc7035688CF78BB0c",
     "oracle": "0x0103951a20eD2bd84Bd79FE3719553A358893911",
@@ -73,9 +79,18 @@
     }
   ],
   "roles": {
-    "poolAdmin": "0x0000000000000000000000000000000000000000",
+    "poolAddressesProviderOwner": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "aclAdmin": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "poolAdmin": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "emergencyAdmin": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "assetListingAdmin": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
     "riskAdmin": "0x0000000000000000000000000000000000000000",
-    "emergencyAdmin": "0x0000000000000000000000000000000000000000",
-    "keeper": "0x0000000000000000000000000000000000000000"
+    "loopingOwner": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "isolatedRegistryOwner": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "isolatedDeployerOwner": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "aggregatorOwner": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "swapperAdmin": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "listingProxyOwner": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512",
+    "keeper": "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512"
   }
 }
