@@ -41,8 +41,11 @@ describe("combinePortfolio", () => {
 describe("freshness", () => {
   it("marks Lighter live from a recent websocket pong", () => {
     expect(lighterFreshness(true, 1_000, 5_000)).toBe("live");
+    expect(lighterFreshness(true, 1_000, 16_000)).toBe("live");
+    expect(lighterFreshness(true, 1_000, 16_001)).toBe("stale");
     expect(lighterFreshness(true, 1_000, 20_000)).toBe("stale");
     expect(lighterFreshness(false, null, 5_000)).toBe("offline");
+    expect(lighterFreshness(false, 1_000, 2_000)).toBe("stale");
   });
 
   it("requires both on-chain positions and prices for Lumina live", () => {
