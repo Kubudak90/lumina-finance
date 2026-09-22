@@ -2,20 +2,26 @@
 
 import { useAccount, useSwitchChain } from "wagmi";
 import { defaultChain } from "@/lib/chains";
+import { isLighterPath } from "@/lib/lighter/config";
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 export function NetworkGuard() {
+  const pathname = usePathname();
+  const onLighter = isLighterPath(pathname);
   const { chain, isConnected } = useAccount();
   const { switchChain, isPending } = useSwitchChain();
 
-  // Auto-switch to Lighter chain on connect
+  // Lending pages stay on Base Sepolia. `/lighter` uses Ethereum mainnet as L1
+  // (official lighter-ts example) and must not be force-switched.
   useEffect(() => {
+    if (onLighter) return;
     if (isConnected && chain && chain.id !== defaultChain.id) {
       switchChain({ chainId: defaultChain.id });
     }
-  }, [isConnected, chain, switchChain]);
+  }, [onLighter, isConnected, chain, switchChain]);
 
-  if (!isConnected || !chain || chain.id === defaultChain.id) return null;
+  if (onLighter || !isConnected || !chain || chain.id === defaultChain.id) return null;
 
   return (
     <div className="fixed top-16 left-0 right-0 z-40 bg-amber-500/15 backdrop-blur-md border-b border-amber-500/20 text-amber-300 px-4 py-2.5">

@@ -3,11 +3,13 @@
 Next.js 16 (App Router) + React 19 UI for the Lumina Finance lending markets on **Base Sepolia (chainId 84532)**.
 
 This app talks to the Lumina Aave V3 fork (core, isolated, looping) over a verified EVM.
-Lighter is a separate trading/account domain and is not used as a wagmi chain.
+Lighter is a separate trading/account domain (REST + WebSocket + signing chain id 304) and is not used as a wagmi EVM RPC.
 
 Requires **Node.js 20.9+**. Install with `npm ci` — do not use `--legacy-peer-deps`. ConnectKit is not used because its peers are React 17/18 only; the wallet modal is RainbowKit.
 
-`lighter-ts` peer dependencies (React 19.1+, TanStack Query 5.100+, Zustand, Zod, i18next, date-fns, decimal.js, lodash-es, `zklighter-perps`) are pinned so the later adapter PR can add the SDK without a peer override. Do not import `lighter-ts` outside `lib/lighter/`.
+`lighter-ts@1.0.2` is isolated behind `lib/lighter/`. UI code imports the public barrel (`@/lib/lighter`); only `lib/lighter/runtime/` and the lazy `/lighter` and `/portfolio` pages may load the SDK. The 7.5 MiB Go WASM signer is fetched at runtime (override with `NEXT_PUBLIC_LIGHTER_WASM_URL`) and is not vendored.
+
+The `/lighter` route is read-only: account discovery, REST bootstrap, websocket status, and official multiplier helpers. `/portfolio` adds a unified Lumina + Lighter summary (USD totals, isolated positions, freshness badges). Trading signer methods throw. API keys are stored in namespaced `localStorage` (`lumina.lighter.auth`) and are XSS-equivalent to a trading capability — see the on-page threat model.
 
 ## Getting Started
 
@@ -16,6 +18,7 @@ Requires **Node.js 20.9+**. Install with `npm ci` — do not use `--legacy-peer-
    cp .env.example .env.local
    ```
    - `NEXT_PUBLIC_WC_PROJECT_ID` — required for the wallet modal (WalletConnect Cloud project id).
+   - `NEXT_PUBLIC_LIGHTER_WASM_URL` — optional WASM URL for the Lighter signer (jsDelivr default).
 
 2. Install deps and run the dev server:
    ```bash
@@ -38,12 +41,12 @@ project at `luminafinance.xyz`. There is **no GitHub integration**; pushing to
 
 ## Structure
 
-- `app/` — App Router pages: dashboard, markets, isolated, leverage, faucet, admin
+- `app/` — App Router pages: dashboard, markets, isolated, leverage, faucet, admin, `/lighter`
 - `components/` — UI + modals (supply / borrow / withdraw / repay / leverage / liquidate)
 - `lib/` — chain config, contract addresses, ABIs, helpers
-- `lib/lighter/` — Lighter REST/signing config (no Solidity RPC)
+- `lib/lighter/` — public Lighter adapter (no SDK import); `runtime/` loads `lighter-ts` on `/lighter` only
 - `hooks/` — wagmi hooks for reserves, health factor, e-mode, rewards, prices
-- `providers/Web3Provider.tsx` — wagmi + RainbowKit (WalletConnect) setup
+- `providers/Web3Provider.tsx` — wagmi + RainbowKit (Base Sepolia + Ethereum for Lighter L1)
 
 ## Learn More
 
