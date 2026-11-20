@@ -1,12 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { useEffect, useState, type ReactNode } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
-  API_KEY_INDEXES,
-  createClient,
   queryClient,
-  selectAccountExistence,
   selectAssetMetasLoaded,
   selectL1Initialized,
   selectOrderBookMetasLoaded,
@@ -19,16 +16,13 @@ import {
   useInitSystemConfig,
   useInitTokens,
   useLighterStore,
-  useUserAccount,
   useUserAddress,
   useWsSubStore,
-  type AccountExistence,
   type Encoding,
 } from "lighter-ts";
-import { useAccount, useSwitchChain } from "wagmi";
-import { mainnet } from "wagmi/chains";
+import { useAccount } from "wagmi";
+import { NETWORK_NAME } from "@/lib/chains";
 import {
-  LIGHTER_SIGNING_CHAIN_ID,
   LIGHTER_WS_PING_INTERVAL_MS,
   LIGHTER_WS_PONG_TIMEOUT_MS,
   LIGHTER_WS_URL,
@@ -36,16 +30,15 @@ import {
 import {
   AUTH_STORAGE_THREAT_MODEL,
   clearLighterAuthMaterial,
-  readLSAccountSignature,
   readLSLastAccountIndex,
   removeLSSignature,
 } from "../auth-storage";
-import { logLighterError } from "../errors";
-import { getOrCreateAuthToken, isRegistered, resetAuthToken } from "./auth";
-import { apis } from "./apis";
+import { READ_ONLY_NOTE, readOnlyAccountExistence, type ReadOnlyAccountExistence } from "../existence";
+import { getOrCreateAuthToken, resetAuthToken } from "./auth";
+import { useReadOnlyStore } from "./readOnlyStore";
 import { ensureLighterRuntime } from "./bootstrap";
 import { useLighterSnapshot } from "./snapshot";
-import { initWASM, waitForWasm } from "./wasm";
+import { waitForWasm } from "./wasm";
 import type { LighterSnapshot } from "../types";
 import { useFreshnessNow } from "@/lib/portfolio/clock";
 import { combinePortfolio, lighterFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
@@ -77,93 +70,47 @@ function useAccountSelection() {
     const account =
       (lastAccountIndex ? accountsQuery.data?.accountsByIndex[lastAccountIndex] : undefined) ??
       accountsQuery.data?.mainAccount;
-    const nextAccountIndex = account?.index ?? 0;
-    const hasStoredSignature =
-      account != null && Boolean(readLSAccountSignature(account.index, API_KEY_INDEXES.DESKTOP));
-    useLighterStore.setState((prev) => ({
-      accountIndex: nextAccountIndex,
+    useLighterStore.setState({
+      accountIndex: account?.index ?? 0,
       accountTradingMode: account?.account_trading_mode ?? null,
-      accountExistence:
-        nextAccountIndex !== prev.accountIndex ? "Deciding" : prev.accountExistence,
-      showOnboarding: prev.didJustConnect && !hasStoredSignature,
+      // Read-only: no onboarding and no key checks (the stored seed is never read).
+      showOnboarding: false,
       didJustConnect: false,
-    }));
+    });
   }, [accountsQuery.isPending, accountsQuery.isError, accountsQuery.data]);
 }
 
-function useVerifyAccount() {
-  return useCallback(async (accountIndex: number, forceRefresh?: boolean) => {
-    try {
-      if (isRegistered(accountIndex) && !forceRefresh) return true;
-      const apiKeyIndex = API_KEY_INDEXES.DESKTOP;
-      const stored = readLSAccountSignature(accountIndex, apiKeyIndex);
-      if (!stored) return false;
-      const apiKey = await apis.accountApi
-        .apikeys({ api_key_index: apiKeyIndex, account_index: accountIndex })
-        .then(({ api_keys }) => api_keys[0]?.public_key)
-        .catch(() => "");
-      if (!apiKey || stored.pk !== apiKey) return false;
-      await initWASM();
-      await createClient({
-        seed: stored.seed,
-        chainId: LIGHTER_SIGNING_CHAIN_ID,
-        accountIndex,
-        nonce: 0,
-        apiKeyIndex,
-      });
-      return true;
-    } catch (error) {
-      logLighterError(error, "verify-account");
-      return false;
-    }
-  }, []);
-}
-
-function useIsRegisteredQuery() {
-  const verifyAccount = useVerifyAccount();
-  const userAccount = useUserAccount();
-  return useQuery({
-    queryKey: ["isRegistered", userAccount?.index],
-    queryFn: () => verifyAccount(userAccount!.index),
-    initialData: null,
-    enabled: Boolean(userAccount),
-    refetchInterval: (query) => (query.state.data === null && userAccount ? 2000 : false),
-  });
-}
-
-function useAccountExistence(): AccountExistence {
+/** Read-only account state; never reads the stored signing seed (Codex r1 #13). */
+function useReadOnlyExistence(): ReadOnlyAccountExistence {
   const userAddress = useUserAddress();
   const l1Initialized = useLighterStore(selectL1Initialized);
   const accountIndex = useLighterStore(selectUserAccountIndex);
   const accountsQuery = useAccountsQuery();
-  const isRegisteredResult = useIsRegisteredQuery().data;
-
-  if (!l1Initialized) return "Deciding";
-  if (!userAddress) return "NoWallet";
-  if (accountsQuery.isPending) return "Deciding";
-  if (
-    (!accountIndex && accountsQuery.isSuccess) ||
-    (accountsQuery.isError && accountsQuery.error?.response?.status !== 400)
-  ) {
-    return "Deciding";
-  }
-  if (!accountIndex) return "ShouldDeposit";
-  if (isRegisteredResult === null) return "Deciding";
-  if (isRegisteredResult === false) return "KeysDontMatch";
-  return "Exists";
+  return readOnlyAccountExistence({
+    l1Initialized,
+    userAddress,
+    accountIndex,
+    accountsPending: accountsQuery.isPending,
+    accountsSuccess: accountsQuery.isSuccess,
+    accountsError: accountsQuery.isError,
+    accountsErrorStatus: accountsQuery.error?.response?.status,
+  });
 }
 
 function useSyncAccountExistence() {
-  const accountExistence = useAccountExistence();
+  const existence = useReadOnlyExistence();
   useEffect(() => {
-    useLighterStore.setState({ accountExistence });
-  }, [accountExistence]);
+    useReadOnlyStore.setState({ existence });
+    // lighter-ts only knows its own states; "ReadOnly" is never "Exists" (no authenticated WS).
+    useLighterStore.setState({ accountExistence: existence === "ReadOnly" ? "Deciding" : existence });
+  }, [existence]);
 }
 
 function useInitWs() {
   const ws = useWsSubStore((state) => state.ws);
   const accountIndex = useLighterStore(selectUserAccountIndex);
-  const isAuthed = useLighterStore(selectAccountExistence) === "Exists";
+  // Read-only view: never authenticated (no seed, no auth token).
+  const isAuthed = false;
 
   useEffect(() => {
     const init = () => {
@@ -234,8 +181,6 @@ function usd(value: number | null | undefined): string {
 }
 
 function ReadOnlyPanel({ snapshot }: { snapshot: LighterSnapshot }) {
-  const { switchChain, isPending } = useSwitchChain();
-
   return (
     <div className="space-y-6">
       <div className="technical-border bg-card p-4 space-y-2">
@@ -243,25 +188,15 @@ function ReadOnlyPanel({ snapshot }: { snapshot: LighterSnapshot }) {
         <h1 className="text-xl font-bold">Lighter portfolio</h1>
         <p className="text-sm text-text-dim">
           Account discovery, REST bootstrap, and websocket state. Trading is disabled in this adapter.
-          Official example connects an injected wallet on Ethereum mainnet; Lumina lending stays on Base
-          Sepolia.
+          Lighter accounts are looked up by your wallet address, so no network switch is needed here;
+          Lumina lending runs on {NETWORK_NAME}.
         </p>
-        {!snapshot.onOfficialL1 && snapshot.l1Address ? (
-          <button
-            type="button"
-            className="text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 px-3 py-1.5 rounded"
-            disabled={isPending}
-            onClick={() => switchChain({ chainId: mainnet.id })}
-          >
-            {isPending ? "Switching…" : "Switch wallet to Ethereum (official Lighter L1)"}
-          </button>
-        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="L1 address" value={snapshot.l1Address ? `${snapshot.l1Address.slice(0, 6)}…${snapshot.l1Address.slice(-4)}` : "—"} />
         <Stat label="Account index" value={String(snapshot.accountIndex || "—")} />
-        <Stat label="Status" value={snapshot.existence} />
+        <Stat label="Status" value={snapshot.existence === "ReadOnly" ? READ_ONLY_NOTE : snapshot.existence} />
         <Stat label="WebSocket" value={snapshot.wsConnected ? "connected" : "offline"} />
       </div>
 
@@ -271,7 +206,7 @@ function ReadOnlyPanel({ snapshot }: { snapshot: LighterSnapshot }) {
         <Stat label="Spot equity" value={usd(snapshot.equity.spot)} />
         <Stat label="Collateral" value={usd(snapshot.collateral)} />
         <Stat label="Available" value={usd(snapshot.availableBalance)} />
-        <Stat label="Authenticated" value={snapshot.authenticated ? "yes" : "no"} />
+        <Stat label="Authenticated" value="no (read-only)" />
       </div>
 
       <section className="technical-border bg-card p-4">
@@ -354,7 +289,6 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function LogoutButton() {
   const handleLogout = () => {
-    queryClient.removeQueries({ queryKey: ["isRegistered"] });
     clearLighterAuthMaterial();
     removeLSSignature();
     useLighterStore.setState({
@@ -422,7 +356,7 @@ function LighterPortfolioEmbedInner({ lumina }: { lumina: LuminaLegs }) {
             <FreshnessBadge
               source="Lighter"
               status={status}
-              detail={snapshot.existence === "Exists" ? "authenticated" : snapshot.existence}
+              detail={snapshot.existence === "ReadOnly" ? "read-only" : snapshot.existence}
             />
             <Link href="/lighter" className="text-[10px] font-mono uppercase tracking-wider text-accent hover:text-white">
               Full Lighter view

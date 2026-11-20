@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  selectAccountExistence,
   selectL1Address,
   selectUserAccountIndex,
   useAccountEquity,
@@ -13,12 +12,13 @@ import { useAccount } from "wagmi";
 import { LIGHTER_L1_CHAIN_ID } from "../config";
 import { realPriceToDisplay, realSizeToDisplay } from "../units";
 import type { LighterPosition, LighterSnapshot } from "../types";
+import { useReadOnlyStore } from "./readOnlyStore";
 
 export function useLighterSnapshot(): LighterSnapshot {
   const { chainId } = useAccount();
   const l1Address = useLighterStore(selectL1Address);
   const accountIndex = useLighterStore(selectUserAccountIndex);
-  const existence = useLighterStore(selectAccountExistence);
+  const existence = useReadOnlyStore((state) => state.existence);
   const account = useUserAccount();
   const equity = useAccountEquity(account);
   const ws = useWsSubStore((state) => state.ws);
@@ -60,7 +60,8 @@ export function useLighterSnapshot(): LighterSnapshot {
     onOfficialL1: chainId === LIGHTER_L1_CHAIN_ID,
     accountIndex,
     existence,
-    authenticated: existence === "Exists",
+    // Read-only adapter: never authenticated.
+    authenticated: false,
     wsConnected: Boolean(ws),
     wsSessionId,
     lastPongAt,

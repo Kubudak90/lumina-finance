@@ -1,38 +1,16 @@
-import baseSepolia from "../deployments/base-sepolia.json";
-import { checksumAddress } from "./format";
+import { LUMINA, getCoreMarketByAsset, getCoreMarketBySymbol, type CoreMarket } from "./deployments";
 
-export interface MarketConfig {
-  asset: `0x${string}`;
-  symbol: string;
-  name: string;
-  decimals: number;
-  aToken: `0x${string}`;
-  variableDebtToken: `0x${string}`;
-  icon: string; // path to icon
-}
+/** A core (Aave) market, from the manifest of the Lumina chain. */
+export type MarketConfig = CoreMarket;
 
-const MARKET_ICONS: Record<string, string> = {
-  USDC: "/tokens/usdc.svg",
-  LIT: "/tokens/lit.webp",
-  WETH: "/tokens/eth.svg",
-};
-
-export const MARKETS: MarketConfig[] = baseSepolia.markets.map((market) => ({
-  asset: checksumAddress(market.asset),
-  symbol: market.symbol,
-  name: market.name,
-  decimals: market.decimals,
-  aToken: checksumAddress(market.aToken),
-  variableDebtToken: checksumAddress(market.variableDebtToken),
-  icon: MARKET_ICONS[market.symbol] ?? "/tokens/eth.svg",
-}));
+export const MARKETS: readonly MarketConfig[] = LUMINA.coreMarkets;
 
 export function getMarketByAsset(asset: string): MarketConfig | undefined {
-  return MARKETS.find((m) => m.asset.toLowerCase() === asset.toLowerCase());
+  return getCoreMarketByAsset(asset);
 }
 
 export function getMarketBySymbol(symbol: string): MarketConfig | undefined {
-  return MARKETS.find((m) => m.symbol.toLowerCase() === symbol.toLowerCase());
+  return getCoreMarketBySymbol(symbol);
 }
 
 /** RAY = 1e27, used for Aave V3 rate values */
@@ -43,6 +21,5 @@ export const WAD = 10n ** 18n;
 
 /** Convert a RAY-based rate (1e27) to an annualized percentage number */
 export function rayToPercent(ray: bigint): number {
-  // ray is annual rate in 1e27 format; divide by 1e25 to get percent
   return Number(ray) / 1e25;
 }

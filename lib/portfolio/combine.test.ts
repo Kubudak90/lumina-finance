@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockAgeSeconds,
+  chainFreshness,
   combinePortfolio,
   lighterFreshness,
-  luminaFreshness,
   luminaNetUsd,
 } from "./combine";
 
@@ -39,18 +40,30 @@ describe("combinePortfolio", () => {
 });
 
 describe("freshness", () => {
-  it("marks Lighter live from a recent websocket pong", () => {
-    expect(lighterFreshness(true, 1_000, 5_000)).toBe("live");
-    expect(lighterFreshness(true, 1_000, 16_000)).toBe("live");
+  it("marks Lighter fresh only from a recent websocket pong", () => {
+    expect(lighterFreshness(true, 1_000, 5_000)).toBe("fresh");
+    expect(lighterFreshness(true, 1_000, 16_000)).toBe("fresh");
     expect(lighterFreshness(true, 1_000, 16_001)).toBe("stale");
     expect(lighterFreshness(true, 1_000, 20_000)).toBe("stale");
     expect(lighterFreshness(false, null, 5_000)).toBe("offline");
     expect(lighterFreshness(false, 1_000, 2_000)).toBe("stale");
   });
 
-  it("requires both on-chain positions and prices for Lumina live", () => {
-    expect(luminaFreshness(true, true)).toBe("live");
-    expect(luminaFreshness(true, false)).toBe("stale");
-    expect(luminaFreshness(false, false)).toBe("unknown");
+  it("never reports fresh from presence alone", () => {
+    // Socket open, no pong yet.
+    expect(lighterFreshness(true, null, 5_000)).toBe("unknown");
+    // No block stamp yet.
+    expect(chainFreshness(undefined, 5_000, 45)).toBe("unknown");
+  });
+
+  it("derives Lumina freshness from the age of the block the data was read at", () => {
+    const now = 1_000_000_000; // ms
+    const nowSec = now / 1000;
+    expect(blockAgeSeconds(BigInt(nowSec - 12), now)).toBe(12);
+    expect(chainFreshness(BigInt(nowSec - 45), now, 45)).toBe("fresh");
+    expect(chainFreshness(BigInt(nowSec - 46), now, 45)).toBe("stale");
+    // A block timestamp slightly ahead of the local clock counts as age 0.
+    expect(blockAgeSeconds(BigInt(nowSec + 3), now)).toBe(0);
+    expect(blockAgeSeconds(BigInt(nowSec), 0)).toBeNull();
   });
 });

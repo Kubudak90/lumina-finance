@@ -1,7 +1,8 @@
 import { formatUnits } from "viem";
 import type { UserIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 
-function fmt(value: bigint, decimals: number): string {
+function fmt(value: bigint | undefined, decimals: number): string {
+  if (value === undefined) return "unavailable";
   const n = Number(formatUnits(value, decimals));
   return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }

@@ -7,7 +7,12 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["lib/**/*.test.ts"],
+    // Pure tests next to the code; component / hook wiring tests (happy-dom) under test/.
+    include: ["lib/**/*.test.ts", "test/**/*.test.{ts,tsx}"],
+    setupFiles: ["test/support/setup.ts"],
+  },
+  esbuild: {
+    jsx: "automatic",
   },
   resolve: {
     alias: {

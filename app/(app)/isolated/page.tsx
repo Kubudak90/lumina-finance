@@ -11,14 +11,28 @@ import { IsolatedBorrowModal } from "@/components/actions/IsolatedBorrowModal";
 import { IsolatedWithdrawModal } from "@/components/actions/IsolatedWithdrawModal";
 import { IsolatedRepayModal } from "@/components/actions/IsolatedRepayModal";
 import { IsolatedRemoveCollateralModal } from "@/components/actions/IsolatedRemoveCollateralModal";
+import { IsolatedAddCollateralModal } from "@/components/actions/IsolatedAddCollateralModal";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { GuardNotice } from "@/components/common/GuardNotice";
+import { DeploymentNotice } from "@/components/common/DeploymentNotice";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isolatedLtv } from "@/lib/borrowMax";
+import { oldestStamp } from "@/lib/valuation";
+import { collateralPerWholeAsset } from "@/lib/prices";
 
-type ModalState =
-  | { type: "lend" | "borrow"; pair: IsolatedPairInfo }
-  | { type: "withdraw" | "repay" | "removeCollateral"; pos: UserIsolatedPosition }
-  | null;
+type DeployedPair = IsolatedPairInfo & { pair: `0x${string}` };
+type DeployedPosition = UserIsolatedPosition & { pair: `0x${string}` };
 
-function fmt(value: bigint, decimals: number, max = 4): string {
+/** Only the pair address lives in modal state; each modal re-derives live data (Codex #8). */
+type ModalState = {
+  type: "lend" | "borrow" | "withdraw" | "repay" | "removeCollateral" | "addCollateral";
+  pair: `0x${string}`;
+} | null;
+
+const isDeployedPair = (p: IsolatedPairInfo): p is DeployedPair => p.pair !== null;
+
+function fmt(value: bigint | undefined, decimals: number, max = 4): string {
+  if (value === undefined) return "—";
   const n = Number(formatUnits(value, decimals));
   return n.toLocaleString("en-US", { maximumFractionDigits: max });
 }
@@ -26,11 +40,22 @@ function fmt(value: bigint, decimals: number, max = 4): string {
 export default function IsolatedPage() {
   const { isConnected } = useAccount();
   const { pairs, isLoading: pairsLoading } = useIsolatedPairs();
-  const { positions, isLoading: positionsLoading } = useUserIsolatedPositions();
+  const {
+    positions,
+    unknownPairs,
+    stamp,
+    conversionStamp,
+    pairsStamp,
+    isLoading: positionsLoading,
+  } = useUserIsolatedPositions();
+  // The table combines snapshots, conversions and pair rates: show the oldest of their blocks.
+  const tableStamp = oldestStamp([stamp, conversionStamp, pairsStamp]);
   const [modal, setModal] = useState<ModalState>(null);
 
   return (
     <div className="space-y-6">
+      <DeploymentNotice />
+      <GuardNotice venue="isolated" />
       <div className="animate-in">
         <h1 className="text-4xl font-bold tracking-tighter uppercase glow-text mb-1">Isolated Markets</h1>
         <p className="text-muted-foreground text-sm">
@@ -70,6 +95,7 @@ export default function IsolatedPage() {
         <div className="animate-in-delay-2">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Your Positions</span>
+            <span className="ml-auto"><FreshnessStamp stamp={tableStamp} /></span>
           </div>
           <div className="technical-border bg-card overflow-x-auto">
             <table className="w-full">
@@ -79,22 +105,41 @@ export default function IsolatedPage() {
                   <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Lent</th>
                   <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrowed</th>
                   <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Collateral</th>
+                  <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">LTV</th>
                   <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {positionsLoading ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <td colSpan={6} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
-                ) : positions.length === 0 ? (
+                ) : positions.length === 0 && unknownPairs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="h-24 text-center text-muted-foreground text-xs px-6">
+                    <td colSpan={6} className="h-24 text-center text-muted-foreground text-xs px-6">
                       No active positions. Lend or borrow on a pair below to get started.
                     </td>
                   </tr>
                 ) : (
-                  positions.map((p) => (
+                  <>
+                  {/* A pair whose snapshot failed is flagged, not dropped (Gemini r2 m2). */}
+                  {unknownPairs.map((pairAddress) => {
+                    const pairInfo = pairs.find((x) => x.pair?.toLowerCase() === pairAddress);
+                    return (
+                      <tr key={`unknown-${pairAddress}`} className="border-b border-border/50" data-testid="unknown-position-row">
+                        <td className="px-6 py-4 font-mono text-sm">{pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}</td>
+                        <td colSpan={5} className="px-6 py-4 text-right text-xs text-amber-400">
+                          Position unavailable: the read failed or is still loading
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {positions.filter((p): p is DeployedPosition => p.pair !== null).map((p) => {
+                    const ltv =
+                      p.exchangeRate !== undefined && p.borrowedAssets !== undefined
+                        ? isolatedLtv(p.borrowedAssets, p.collateralAmount, p.exchangeRate)
+                        : null;
+                    return (
                     <tr key={p.pair} className="border-b border-border/50 hover:bg-white/5">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
@@ -113,11 +158,16 @@ export default function IsolatedPage() {
                       <td className="px-6 py-4 font-mono text-sm text-right">
                         {p.collateralAmount > 0n ? `${fmt(p.collateralAmount, p.collateralDecimals)} ${p.collateralSymbol}` : "—"}
                       </td>
+                      <td className="px-6 py-4 font-mono text-sm text-right">
+                        {p.borrowedShares > 0n && ltv !== null && p.maxLTV !== undefined
+                          ? `${(Number(ltv) / 1000).toFixed(2)}% / ${(Number(p.maxLTV) / 1000).toFixed(0)}%`
+                          : "—"}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex gap-1.5 justify-end flex-wrap">
                           {p.suppliedShares > 0n && (
                             <button
-                              onClick={() => setModal({ type: "withdraw", pos: p })}
+                              onClick={() => setModal({ type: "withdraw", pair: p.pair })}
                               className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
                             >
                               Withdraw
@@ -125,15 +175,23 @@ export default function IsolatedPage() {
                           )}
                           {p.borrowedShares > 0n && (
                             <button
-                              onClick={() => setModal({ type: "repay", pos: p })}
+                              onClick={() => setModal({ type: "repay", pair: p.pair })}
                               className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
                             >
                               Repay
                             </button>
                           )}
+                          {(p.collateralAmount > 0n || p.borrowedShares > 0n) && (
+                            <button
+                              onClick={() => setModal({ type: "addCollateral", pair: p.pair })}
+                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                            >
+                              Add collateral
+                            </button>
+                          )}
                           {p.collateralAmount > 0n && (
                             <button
-                              onClick={() => setModal({ type: "removeCollateral", pos: p })}
+                              onClick={() => setModal({ type: "removeCollateral", pair: p.pair })}
                               className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
                             >
                               Remove
@@ -142,7 +200,9 @@ export default function IsolatedPage() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })}
+                  </>
                 )}
               </tbody>
             </table>
@@ -166,6 +226,7 @@ export default function IsolatedPage() {
                 <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Total Borrowed</th>
                 <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Util</th>
                 <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Max LTV</th>
+                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Rate</th>
                 <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Action</th>
               </tr>
             </thead>
@@ -173,19 +234,18 @@ export default function IsolatedPage() {
               {pairsLoading ? (
                 [0, 1].map((i) => (
                   <tr key={i} className="border-b border-border/50">
-                    <td colSpan={8} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <td colSpan={9} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
                 ))
               ) : pairs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="h-32 text-center text-muted-foreground">
-                    <p className="text-sm font-medium text-foreground">No isolated pairs deployed yet</p>
-                    <p className="text-xs text-muted-foreground mt-1">Pairs will appear here once the registry is populated</p>
+                  <td colSpan={9} className="h-32 text-center text-muted-foreground">
+                    <p className="text-sm font-medium text-foreground">No isolated pairs in the deployment manifest</p>
                   </td>
                 </tr>
               ) : (
                 pairs.map((p) => (
-                  <tr key={p.pair} className="border-b border-border/50 hover:bg-white/5">
+                  <tr key={p.name} className="border-b border-border/50 hover:bg-white/5">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <TokenIcon symbol={p.assetSymbol} size={20} />
@@ -198,23 +258,37 @@ export default function IsolatedPage() {
                     <td className="px-6 py-4 font-mono text-sm">{p.collateralSymbol}</td>
                     <td className="px-6 py-4 font-mono text-sm text-right">{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
                     <td className="px-6 py-4 font-mono text-sm text-right">{fmt(p.totalBorrowAmount, p.assetDecimals)}</td>
-                    <td className="px-6 py-4 font-mono text-sm text-right">{p.utilization.toFixed(1)}%</td>
-                    <td className="px-6 py-4 font-mono text-sm text-right">{(Number(p.maxLTV) / 1000).toFixed(0)}%</td>
+                    <td className="px-6 py-4 font-mono text-sm text-right">{p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`}</td>
+                    <td className="px-6 py-4 font-mono text-sm text-right">{p.maxLTV === undefined ? "—" : `${(Number(p.maxLTV) / 1000).toFixed(0)}%`}</td>
+                    <td className="px-6 py-4 font-mono text-xs text-right" title="Pair oracle: collateral per 1 asset">
+                      {p.exchangeRate !== undefined
+                        ? `1 ${p.assetSymbol} = ${fmt(
+                            collateralPerWholeAsset(p.exchangeRate, p.assetDecimals),
+                            p.collateralDecimals,
+                            6,
+                          )} ${p.collateralSymbol}`
+                        : "—"}
+                      {p.oracleBadData && <div className="text-amber-400">borrows blocked</div>}
+                    </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex gap-1.5 justify-end">
-                        <button
-                          onClick={() => setModal({ type: "lend", pair: p })}
-                          className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                        >
-                          Lend
-                        </button>
-                        <button
-                          onClick={() => setModal({ type: "borrow", pair: p })}
-                          className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                        >
-                          Borrow
-                        </button>
-                      </div>
+                      {isDeployedPair(p) ? (
+                        <div className="flex gap-1.5 justify-end">
+                          <button
+                            onClick={() => setModal({ type: "lend", pair: p.pair })}
+                            className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                          >
+                            Lend
+                          </button>
+                          <button
+                            onClick={() => setModal({ type: "borrow", pair: p.pair })}
+                            className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                          >
+                            Borrow
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] font-mono text-text-dim uppercase">Not deployed</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -224,55 +298,12 @@ export default function IsolatedPage() {
         </div>
       </div>
 
-      {modal?.type === "lend" && (
-        <IsolatedLendModal
-          pair={modal.pair.pair}
-          asset={modal.pair.asset}
-          assetSymbol={modal.pair.assetSymbol}
-          assetDecimals={modal.pair.assetDecimals}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "borrow" && (
-        <IsolatedBorrowModal
-          pair={modal.pair.pair}
-          assetSymbol={modal.pair.assetSymbol}
-          assetDecimals={modal.pair.assetDecimals}
-          collateral={modal.pair.collateral}
-          collateralSymbol={modal.pair.collateralSymbol}
-          collateralDecimals={modal.pair.collateralDecimals}
-          maxLTV={modal.pair.maxLTV}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "withdraw" && (
-        <IsolatedWithdrawModal
-          pair={modal.pos.pair}
-          assetSymbol={modal.pos.assetSymbol}
-          assetDecimals={modal.pos.assetDecimals}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "repay" && (
-        <IsolatedRepayModal
-          pair={modal.pos.pair}
-          asset={modal.pos.asset}
-          assetSymbol={modal.pos.assetSymbol}
-          assetDecimals={modal.pos.assetDecimals}
-          borrowedAmount={modal.pos.borrowedAssets}
-          borrowedShares={modal.pos.borrowedShares}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "removeCollateral" && (
-        <IsolatedRemoveCollateralModal
-          pair={modal.pos.pair}
-          collateralSymbol={modal.pos.collateralSymbol}
-          collateralDecimals={modal.pos.collateralDecimals}
-          collateralAmount={modal.pos.collateralAmount}
-          onClose={() => setModal(null)}
-        />
-      )}
+      {modal?.type === "lend" && <IsolatedLendModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "borrow" && <IsolatedBorrowModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "withdraw" && <IsolatedWithdrawModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "repay" && <IsolatedRepayModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "removeCollateral" && <IsolatedRemoveCollateralModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "addCollateral" && <IsolatedAddCollateralModal pair={modal.pair} onClose={() => setModal(null)} />}
     </div>
   );
 }

@@ -14,12 +14,8 @@ export {
   LIGHTER_WS_URL,
   isLighterPath,
 } from "./config";
-export {
-  AUTH_STORAGE_THREAT_MODEL,
-  clearLighterAuthMaterial,
-  readLSAccountSignature,
-  writeLSAccountSignature,
-} from "./auth-storage";
+export { AUTH_STORAGE_THREAT_MODEL, clearLighterAuthMaterial } from "./auth-storage";
+export { READ_ONLY_NOTE, readOnlyAccountExistence, type ReadOnlyAccountExistence } from "./existence";
 export { logLighterError, redactForLog } from "./errors";
 export type {
   LighterAccountExistence,

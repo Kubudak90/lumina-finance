@@ -9,11 +9,9 @@ const ROUTE_LABELS: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/markets": "Markets",
   "/isolated": "Isolated",
-  "/leverage": "Leverage",
   "/portfolio": "Portfolio",
   "/liquidations": "Liquidations",
   "/lighter": "Lighter",
-  "/faucet": "Faucet",
 };
 
 export function Header() {

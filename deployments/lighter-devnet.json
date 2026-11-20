@@ -1,0 +1,553 @@
+{
+  "schemaVersion": 1,
+  "environment": "lighter-devnet",
+  "chainId": 19529,
+  "status": "template",
+  "notes": "Template from S6: every deployed address and codehash is null until the S4c (core + oracle) and S5c (isolated) deploy scripts fill them; they set status to \"deployed\" once complete. Schema: deployments/README.md.",
+  "rpcEnv": "LIGHTER_DEVNET_RPC_URL",
+  "nativeCurrency": {
+    "name": "Ether",
+    "symbol": "ETH",
+    "decimals": 18
+  },
+  "blockTime": 1000,
+  "multicall3": "0xcA11bde05977b3631167028862bE2a173976CA11",
+  "explorer": null,
+  "deploymentBlock": null,
+  "sourceCommits": {
+    "lumina-core": null,
+    "lumina-isolated": null,
+    "lumina-oracle": null
+  },
+  "deployer": "0x8B524a320Bf6e6BEAa793fa34ACB5EC3b2f23cE8",
+  "compromised": [
+    "0xf9D448615e4217b20fdC07A69Cc292cF4B71E512"
+  ],
+  "safe": {
+    "address": null,
+    "owners": [
+      "0x8ebE0590F24D8b89E887aE2f21008dD1efbe4C37",
+      "0xF244919d74392A625f295e280ab90c54B11B4012",
+      "0x9801AC65D2a2184316aEB2b5888C08dbBc6FdD8c"
+    ],
+    "threshold": 2,
+    "version": "1.3.0",
+    "singleton": null,
+    "fallbackHandler": null
+  },
+  "bots": {
+    "keeper": "0xDA19711321966B59d52c6ad44675EAA061248aB6",
+    "liquidator": "0xD41bDd4b32B9E8A08c0f355bEBE58B9d67a3c154"
+  },
+  "assets": {
+    "WETH": {
+      "address": "0x660000000000000000000000000000000000000c",
+      "decimals": 18,
+      "codehash": null
+    },
+    "USDC": {
+      "address": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+      "decimals": 6,
+      "codehash": null
+    }
+  },
+  "contracts": {
+    "poolAddressesProvider": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/PoolAddressesProvider.sol/PoolAddressesProvider.json",
+        "contractName": "PoolAddressesProvider"
+      },
+      "codehash": null
+    },
+    "aclManager": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/ACLManager.sol/ACLManager.json",
+        "contractName": "ACLManager"
+      },
+      "codehash": null
+    },
+    "pool": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/InitializableImmutableAdminUpgradeabilityProxy.sol/InitializableImmutableAdminUpgradeabilityProxy.json",
+        "contractName": "InitializableImmutableAdminUpgradeabilityProxy"
+      },
+      "codehash": null,
+      "implementation": {
+        "address": null,
+        "artifact": {
+          "repo": "lumina-core",
+          "path": "out/PoolInstance.sol/PoolInstance.json",
+          "contractName": "PoolInstance"
+        },
+        "codehash": null,
+        "libraries": {
+          "src/contracts/protocol/libraries/logic/BorrowLogic.sol:BorrowLogic": null,
+          "src/contracts/protocol/libraries/logic/BridgeLogic.sol:BridgeLogic": null,
+          "src/contracts/protocol/libraries/logic/EModeLogic.sol:EModeLogic": null,
+          "src/contracts/protocol/libraries/logic/FlashLoanLogic.sol:FlashLoanLogic": null,
+          "src/contracts/protocol/libraries/logic/LiquidationLogic.sol:LiquidationLogic": null,
+          "src/contracts/protocol/libraries/logic/PoolLogic.sol:PoolLogic": null,
+          "src/contracts/protocol/libraries/logic/SupplyLogic.sol:SupplyLogic": null
+        }
+      }
+    },
+    "poolConfigurator": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/InitializableImmutableAdminUpgradeabilityProxy.sol/InitializableImmutableAdminUpgradeabilityProxy.json",
+        "contractName": "InitializableImmutableAdminUpgradeabilityProxy"
+      },
+      "codehash": null,
+      "implementation": {
+        "address": null,
+        "artifact": {
+          "repo": "lumina-core",
+          "path": "out/PoolConfiguratorInstance.sol/PoolConfiguratorInstance.json",
+          "contractName": "PoolConfiguratorInstance"
+        },
+        "codehash": null,
+        "libraries": {
+          "src/contracts/protocol/libraries/logic/ConfiguratorLogic.sol:ConfiguratorLogic": null
+        }
+      }
+    },
+    "aaveOracle": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/AaveOracle.sol/AaveOracle.json",
+        "contractName": "AaveOracle"
+      },
+      "codehash": null
+    },
+    "poolDataProvider": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/AaveProtocolDataProvider.sol/AaveProtocolDataProvider.json",
+        "contractName": "AaveProtocolDataProvider"
+      },
+      "codehash": null
+    },
+    "reserveInterestRateStrategy": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/DefaultReserveInterestRateStrategyV2.sol/DefaultReserveInterestRateStrategyV2.json",
+        "contractName": "DefaultReserveInterestRateStrategyV2"
+      },
+      "codehash": null
+    },
+    "executor": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/Executor.sol/Executor.json",
+        "contractName": "Executor"
+      },
+      "codehash": null
+    },
+    "aTokenWETH": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/InitializableImmutableAdminUpgradeabilityProxy.sol/InitializableImmutableAdminUpgradeabilityProxy.json",
+        "contractName": "InitializableImmutableAdminUpgradeabilityProxy"
+      },
+      "codehash": null,
+      "implementation": {
+        "address": null,
+        "artifact": {
+          "repo": "lumina-core",
+          "path": "out/ATokenInstance.sol/ATokenInstance.json",
+          "contractName": "ATokenInstance"
+        },
+        "codehash": null
+      }
+    },
+    "variableDebtTokenWETH": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/InitializableImmutableAdminUpgradeabilityProxy.sol/InitializableImmutableAdminUpgradeabilityProxy.json",
+        "contractName": "InitializableImmutableAdminUpgradeabilityProxy"
+      },
+      "codehash": null,
+      "implementation": {
+        "address": null,
+        "artifact": {
+          "repo": "lumina-core",
+          "path": "out/VariableDebtTokenInstance.sol/VariableDebtTokenInstance.json",
+          "contractName": "VariableDebtTokenInstance"
+        },
+        "codehash": null
+      }
+    },
+    "aTokenUSDC": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/InitializableImmutableAdminUpgradeabilityProxy.sol/InitializableImmutableAdminUpgradeabilityProxy.json",
+        "contractName": "InitializableImmutableAdminUpgradeabilityProxy"
+      },
+      "codehash": null,
+      "implementation": {
+        "address": null,
+        "artifact": {
+          "repo": "lumina-core",
+          "path": "out/ATokenInstance.sol/ATokenInstance.json",
+          "contractName": "ATokenInstance"
+        },
+        "codehash": null
+      }
+    },
+    "variableDebtTokenUSDC": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/InitializableImmutableAdminUpgradeabilityProxy.sol/InitializableImmutableAdminUpgradeabilityProxy.json",
+        "contractName": "InitializableImmutableAdminUpgradeabilityProxy"
+      },
+      "codehash": null,
+      "implementation": {
+        "address": null,
+        "artifact": {
+          "repo": "lumina-core",
+          "path": "out/VariableDebtTokenInstance.sol/VariableDebtTokenInstance.json",
+          "contractName": "VariableDebtTokenInstance"
+        },
+        "codehash": null
+      }
+    },
+    "borrowLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/BorrowLogic.sol/BorrowLogic.json",
+        "contractName": "BorrowLogic"
+      },
+      "codehash": null
+    },
+    "bridgeLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/BridgeLogic.sol/BridgeLogic.json",
+        "contractName": "BridgeLogic"
+      },
+      "codehash": null
+    },
+    "eModeLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/EModeLogic.sol/EModeLogic.json",
+        "contractName": "EModeLogic"
+      },
+      "codehash": null
+    },
+    "flashLoanLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/FlashLoanLogic.sol/FlashLoanLogic.json",
+        "contractName": "FlashLoanLogic"
+      },
+      "codehash": null
+    },
+    "liquidationLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/LiquidationLogic.sol/LiquidationLogic.json",
+        "contractName": "LiquidationLogic"
+      },
+      "codehash": null
+    },
+    "poolLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/PoolLogic.sol/PoolLogic.json",
+        "contractName": "PoolLogic"
+      },
+      "codehash": null
+    },
+    "supplyLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/SupplyLogic.sol/SupplyLogic.json",
+        "contractName": "SupplyLogic"
+      },
+      "codehash": null
+    },
+    "configuratorLogic": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-core",
+        "path": "out/ConfiguratorLogic.sol/ConfiguratorLogic.json",
+        "contractName": "ConfiguratorLogic"
+      },
+      "codehash": null
+    },
+    "priceGuard": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-oracle",
+        "path": "artifacts/contracts/lighter/LuminaPriceGuard.sol/LuminaPriceGuard.json",
+        "contractName": "LuminaPriceGuard"
+      },
+      "codehash": null
+    },
+    "ethPriceSource": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-oracle",
+        "path": "artifacts/contracts/lighter/LighterCorePriceSource.sol/LighterCorePriceSource.json",
+        "contractName": "LighterCorePriceSource"
+      },
+      "codehash": null
+    },
+    "usdcPriceSource": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-oracle",
+        "path": "artifacts/contracts/lighter/FixedPriceSource.sol/FixedPriceSource.json",
+        "contractName": "FixedPriceSource"
+      },
+      "codehash": null
+    },
+    "dualOracleUsdcWeth": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-oracle",
+        "path": "artifacts/contracts/lighter/LighterDualOracle.sol/LighterDualOracle.json",
+        "contractName": "LighterDualOracle"
+      },
+      "codehash": null
+    },
+    "dualOracleWethUsdc": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-oracle",
+        "path": "artifacts/contracts/lighter/LighterDualOracle.sol/LighterDualOracle.json",
+        "contractName": "LighterDualOracle"
+      },
+      "codehash": null
+    },
+    "isolatedTimelock": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/utils/Timelock.sol/Timelock.json",
+        "contractName": "Timelock"
+      },
+      "codehash": null
+    },
+    "isolatedWhitelist": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/LightlendWhitelist.sol/LightlendWhitelist.json",
+        "contractName": "LightlendWhitelist"
+      },
+      "codehash": null
+    },
+    "isolatedRegistry": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/LightlendPairRegistry.sol/LightlendPairRegistry.json",
+        "contractName": "LightlendPairRegistry"
+      },
+      "codehash": null
+    },
+    "isolatedDeployer": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/LightlendPairDeployer.sol/LightlendPairDeployer.json",
+        "contractName": "LightlendPairDeployer"
+      },
+      "codehash": null
+    },
+    "isolatedRateCalculator": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/interest-rates/VariableInterestRate.sol/VariableInterestRate.json",
+        "contractName": "VariableInterestRate"
+      },
+      "codehash": null
+    },
+    "pairUsdcWeth": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/LightlendPair.sol/LightlendPair.json",
+        "contractName": "LightlendPair"
+      },
+      "codehash": null
+    },
+    "pairWethUsdc": {
+      "address": null,
+      "artifact": {
+        "repo": "lumina-isolated",
+        "path": "artifacts/contracts/LightlendPair.sol/LightlendPair.json",
+        "contractName": "LightlendPair"
+      },
+      "codehash": null
+    }
+  },
+  "markets": {
+    "core": [
+      {
+        "symbol": "WETH",
+        "asset": "0x660000000000000000000000000000000000000c",
+        "aToken": null,
+        "variableDebtToken": null,
+        "priceSource": null,
+        "ltvBps": 7500,
+        "liquidationThresholdBps": 8000,
+        "liquidationBonusBps": 500,
+        "reserveFactorBps": 1500,
+        "supplyCap": null,
+        "borrowCap": null,
+        "seedAmount": null
+      },
+      {
+        "symbol": "USDC",
+        "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "aToken": null,
+        "variableDebtToken": null,
+        "priceSource": null,
+        "ltvBps": 7500,
+        "liquidationThresholdBps": 7800,
+        "liquidationBonusBps": 500,
+        "reserveFactorBps": 1000,
+        "supplyCap": null,
+        "borrowCap": null,
+        "seedAmount": null
+      }
+    ],
+    "isolated": [
+      {
+        "name": "USDC/WETH",
+        "pair": null,
+        "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "collateral": "0x660000000000000000000000000000000000000c",
+        "maxLtvBps": 7500,
+        "cleanLiquidationFeeBps": 500,
+        "protocolLiquidationFeeShareBps": 1000,
+        "seedAmount": null
+      },
+      {
+        "name": "WETH/USDC",
+        "pair": null,
+        "asset": "0x660000000000000000000000000000000000000c",
+        "collateral": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "maxLtvBps": 7500,
+        "cleanLiquidationFeeBps": 500,
+        "protocolLiquidationFeeShareBps": 1000,
+        "seedAmount": null
+      }
+    ]
+  },
+  "oracle": {
+    "guard": {
+      "maxRefAgeSec": 180,
+      "maxDeviationBps": 300,
+      "maxCorePriceAgeSec": 600,
+      "marketIds": [
+        0
+      ]
+    },
+    "coreSources": [
+      {
+        "address": null,
+        "asset": "0x660000000000000000000000000000000000000c",
+        "marketId": 0,
+        "symbol": "ETH",
+        "priceDecimals": null,
+        "minPrice8": null,
+        "maxPrice8": null
+      }
+    ],
+    "fixedSources": [
+      {
+        "address": null,
+        "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "symbol": "USD",
+        "price8": "100000000"
+      }
+    ],
+    "dualOracles": [
+      {
+        "address": null,
+        "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "collateral": "0x660000000000000000000000000000000000000c"
+      },
+      {
+        "address": null,
+        "asset": "0x660000000000000000000000000000000000000c",
+        "collateral": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B"
+      }
+    ]
+  },
+  "roles": {
+    "core": {
+      "poolAddressesProviderOwner": null,
+      "aclAdmin": null,
+      "acl": {
+        "DEFAULT_ADMIN": [
+          null
+        ],
+        "POOL_ADMIN": [
+          null,
+          null
+        ],
+        "EMERGENCY_ADMIN": [
+          null
+        ],
+        "RISK_ADMIN": [
+          null,
+          null
+        ],
+        "FLASH_BORROWER": [],
+        "BRIDGE": [],
+        "ASSET_LISTING_ADMIN": [
+          null
+        ]
+      },
+      "executorOwner": null,
+      "executorEmergencyEnabled": false,
+      "executorDelaySec": 86400,
+      "treasury": null
+    },
+    "guard": {
+      "guardian": null,
+      "keeper": "0xDA19711321966B59d52c6ad44675EAA061248aB6"
+    },
+    "isolated": {
+      "timelockAdmin": null,
+      "timelockDelaySec": 172800,
+      "deployerOwner": null,
+      "deployerCircuitBreaker": null,
+      "deployerComptroller": null,
+      "deployerTimelock": null,
+      "registryOwner": null,
+      "whitelistOwner": null,
+      "pairOwner": null,
+      "pairTimelock": null,
+      "pairCircuitBreaker": null
+    }
+  }
+}

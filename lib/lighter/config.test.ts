@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultChain } from "@/lib/chains";
+import { luminaChain } from "@/lib/chains";
 import {
   LIGHTER_L1_CHAIN_ID,
   LIGHTER_REST_URL,
@@ -16,8 +16,9 @@ describe("Lighter domain config", () => {
     expect(LIGHTER_L1_CHAIN_ID).toBe(1);
     expect(LIGHTER_REST_URL).toBe("https://mainnet.zklighter.elliot.ai");
     expect(LIGHTER_REST_URL).not.toContain("http://");
-    expect(defaultChain.id).toBe(84532);
-    expect(defaultChain.id).not.toBe(LIGHTER_SIGNING_CHAIN_ID);
+    expect(luminaChain.id).toBe(19529);
+    expect(luminaChain.id).not.toBe(LIGHTER_SIGNING_CHAIN_ID);
+    expect(luminaChain.id).not.toBe(LIGHTER_L1_CHAIN_ID);
     expect(LIGHTER_WASM_URL).toContain("main.wasm");
   });
 
