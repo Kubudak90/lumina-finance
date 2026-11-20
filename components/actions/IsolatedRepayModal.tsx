@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount } from "wagmi";
 import { toast } from "sonner";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { explorerToastAction } from "@/lib/explorer";
+import { planIsolatedRepay, type IsolatedRepayPlan } from "@/lib/approvals";
+import { QUERY } from "@/lib/queryPolicy";
 import { TxButton } from "@/components/common/TxButton";
+import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { ERC20_ABI, ISOLATED_PAIR_ABI } from "@/lib/abis";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -20,15 +23,15 @@ interface Props {
   asset: `0x${string}`;
   assetSymbol: string;
   assetDecimals: number;
-  borrowedAmount: bigint;     // user's current debt in asset units
-  borrowedShares: bigint;     // user's current debt in shares
+  borrowedAmount: bigint; // user's current debt in asset units (display)
+  borrowedShares: bigint; // user's current debt in shares
   onClose: () => void;
 }
 
 /**
- * Borrower-side repayment — calls LightlendPair.repayAsset(shares, borrower)
- * after approving the asset to the pair. Repaying by amount is implemented by
- * calling toBorrowShares(amount) for each input.
+ * Borrower-side repayment: LightlendPair.repayAsset(shares, borrower). Repays are share-based, so
+ * the pair pulls the shares' value as of the repay block. Every repay, partial or full, approves
+ * ceil(currentShareValue × 1.001) + 1 (spec §3.3, R1-5, R2-1).
  */
 export function IsolatedRepayModal({
   pair,
@@ -41,37 +44,55 @@ export function IsolatedRepayModal({
 }: Props) {
   const [amount, setAmount] = useState("");
   const [pendingRepayAfterApproval, setPendingRepayAfterApproval] = useState(false);
-  const pendingSharesRef = useRef<bigint>(0n);
+  const planRef = useRef<IsolatedRepayPlan | null>(null);
+  const [submittedFull, setSubmittedFull] = useState(false);
 
   const { address } = useAccount();
   const approval = useTokenApproval(asset, pair, address);
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(borrowedAmount, assetDecimals);
-  const overMax = parsed > borrowedAmount;
+  const full = parsed > 0n && parsed >= borrowedAmount;
 
-  // Convert input amount → shares using on-chain conversion
-  const sharesPreview = useReadContract({
+  // Partial: shares for the input amount (rounded down, previewing interest).
+  const sharesPreview = useLuminaReadContract({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "toBorrowShares",
     args: [parsed, false, true],
-    query: { enabled: parsed > 0n && parsed <= borrowedAmount },
+    query: { enabled: parsed > 0n && !full, ...QUERY.user },
   });
-  const computedShares = (sharesPreview.data as bigint | undefined) ?? 0n;
+  const sharesForInput = (sharesPreview.data as bigint | undefined) ?? 0n;
+  const shares = full ? borrowedShares : sharesForInput;
 
-  // Wallet balance gate
-  const walletBalance = useReadContract({
+  // Current value of exactly those shares (rounded up, previewing interest): the R2-1 assetValue.
+  const shareValueRead = useLuminaReadContract({
+    address: pair,
+    abi: ISOLATED_PAIR_ABI,
+    functionName: "toBorrowAmount",
+    args: [shares, true, true],
+    query: { enabled: shares > 0n, ...QUERY.user },
+  });
+  const shareValue = shareValueRead.data as bigint | undefined;
+
+  const plan =
+    shares > 0n && shareValue !== undefined && shareValue > 0n
+      ? planIsolatedRepay({ full, borrowedShares, sharesForInput, shareValue })
+      : null;
+  // Share value grows every block, so the buffered amount is what must be approved.
+  const approvalNeeded = plan !== null && approval.needsApproval(plan.approve);
+
+  const walletBalance = useLuminaReadContract({
     address: asset,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const walletRaw = (walletBalance.data as bigint | undefined) ?? 0n;
-  const insufficientWallet = parsed > walletRaw;
+  const insufficientWallet = (plan?.assetValue ?? parsed) > walletRaw;
 
   const prevError = useRef<Error | null>(null);
   useEffect(() => {
@@ -85,7 +106,7 @@ export function IsolatedRepayModal({
     if (isSuccess && hash) {
       toast.success("Debt repaid", {
         description: `Repaid ~${amount} ${assetSymbol}`,
-        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
+        action: explorerToastAction(hash, "View"),
       });
     }
   }, [isSuccess, hash, amount, assetSymbol]);
@@ -94,29 +115,26 @@ export function IsolatedRepayModal({
     setPendingRepayAfterApproval(false);
   }, [amount]);
 
-  // Auto-chain repay after approval
+  // Auto-chain repay after approval.
   useEffect(() => {
-    if (approval.isSuccess && pendingRepayAfterApproval && pendingSharesRef.current > 0n) {
+    if (approval.isSuccess && pendingRepayAfterApproval && planRef.current) {
       setPendingRepayAfterApproval(false);
       if (!address) return;
       void send({
         address: pair,
         abi: ISOLATED_PAIR_ABI,
         functionName: "repayAsset",
-        args: [pendingSharesRef.current, address],
+        args: [planRef.current.shares, address],
       });
     }
   }, [approval.isSuccess, pendingRepayAfterApproval, pair, address, send]);
 
   const handleRepay = () => {
-    if (!address) return;
-    // For full repay, use exact borrowedShares (avoids dust from rounding)
-    const sharesToRepay = parsed >= borrowedAmount ? borrowedShares : computedShares;
-    if (sharesToRepay === 0n) return;
-
-    if (approval.needsApproval(parsed)) {
-      pendingSharesRef.current = sharesToRepay;
-      approval.approve(parsed);
+    if (!address || !plan) return;
+    planRef.current = plan;
+    setSubmittedFull(plan.full);
+    if (approvalNeeded) {
+      approval.approve(plan.approve);
       setPendingRepayAfterApproval(true);
       return;
     }
@@ -124,7 +142,7 @@ export function IsolatedRepayModal({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
       functionName: "repayAsset",
-      args: [sharesToRepay, address],
+      args: [plan.shares, address],
     });
   };
 
@@ -135,7 +153,7 @@ export function IsolatedRepayModal({
           <div className="text-center py-4">
             <div className="text-4xl mb-4 text-accent">&#10003;</div>
             <DialogHeader className="items-center">
-              <DialogTitle className="text-xl">Repaid {amount} {assetSymbol}</DialogTitle>
+              <DialogTitle className="text-xl">Repaid {submittedFull ? "all" : amount} {assetSymbol}</DialogTitle>
             </DialogHeader>
             <Button variant="link" onClick={onClose} className="mt-2">Close</Button>
           </div>
@@ -173,21 +191,32 @@ export function IsolatedRepayModal({
                     MAX
                   </button>
                 </div>
-                {insufficientWallet && (
+                {insufficientWallet && parsed > 0n && (
                   <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} balance</p>
                 )}
-                {overMax && (
-                  <p className="text-xs text-amber-400 mt-1">Capped at debt amount</p>
+                {full && (
+                  <p className="text-xs text-muted-foreground mt-1">Full repay: all your borrow shares are repaid (no dust).</p>
                 )}
               </div>
+
+              <AllowanceNote
+                symbol={assetSymbol}
+                decimals={assetDecimals}
+                spenderLabel="pair"
+                allowance={approval.allowance}
+                approveAmount={plan && approvalNeeded ? plan.approve : undefined}
+                expectedPull={plan?.assetValue}
+                buffered
+              />
+
               <TxButton
                 onClick={handleRepay}
                 isPending={isPending || approval.isPending}
                 isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
-                disabled={!address || parsed === 0n || insufficientWallet}
+                disabled={!address || !plan || insufficientWallet}
               >
-                {approval.needsApproval(parsed) ? `Approve ${assetSymbol}` : `Repay ${assetSymbol}`}
+                {approvalNeeded ? `Approve ${assetSymbol}` : `Repay ${assetSymbol}`}
               </TxButton>
             </div>
           </>

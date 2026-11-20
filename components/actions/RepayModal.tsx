@@ -2,20 +2,22 @@
 
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
-import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { txExplorerUrl } from "@/lib/explorer";
-import { QUERY } from "@/lib/queryPolicy";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { useAccount } from "wagmi";
 import { toast } from "sonner";
-import { TxButton } from "@/components/common/TxButton";
-import { useTokenApproval } from "@/hooks/useTokenApproval";
-import { POOL_ABI, ERC20_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
-import { ADDRESSES } from "@/lib/contracts";
+import { safeParseUnits, isValidDecimalInput, formatHealthFactor } from "@/lib/format";
+import { explorerToastAction } from "@/lib/explorer";
+import { planCoreRepay, type CoreRepayPlan } from "@/lib/approvals";
+import { QUERY } from "@/lib/queryPolicy";
+import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
+import { LUMINA } from "@/lib/deployments";
 import { parseErrorMessage } from "@/lib/errorMessages";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
-import { formatHealthFactor } from "@/lib/format";
-import { getMarketByAsset } from "@/lib/constants";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { useTokenApproval } from "@/hooks/useTokenApproval";
+import { useUserPosition } from "@/hooks/useUserPosition";
+import { TxButton } from "@/components/common/TxButton";
+import { AllowanceNote } from "@/components/common/AllowanceNote";
+import { ExplorerLink } from "@/components/common/ExplorerLink";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -27,131 +29,101 @@ interface RepayModalProps {
   onClose: () => void;
 }
 
+/**
+ * Core (Aave) repay. Every repay approves ceil(value × 1.001) + 1 (spec §3.3, R1-5); a full repay
+ * sends Aave's entire-debt sentinel so no dust debt is left (FE-09).
+ */
 export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps) {
   const [amount, setAmount] = useState("");
   const [pendingRepayAfterApproval, setPendingRepayAfterApproval] = useState(false);
-  const approvedAmountRef = useRef<bigint>(0n);
+  const planRef = useRef<CoreRepayPlan | null>(null);
+  const [submittedFull, setSubmittedFull] = useState(false);
   const { address } = useAccount();
-  const approval = useTokenApproval(asset, ADDRESSES.pool, address);
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const pool = LUMINA.contracts.pool;
+  const approval = useTokenApproval(asset, pool, address);
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const { positions, accountData, stamp } = useUserPosition();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
-  const market = getMarketByAsset(asset);
-  const { healthFactor } = useHealthFactor();
-
-  // Wallet balance
-  const walletBalanceResult = useReadContract({
+  const walletBalanceResult = useLuminaReadContract({
     address: asset,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
-  const wallet = (walletBalanceResult.data as bigint) ?? 0n;
-  const walletFormatted = formatUnits(wallet, decimals);
-
-  // Debt balance - also read from getUserAccountData for cross-check
-  const debtBalanceResult = useReadContract({
-    address: market?.variableDebtToken,
-    abi: VARIABLE_DEBT_TOKEN_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !!market, ...QUERY.user },
-  });
-  const debtFromToken = (debtBalanceResult.data as bigint) ?? 0n;
-
-  // Also check via getUserAccountData for total debt (in case debtToken read fails)
-  const accountResult = useReadContract({
-    address: ADDRESSES.pool,
-    abi: POOL_ABI,
-    functionName: "getUserAccountData",
-    args: address ? [address] : undefined,
     query: { enabled: !!address, ...QUERY.user },
   });
-  let totalDebtBase = 0n;
-  try {
-    const d = accountResult.data as Record<string, bigint> | readonly bigint[] | undefined;
-    if (d) {
-      totalDebtBase = Array.isArray(d) ? (d[1] ?? 0n) : ((d as Record<string, bigint>).totalDebtBase ?? 0n);
-    }
-  } catch { /* ignore */ }
+  const wallet = (walletBalanceResult.data as bigint | undefined) ?? 0n;
+  const walletFormatted = formatUnits(wallet, decimals);
 
-  // Use debtToken balance if available, otherwise show totalDebtBase info
-  const debt = debtFromToken;
+  const debt = positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.borrowed ?? 0n;
   const debtFormatted = formatUnits(debt, decimals);
-  const hasTotalDebt = totalDebtBase > 0n;
 
-  // Max repay = min(wallet, debt)
+  // MAX = min(wallet, debt). With the full debt in hand, MAX means "repay everything".
   const maxRepay = wallet < debt ? wallet : debt;
   const maxRepayFormatted = formatUnits(maxRepay, decimals);
 
-  // Error toast refs for repeated errors (F-012)
+  const plan = parsedAmount > 0n && debt > 0n ? planCoreRepay({ input: parsedAmount, debt }) : null;
+  // A partial repay pulls exactly `amount`; a full repay pulls the debt as of the repay block,
+  // which only the buffered approval covers.
+  const required = plan ? (plan.full ? plan.approve : plan.amountArg) : 0n;
+  const approvalNeeded = plan !== null && approval.needsApproval(required);
+  const healthFactor = accountData?.healthFactor;
+
   const prevErrorRef = useRef<Error | null>(null);
   const prevApprovalErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
     if (error && error !== prevErrorRef.current) {
       prevErrorRef.current = error;
-      toast.error("Repayment failed", {
-        description: parseErrorMessage(error),
-      });
+      toast.error("Repayment failed", { description: parseErrorMessage(error) });
     }
   }, [error]);
 
   useEffect(() => {
     if (approval.error && approval.error !== prevApprovalErrorRef.current) {
       prevApprovalErrorRef.current = approval.error;
-      toast.error("Approval failed", {
-        description: parseErrorMessage(approval.error),
-      });
+      toast.error("Approval failed", { description: parseErrorMessage(approval.error) });
     }
   }, [approval.error]);
 
   useEffect(() => {
     if (isSuccess && hash) {
-      toast.success("Repayment successful", {
-        description: "Transaction confirmed",
-        action: {
-          label: "View on Explorer",
-          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
-        },
-      });
+      toast.success("Repayment successful", { description: "Transaction confirmed", action: explorerToastAction(hash) });
     }
   }, [isSuccess, hash]);
 
-  // Reset pending state when amount changes to prevent stale auto-repay
   useEffect(() => {
     setPendingRepayAfterApproval(false);
   }, [amount]);
 
-  // Auto-proceed with repay after approval succeeds
   useEffect(() => {
-    if (approval.isSuccess && pendingRepayAfterApproval) {
+    if (approval.isSuccess && pendingRepayAfterApproval && planRef.current) {
       setPendingRepayAfterApproval(false);
-      if (!address) return;
+      if (!address || !pool) return;
       void send({
-        address: ADDRESSES.pool,
+        address: pool,
         abi: POOL_ABI,
         functionName: "repay",
-        args: [asset, approvedAmountRef.current, 2n, address],
+        args: [asset, planRef.current.amountArg, 2n, address],
       });
     }
-  }, [approval.isSuccess, pendingRepayAfterApproval, address, asset, send]);
+  }, [approval.isSuccess, pendingRepayAfterApproval, address, asset, pool, send]);
 
   const handleRepay = () => {
-    if (!address) return;
-    if (approval.needsApproval(parsedAmount)) {
-      approvedAmountRef.current = parsedAmount;
-      approval.approve(parsedAmount);
+    if (!address || !pool || !plan) return;
+    planRef.current = plan;
+    setSubmittedFull(plan.full);
+    if (approvalNeeded) {
+      approval.approve(plan.approve);
       setPendingRepayAfterApproval(true);
       return;
     }
     void send({
-      address: ADDRESSES.pool,
+      address: pool,
       abi: POOL_ABI,
       functionName: "repay",
-      args: [asset, parsedAmount, 2n, address],
+      args: [asset, plan.amountArg, 2n, address],
     });
   };
 
@@ -164,17 +136,10 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
             <DialogHeader className="items-center">
               <DialogTitle className="text-xl">Repayment Successful</DialogTitle>
             </DialogHeader>
-            <p className="text-muted-foreground mt-2 mb-4">You repaid {amount} {symbol}</p>
-            {hash && (
-              <a
-                href={txExplorerUrl(hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-accent hover:underline font-mono"
-              >
-                View transaction
-              </a>
-            )}
+            <p className="text-muted-foreground mt-2 mb-4">
+              You repaid {submittedFull ? "your full" : amount} {symbol}{submittedFull ? " debt" : ""}
+            </p>
+            {hash && <ExplorerLink hash={hash} />}
             <Button variant="link" onClick={onClose}>Close</Button>
           </div>
         ) : (
@@ -183,22 +148,16 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
               <DialogTitle>Repay {symbol}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Balance info */}
               <div className="technical-border bg-background p-3 space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{symbol} Debt</span>
                   <span className="font-mono">{Number(debtFormatted).toLocaleString("en-US", { maximumFractionDigits: 6 })} {symbol}</span>
                 </div>
-                {hasTotalDebt && debt === 0n && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Total Debt (USD)</span>
-                    <span className="font-mono text-amber-400">${(Number(totalDebtBase) / 1e8).toFixed(2)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Wallet</span>
                   <span className="font-mono">{Number(walletFormatted).toLocaleString("en-US", { maximumFractionDigits: 6 })} {symbol}</span>
                 </div>
+                <FreshnessStamp stamp={stamp} label="Debt" />
               </div>
 
               <div>
@@ -229,13 +188,24 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
                 {parsedAmount > wallet && (
                   <p className="text-xs text-destructive mt-1">Insufficient wallet balance</p>
                 )}
-                {parsedAmount > debt && parsedAmount <= wallet && (
-                  <p className="text-xs text-amber-500 mt-1">Amount exceeds your debt</p>
+                {plan?.full && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Full repay: the pool takes your debt as of the repay block (interest accrued until then is covered).
+                  </p>
                 )}
               </div>
 
-              {/* Health Factor */}
-              {healthFactor && (
+              <AllowanceNote
+                symbol={symbol}
+                decimals={decimals}
+                spenderLabel="Pool"
+                allowance={approval.allowance}
+                approveAmount={plan && approvalNeeded ? plan.approve : undefined}
+                expectedPull={plan?.assetValue}
+                buffered
+              />
+
+              {healthFactor !== undefined && (
                 <div className="technical-border bg-background p-3 space-y-1.5">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Health Factor</span>
@@ -250,9 +220,9 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
                 isPending={isPending || approval.isPending}
                 isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
-                disabled={!address || !amount || parsedAmount === 0n || parsedAmount > wallet}
+                disabled={!address || !plan || parsedAmount > wallet || (plan.full && wallet < debt)}
               >
-                {approval.needsApproval(parsedAmount) ? `Approve ${symbol}` : `Repay ${symbol}`}
+                {approvalNeeded ? `Approve ${symbol}` : `Repay ${symbol}`}
               </TxButton>
             </div>
           </>

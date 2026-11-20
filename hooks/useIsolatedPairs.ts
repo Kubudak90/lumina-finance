@@ -1,121 +1,84 @@
-import { useReadContract, useReadContracts } from "wagmi";
-import { ISOLATED_REGISTRY_ABI, ISOLATED_PAIR_ABI, ERC20_ABI } from "@/lib/abis";
-import { QUERY } from "@/lib/queryPolicy";
-import { ADDRESSES } from "@/lib/contracts";
+"use client";
 
-export interface IsolatedPairInfo {
-  pair: `0x${string}`;
-  asset: `0x${string}`;
-  collateral: `0x${string}`;
-  assetSymbol: string;
-  collateralSymbol: string;
-  assetDecimals: number;
-  collateralDecimals: number;
-  maxLTV: bigint;        // basis points (0-100_000 → 0-100%)
+import { useMemo } from "react";
+import { DUAL_ORACLE_ABI, ISOLATED_PAIR_ABI } from "@/lib/abis";
+import { QUERY } from "@/lib/queryPolicy";
+import { LUMINA, type IsolatedMarket } from "@/lib/deployments";
+import { safeBigInt } from "@/lib/format";
+import { LTV_PRECISION } from "@/lib/borrowMax";
+import { resultAt, useLuminaMulticall, type ContractCall } from "@/hooks/chain";
+
+export interface IsolatedPairInfo extends IsolatedMarket {
+  /** Pair address is in the manifest. */
+  deployed: boolean;
+  /** pair.maxLTV() (1e5 = 100%); 0 until read. */
+  maxLTV: bigint;
   totalAssetAmount: bigint;
+  totalAssetShares: bigint;
   totalBorrowAmount: bigint;
+  totalBorrowShares: bigint;
+  totalCollateral: bigint;
+  borrowLimit: bigint;
+  /** totalAsset − totalBorrow. */
+  availableLiquidity: bigint;
   utilization: number;
+  /** Pair oracle rate (collateral per asset × 1e18, high = low on Lighter); undefined if unreadable. */
+  exchangeRate: bigint | undefined;
+  /** Dual oracle bad-data flag (= price guard blocks borrows). */
+  oracleBadData: boolean | undefined;
+  loaded: boolean;
 }
 
-const LTV_PRECISION = 100_000n; // pair stores LTV as 1e5 basis (75_000 = 75%)
+const PER_PAIR = 4;
 
 /**
- * Reads the list of pairs from the LightlendPairRegistry and per-pair stats.
- *
- * Returns minimal info to render a market list. For deeper per-pair detail
- * (interest rate, oracle prices, user snapshot) read directly from a single
- * pair address.
+ * The isolated pairs listed in the manifest (no registry discovery), with accounting, limits and
+ * the pair oracle's exchange rate. Polled with prices (15 s): borrow MAX depends on the rate.
  */
 export function useIsolatedPairs() {
-  // 1. Pair list from registry
-  const list = useReadContract({
-    address: ADDRESSES.isolatedRegistry,
-    abi: ISOLATED_REGISTRY_ABI,
-    functionName: "getAllPairAddresses",
-    query: { ...QUERY.config },
-  });
-  const pairs = (list.data as `0x${string}`[] | undefined) ?? [];
+  const calls: ContractCall[] = useMemo(
+    () =>
+      LUMINA.isolatedMarkets.flatMap((m) => [
+        { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "maxLTV" },
+        { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "getPairAccounting" },
+        { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "borrowLimit" },
+        { address: m.dualOracle, abi: DUAL_ORACLE_ABI, functionName: "getPrices" },
+      ]),
+    [],
+  );
+  const query = useLuminaMulticall(calls, { policy: QUERY.prices });
+  const results = query.results;
 
-  // 2. For each pair: asset, collateral, maxLTV, totalAsset, totalBorrow
-  const pairContracts = pairs.flatMap((p) => [
-    { address: p, abi: ISOLATED_PAIR_ABI, functionName: "asset" as const },
-    { address: p, abi: ISOLATED_PAIR_ABI, functionName: "collateralContract" as const },
-    { address: p, abi: ISOLATED_PAIR_ABI, functionName: "maxLTV" as const },
-    { address: p, abi: ISOLATED_PAIR_ABI, functionName: "totalAsset" as const },
-    { address: p, abi: ISOLATED_PAIR_ABI, functionName: "totalBorrow" as const },
-  ]);
+  const pairs: IsolatedPairInfo[] = useMemo(
+    () =>
+      LUMINA.isolatedMarkets.map((m, i) => {
+        const base = i * PER_PAIR;
+        const accounting = resultAt<readonly [bigint, bigint, bigint, bigint, bigint]>(results, base + 1);
+        const prices = resultAt<readonly [boolean, bigint, bigint]>(results, base + 3);
+        const totalAssetAmount = accounting?.[0] ?? 0n;
+        const totalBorrowAmount = accounting?.[2] ?? 0n;
+        return {
+          ...m,
+          deployed: m.pair !== null,
+          maxLTV: safeBigInt(resultAt(results, base)),
+          totalAssetAmount,
+          totalAssetShares: accounting?.[1] ?? 0n,
+          totalBorrowAmount,
+          totalBorrowShares: accounting?.[3] ?? 0n,
+          totalCollateral: accounting?.[4] ?? 0n,
+          borrowLimit: safeBigInt(resultAt(results, base + 2)),
+          availableLiquidity: totalAssetAmount > totalBorrowAmount ? totalAssetAmount - totalBorrowAmount : 0n,
+          utilization:
+            totalAssetAmount > 0n ? Number((totalBorrowAmount * 10_000n) / totalAssetAmount) / 100 : 0,
+          exchangeRate: prices && prices[2] > 0n ? prices[2] : undefined,
+          oracleBadData: prices?.[0],
+          loaded: accounting !== undefined,
+        };
+      }),
+    [results],
+  );
 
-  const pairResults = useReadContracts({
-    contracts: pairContracts,
-    query: { enabled: pairs.length > 0, ...QUERY.market },
-  });
-
-  // 3. Resolve token symbols/decimals — collected from per-pair token addresses
-  const tokenAddresses = new Set<`0x${string}`>();
-  if (pairResults.data) {
-    for (let i = 0; i < pairs.length; i++) {
-      const asset = pairResults.data[i * 5]?.result as `0x${string}` | undefined;
-      const collateral = pairResults.data[i * 5 + 1]?.result as `0x${string}` | undefined;
-      if (asset) tokenAddresses.add(asset);
-      if (collateral) tokenAddresses.add(collateral);
-    }
-  }
-  const tokenList = Array.from(tokenAddresses);
-  const tokenContracts = tokenList.flatMap((t) => [
-    { address: t, abi: ERC20_ABI, functionName: "symbol" as const },
-    { address: t, abi: ERC20_ABI, functionName: "decimals" as const },
-  ]);
-  const tokenResults = useReadContracts({
-    contracts: tokenContracts,
-    query: { enabled: tokenList.length > 0 },
-  });
-
-  const tokenInfo: Record<string, { symbol: string; decimals: number }> = {};
-  if (tokenResults.data) {
-    for (let i = 0; i < tokenList.length; i++) {
-      const sym = tokenResults.data[i * 2]?.result as string | undefined;
-      const dec = tokenResults.data[i * 2 + 1]?.result as number | undefined;
-      tokenInfo[tokenList[i].toLowerCase()] = {
-        symbol: sym ?? "—",
-        decimals: dec ?? 18,
-      };
-    }
-  }
-
-  const enriched: IsolatedPairInfo[] = pairs.map((p, i) => {
-    const asset = (pairResults.data?.[i * 5]?.result as `0x${string}` | undefined) ?? ("0x0" as `0x${string}`);
-    const collateral = (pairResults.data?.[i * 5 + 1]?.result as `0x${string}` | undefined) ?? ("0x0" as `0x${string}`);
-    const maxLTV = (pairResults.data?.[i * 5 + 2]?.result as bigint | undefined) ?? 0n;
-    const totalAssetTuple = pairResults.data?.[i * 5 + 3]?.result as readonly [bigint, bigint] | undefined;
-    const totalBorrowTuple = pairResults.data?.[i * 5 + 4]?.result as readonly [bigint, bigint] | undefined;
-    const totalAssetAmount = totalAssetTuple?.[0] ?? 0n;
-    const totalBorrowAmount = totalBorrowTuple?.[0] ?? 0n;
-
-    const aInfo = tokenInfo[asset.toLowerCase()] ?? { symbol: "—", decimals: 18 };
-    const cInfo = tokenInfo[collateral.toLowerCase()] ?? { symbol: "—", decimals: 18 };
-
-    return {
-      pair: p,
-      asset,
-      collateral,
-      assetSymbol: aInfo.symbol,
-      collateralSymbol: cInfo.symbol,
-      assetDecimals: aInfo.decimals,
-      collateralDecimals: cInfo.decimals,
-      maxLTV,
-      totalAssetAmount,
-      totalBorrowAmount,
-      utilization:
-        totalAssetAmount > 0n
-          ? Number((totalBorrowAmount * 10000n) / totalAssetAmount) / 100
-          : 0,
-    };
-  });
-
-  return {
-    pairs: enriched,
-    isLoading: list.isLoading || pairResults.isLoading,
-  };
+  return { pairs, isLoading: query.isLoading };
 }
 
 export const ISOLATED_LTV_PRECISION = LTV_PRECISION;

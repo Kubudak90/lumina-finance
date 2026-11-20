@@ -40,7 +40,7 @@ export const LIGHTER_WS_THROTTLE_INTERVAL_MS = 500;
 export const LIGHTER_WS_PING_INTERVAL_MS = 2500;
 export const LIGHTER_WS_PONG_TIMEOUT_MS = 12000;
 
-/** Lending NetworkGuard must not auto-switch wallets away from Ethereum on this route. */
+/** The read-only Lighter view: NetworkGuard never prompts a network switch on this route. */
 export function isLighterPath(pathname: string | null | undefined): boolean {
   return Boolean(pathname?.startsWith("/lighter"));
 }

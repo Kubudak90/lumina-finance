@@ -9,7 +9,7 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mon
 
 export const metadata: Metadata = {
   title: "Lumina Finance — EVM lending with Lighter",
-  description: "EVM lending and leverage with integrated Lighter portfolio and hedging",
+  description: "Lending and borrowing on Lighter EVM, with an integrated Lighter portfolio view",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

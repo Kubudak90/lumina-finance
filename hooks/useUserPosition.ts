@@ -1,20 +1,25 @@
-import { useReadContracts, useReadContract, useAccount } from "wagmi";
-import { POOL_ABI, ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
+"use client";
+
+import { useMemo } from "react";
+import { useAccount } from "wagmi";
+import { ATOKEN_ABI, DATA_PROVIDER_ABI, POOL_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { QUERY } from "@/lib/queryPolicy";
-import { ADDRESSES } from "@/lib/contracts";
-import { MARKETS } from "@/lib/constants";
-import { useUserCollateralStatus } from "./useUserCollateralStatus";
+import { LUMINA } from "@/lib/deployments";
 import { safeBigInt } from "@/lib/format";
+import { resultAt, useLuminaMulticall, type ContractCall } from "@/hooks/chain";
+import { STAMP_CALLS, STAMP_OFFSET, readStamp } from "@/hooks/useBlockStamp";
 
 export interface UserMarketPosition {
   asset: `0x${string}`;
   symbol: string;
   decimals: number;
-  supplied: bigint;    // aToken balanceOf(user)
-  borrowed: bigint;    // variableDebtToken balanceOf(user)
-  /** In Aave V3 supplied assets are collateral, so collateral = supplied */
+  /** aToken balance (supplied incl. interest). */
+  supplied: bigint;
+  /** variable debt token balance (debt incl. interest). */
+  borrowed: bigint;
+  /** Supplied amount counted as collateral (0 when collateral is disabled). */
   collateral: bigint;
-  collateralEnabled: boolean; // derived from supplied > 0 (Aave V3: supply = collateral)
+  collateralEnabled: boolean;
 }
 
 export interface UserAccountData {
@@ -26,158 +31,78 @@ export interface UserAccountData {
   healthFactor: bigint;
 }
 
-/** Shape returned by Pool.getReserveData (matches the ABI tuple struct) */
-interface ReserveDataResult {
-  configuration: { data: bigint };
-  liquidityIndex: bigint;
-  currentLiquidityRate: bigint;
-  variableBorrowIndex: bigint;
-  currentVariableBorrowRate: bigint;
-  currentStableBorrowRate: bigint;
-  lastUpdateTimestamp: bigint;
-  id: number;
-  aTokenAddress: `0x${string}`;
-  stableDebtTokenAddress: `0x${string}`;
-  variableDebtTokenAddress: `0x${string}`;
-  interestRateStrategyAddress: `0x${string}`;
-  accruedToTreasury: bigint;
-  unbacked: bigint;
-  isolationModeTotalDebt: bigint;
-}
+const CALLS_PER_MARKET = 3;
+const ACCOUNT_INDEX = STAMP_OFFSET;
+const MARKETS_OFFSET = STAMP_OFFSET + 1;
 
 /**
- * Fetches the user's positions across all markets.
- *
- * Uses:
- *   - Pool.getUserAccountData(user) -> aggregate account health data
- *   - Pool.getReserveData(asset) -> to discover aToken & debtToken addresses
- *   - aToken.balanceOf(user) -> user's supply balance per market
- *   - variableDebtToken.balanceOf(user) -> user's borrow balance per market
+ * The connected user's core position in ONE multicall: account data (HF), per-market aToken and
+ * debt balances and collateral flags, plus the block they were read at. Polled every 15 s
+ * (FE-07). Token addresses come from the manifest.
  */
 export function useUserPosition() {
   const { address } = useAccount();
-  const { isCollateralEnabled } = useUserCollateralStatus();
-  const enabled = !!address;
+  const pool = LUMINA.contracts.pool;
+  const dataProvider = LUMINA.contracts.poolDataProvider;
 
-  // --- Step 1: Get reserve data to find aToken/debtToken addresses ---
-  const reserveContracts = MARKETS.map((m) => ({
-    address: ADDRESSES.pool as `0x${string}`,
-    abi: POOL_ABI,
-    functionName: "getReserveData" as const,
-    args: [m.asset] as const,
-  }));
+  const calls: ContractCall[] = useMemo(() => {
+    if (!address) return [];
+    return [
+      ...STAMP_CALLS,
+      { address: pool, abi: POOL_ABI, functionName: "getUserAccountData", args: [address] },
+      ...LUMINA.coreMarkets.flatMap((m) => [
+        { address: m.aToken, abi: ATOKEN_ABI, functionName: "balanceOf", args: [address] },
+        { address: m.variableDebtToken, abi: VARIABLE_DEBT_TOKEN_ABI, functionName: "balanceOf", args: [address] },
+        { address: dataProvider, abi: DATA_PROVIDER_ABI, functionName: "getUserReserveData", args: [m.asset, address] },
+      ]),
+    ];
+  }, [address, pool, dataProvider]);
 
-  const reserveResult = useReadContracts({
-    contracts: reserveContracts,
-    query: { ...QUERY.market },
-  });
+  const query = useLuminaMulticall(calls, { enabled: !!address, policy: QUERY.user });
+  const results = query.results;
 
-  const reserveParsed = MARKETS.map((_m, i) => {
-    const defaults = { aTokenAddress: _m.aToken, variableDebtTokenAddress: _m.variableDebtToken };
-    try {
-      const raw = reserveResult.data?.[i]?.result;
-      if (!raw) return defaults;
-      if (Array.isArray(raw)) {
-        return {
-          aTokenAddress: (raw[8] as `0x${string}`) ?? _m.aToken,
-          variableDebtTokenAddress: (raw[10] as `0x${string}`) ?? _m.variableDebtToken,
-        };
-      }
-      const d = raw as Record<string, unknown>;
-      if (d.aTokenAddress) {
-        return {
-          aTokenAddress: (d.aTokenAddress as `0x${string}`) ?? _m.aToken,
-          variableDebtTokenAddress: (d.variableDebtTokenAddress as `0x${string}`) ?? _m.variableDebtToken,
-        };
-      }
-      return defaults;
-    } catch {
-      return defaults;
-    }
-  });
-
-  const hasReserveData = reserveResult.data && reserveResult.data.length > 0;
-
-  // --- Step 2: Get user account data (aggregate) ---
-  const accountResult = useReadContract({
-    address: ADDRESSES.pool as `0x${string}`,
-    abi: POOL_ABI,
-    functionName: "getUserAccountData",
-    args: address ? [address] : undefined,
-    query: { enabled, ...QUERY.user },
-  });
-
-  // viem may return as array or named object depending on ABI shape
-  let accountData: UserAccountData | undefined;
-  if (accountResult.data) {
-    const d = accountResult.data as unknown;
-    if (Array.isArray(d)) {
-      accountData = {
-        totalCollateralBase: safeBigInt(d[0]),
-        totalDebtBase: safeBigInt(d[1]),
-        availableBorrowsBase: safeBigInt(d[2]),
-        currentLiquidationThreshold: safeBigInt(d[3]),
-        ltv: safeBigInt(d[4]),
-        healthFactor: safeBigInt(d[5]),
-      };
-    } else if (typeof d === "object" && d !== null) {
-      const obj = d as Record<string, unknown>;
-      accountData = {
-        totalCollateralBase: safeBigInt(obj.totalCollateralBase),
-        totalDebtBase: safeBigInt(obj.totalDebtBase),
-        availableBorrowsBase: safeBigInt(obj.availableBorrowsBase),
-        currentLiquidationThreshold: safeBigInt(obj.currentLiquidationThreshold),
-        ltv: safeBigInt(obj.ltv),
-        healthFactor: safeBigInt(obj.healthFactor),
-      };
-    }
-  }
-
-  // --- Step 3: Per-market balances (aToken + debtToken) ---
-  const balanceContracts =
-    enabled && hasReserveData
-      ? MARKETS.flatMap((_m, i) => [
-          {
-            address: reserveParsed[i].aTokenAddress,
-            abi: ATOKEN_ABI,
-            functionName: "balanceOf" as const,
-            args: [address!] as const,
-          },
-          {
-            address: reserveParsed[i].variableDebtTokenAddress,
-            abi: VARIABLE_DEBT_TOKEN_ABI,
-            functionName: "balanceOf" as const,
-            args: [address!] as const,
-          },
-        ])
-      : [];
-
-  const balanceResult = useReadContracts({
-    contracts: balanceContracts,
-    query: { enabled: enabled && !!hasReserveData, ...QUERY.user },
-  });
-
-  // --- Combine ---
-  const positions: UserMarketPosition[] = MARKETS.map((m, i) => {
-    const supplied = safeBigInt(balanceResult.data?.[i * 2]?.result);
-    const borrowed = safeBigInt(balanceResult.data?.[i * 2 + 1]?.result);
-    const collEnabled = isCollateralEnabled(m.asset);
-
+  const accountData: UserAccountData | undefined = useMemo(() => {
+    const d = resultAt<readonly unknown[]>(results, ACCOUNT_INDEX);
+    if (!d) return undefined;
     return {
-      asset: m.asset,
-      symbol: m.symbol,
-      decimals: m.decimals,
-      supplied,
-      borrowed,
-      collateral: collEnabled ? supplied : 0n,
-      collateralEnabled: collEnabled,
+      totalCollateralBase: safeBigInt(d[0]),
+      totalDebtBase: safeBigInt(d[1]),
+      availableBorrowsBase: safeBigInt(d[2]),
+      currentLiquidationThreshold: safeBigInt(d[3]),
+      ltv: safeBigInt(d[4]),
+      healthFactor: safeBigInt(d[5]),
     };
-  });
+  }, [results]);
+
+  const positions: UserMarketPosition[] = useMemo(
+    () =>
+      LUMINA.coreMarkets.map((m, i) => {
+        const base = MARKETS_OFFSET + i * CALLS_PER_MARKET;
+        const supplied = safeBigInt(resultAt(results, base));
+        const borrowed = safeBigInt(resultAt(results, base + 1));
+        // getUserReserveData(...)[8] = usageAsCollateralEnabled
+        const reserve = resultAt<readonly unknown[]>(results, base + 2);
+        const collateralEnabled = reserve ? reserve[8] === true : false;
+        return {
+          asset: m.asset,
+          symbol: m.symbol,
+          decimals: m.decimals,
+          supplied,
+          borrowed,
+          collateral: collateralEnabled ? supplied : 0n,
+          collateralEnabled,
+        };
+      }),
+    [results],
+  );
 
   return {
     positions,
     accountData,
-    isLoading: reserveResult.isLoading || balanceResult.isLoading || accountResult.isLoading,
+    stamp: readStamp(results),
+    isLoading: !!address && query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
     isConnected: !!address,
   };
 }

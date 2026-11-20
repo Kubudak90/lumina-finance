@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useReadContracts } from "wagmi";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { StatCard } from "@/components/common/StatCard";
 import { RateCurveChart } from "@/components/markets/RateCurveChart";
@@ -12,26 +11,27 @@ import { BorrowModal } from "@/components/actions/BorrowModal";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
 import { EnableCollateralModal } from "@/components/actions/EnableCollateralModal";
-import { useMarketData } from "@/hooks/useMarketData";
+import { GuardNotice } from "@/components/common/GuardNotice";
+import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useUserCollateralStatus } from "@/hooks/useUserCollateralStatus";
-import { useReserveConfig } from "@/hooks/useReserveConfig";
-import { usePrices } from "@/hooks/usePrices";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
+import { resultAt, useLuminaMulticall } from "@/hooks/chain";
 import { getMarketBySymbol } from "@/lib/constants";
 import { QUERY } from "@/lib/queryPolicy";
-import { formatTokenToUsd, formatPercent } from "@/lib/format";
-import { ATOKEN_ABI, VARIABLE_DEBT_TOKEN_ABI, INTEREST_RATE_STRATEGY_ABI } from "@/lib/abis";
+import { formatPercent } from "@/lib/format";
+import { formatUsd, usdValue } from "@/lib/prices";
+import { INTEREST_RATE_STRATEGY_V2_ABI } from "@/lib/abis";
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 const RAY = 1e27;
 
 export default function MarketDetailPage() {
   const { asset } = useParams<{ asset: string }>();
   const market = getMarketBySymbol(asset);
-  const { reserveData } = useMarketData(market?.asset ?? ZERO_ADDRESS);
-  const { data: prices } = usePrices();
+  const { getMarket } = useAllMarkets();
+  const info = market ? getMarket(market.asset) : undefined;
+  const { priceOf } = useOraclePrices();
   const { isCollateralEnabled } = useUserCollateralStatus();
-  const { getConfig } = useReserveConfig();
-  const cfg = getConfig(market?.symbol ?? "");
+  const cfg = info?.config;
   const risk = cfg
     ? {
         ltv: `${(cfg.ltv / 100).toFixed(0)}%`,
@@ -40,30 +40,16 @@ export default function MarketDetailPage() {
       }
     : { ltv: "--", liqThreshold: "--", liqBonus: "--" };
 
-  // Read aToken + debtToken totalSupply for real supply/borrow amounts
-  const tokenSupplies = useReadContracts({
-    contracts: market ? [
-      { address: market.aToken, abi: ATOKEN_ABI, functionName: "totalSupply" as const },
-      { address: market.variableDebtToken, abi: VARIABLE_DEBT_TOKEN_ABI, functionName: "totalSupply" as const },
-    ] : [],
-    query: { enabled: !!market, ...QUERY.market },
-  });
-
-  // F-010: Read interest rate strategy address from reserve data, then read on-chain rate params
-  const interestRateStrategyAddress = reserveData?.interestRateStrategyAddress ?? ZERO_ADDRESS;
-  const hasStrategy = interestRateStrategyAddress !== ZERO_ADDRESS;
-
-  const strategyContracts = hasStrategy ? [
-    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "getBaseVariableBorrowRate" as const },
-    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "getVariableRateSlope1" as const },
-    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "getVariableRateSlope2" as const },
-    { address: interestRateStrategyAddress, abi: INTEREST_RATE_STRATEGY_ABI, functionName: "OPTIMAL_USAGE_RATIO" as const },
-  ] : [];
-
-  const strategyResult = useReadContracts({
-    contracts: strategyContracts,
-    query: { enabled: hasStrategy, ...QUERY.market },
-  });
+  // Rate curve from the reserve's DefaultReserveInterestRateStrategyV2 (per-reserve params, ray).
+  const strategy = info?.interestRateStrategy ?? null;
+  const strategyRead = useLuminaMulticall(
+    market
+      ? (["getBaseVariableBorrowRate", "getVariableRateSlope1", "getVariableRateSlope2", "getOptimalUsageRatio"] as const).map(
+          (functionName) => ({ address: strategy, abi: INTEREST_RATE_STRATEGY_V2_ABI, functionName, args: [market.asset] }),
+        )
+      : [],
+    { enabled: !!market && !!strategy, policy: QUERY.market },
+  );
 
   const [modal, setModal] = useState<"supply" | "borrow" | "withdraw" | "repay" | "collateral" | null>(null);
 
@@ -71,37 +57,28 @@ export default function MarketDetailPage() {
     return <div className="text-muted-foreground">Market not found</div>;
   }
 
-  const supplyRate = reserveData?.currentLiquidityRate ?? 0n;
-  const borrowRate = reserveData?.currentVariableBorrowRate ?? 0n;
-  const totalSupply = (tokenSupplies.data?.[0]?.result as bigint) ?? 0n;
-  const totalBorrow = (tokenSupplies.data?.[1]?.result as bigint) ?? 0n;
-  const reserves = reserveData?.accruedToTreasury ?? 0n;
+  const supplyRate = info?.supplyRate ?? 0n;
+  const borrowRate = info?.borrowRate ?? 0n;
+  const totalSupply = info?.totalSupply ?? 0n;
+  const totalBorrow = info?.totalBorrow ?? 0n;
+  const reserves = info?.accruedToTreasury ?? 0n;
 
   const util = totalSupply > 0n
     ? Number((totalBorrow * 10000n) / totalSupply) / 100
     : 0;
 
-  const price = prices?.[market.symbol] ?? 0;
+  const price = priceOf(market.asset);
 
-  // F-010: Use on-chain rate params if available, fallback to defaults
-  const baseRateRaw = (strategyResult.data?.[0]?.result as bigint) ?? 0n;
-  const slope1Raw = (strategyResult.data?.[1]?.result as bigint) ?? 0n;
-  const slope2Raw = (strategyResult.data?.[2]?.result as bigint) ?? 0n;
-  const optimalRatioRaw = (strategyResult.data?.[3]?.result as bigint) ?? 0n;
-
-  const chartParams = hasStrategy && strategyResult.data && strategyResult.data.length === 4
+  // FE-13: no invented curve; show "unavailable" when the strategy cannot be read.
+  const strategyValues = [0, 1, 2, 3].map((i) => resultAt<bigint>(strategyRead.results, i));
+  const chartParams = strategyValues.every((v) => v !== undefined)
     ? {
-        baseRate: Number(baseRateRaw) / RAY,
-        slope1: Number(slope1Raw) / RAY,
-        slope2: Number(slope2Raw) / RAY,
-        optimalUtil: Number(optimalRatioRaw) / RAY,
+        baseRate: Number(strategyValues[0]) / RAY,
+        slope1: Number(strategyValues[1]) / RAY,
+        slope2: Number(strategyValues[2]) / RAY,
+        optimalUtil: Number(strategyValues[3]) / RAY,
       }
-    : {
-        baseRate: 0.02,
-        slope1: 0.04,
-        slope2: 0.75,
-        optimalUtil: 0.80,
-      };
+    : null;
 
   return (
     <div className="space-y-6">
@@ -118,6 +95,8 @@ export default function MarketDetailPage() {
           <p className="text-muted-foreground text-sm">{market.name}</p>
         </div>
       </div>
+
+      <GuardNotice venue="core" />
 
       {/* Top stat cards */}
       <div className="grid md:grid-cols-3 gap-4 animate-in-delay-1">
@@ -141,11 +120,15 @@ export default function MarketDetailPage() {
         {/* Left column: more stats + rate curve */}
         <div className="space-y-4 animate-in-delay-2">
           <div className="grid grid-cols-2 gap-4">
-            <StatCard label="Total Supplied" value={formatTokenToUsd(totalSupply, price, market.decimals)} />
-            <StatCard label="Total Borrowed" value={formatTokenToUsd(totalBorrow, price, market.decimals)} />
+            <StatCard label="Total Supplied" value={formatUsd(usdValue(totalSupply, market.decimals, price))} />
+            <StatCard label="Total Borrowed" value={formatUsd(usdValue(totalBorrow, market.decimals, price))} />
           </div>
-          <StatCard label="Reserves" value={formatTokenToUsd(reserves, price, market.decimals)} />
-          <RateCurveChart {...chartParams} currentUtil={util} />
+          <StatCard label="Reserves" value={formatUsd(usdValue(reserves, market.decimals, price))} />
+          {chartParams ? (
+            <RateCurveChart {...chartParams} currentUtil={util} />
+          ) : (
+            <div className="technical-border bg-card p-4 text-sm text-muted-foreground">Rate curve unavailable</div>
+          )}
         </div>
 
         {/* Right column: action buttons */}

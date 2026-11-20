@@ -25,8 +25,8 @@ import {
   type AccountExistence,
   type Encoding,
 } from "lighter-ts";
-import { useAccount, useSwitchChain } from "wagmi";
-import { mainnet } from "wagmi/chains";
+import { useAccount } from "wagmi";
+import { NETWORK_NAME } from "@/lib/chains";
 import {
   LIGHTER_SIGNING_CHAIN_ID,
   LIGHTER_WS_PING_INTERVAL_MS,
@@ -234,8 +234,6 @@ function usd(value: number | null | undefined): string {
 }
 
 function ReadOnlyPanel({ snapshot }: { snapshot: LighterSnapshot }) {
-  const { switchChain, isPending } = useSwitchChain();
-
   return (
     <div className="space-y-6">
       <div className="technical-border bg-card p-4 space-y-2">
@@ -243,19 +241,9 @@ function ReadOnlyPanel({ snapshot }: { snapshot: LighterSnapshot }) {
         <h1 className="text-xl font-bold">Lighter portfolio</h1>
         <p className="text-sm text-text-dim">
           Account discovery, REST bootstrap, and websocket state. Trading is disabled in this adapter.
-          Official example connects an injected wallet on Ethereum mainnet; Lumina lending stays on Base
-          Sepolia.
+          Lighter accounts are looked up by your wallet address, so no network switch is needed here;
+          Lumina lending runs on {NETWORK_NAME}.
         </p>
-        {!snapshot.onOfficialL1 && snapshot.l1Address ? (
-          <button
-            type="button"
-            className="text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 px-3 py-1.5 rounded"
-            disabled={isPending}
-            onClick={() => switchChain({ chainId: mainnet.id })}
-          >
-            {isPending ? "Switching…" : "Switch wallet to Ethereum (official Lighter L1)"}
-          </button>
-        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

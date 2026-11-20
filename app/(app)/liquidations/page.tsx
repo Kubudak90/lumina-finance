@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useReadContract, useReadContracts } from "wagmi";
 import { formatUnits } from "viem";
-import { truncateAddress } from "@/lib/format";
+import { truncateAddress, MAX_HEALTH_FACTOR } from "@/lib/format";
+import { useLuminaReadContract, useLuminaReadContracts } from "@/hooks/chain";
+import { QUERY } from "@/lib/queryPolicy";
 import { LiquidateModal } from "@/components/actions/LiquidateModal";
 import { IsolatedLiquidateModal } from "@/components/actions/IsolatedLiquidateModal";
 import { POOL_ABI, DATA_PROVIDER_ABI, ISOLATED_PAIR_ABI } from "@/lib/abis";
-import { ADDRESSES } from "@/lib/contracts";
+import { LUMINA } from "@/lib/deployments";
 import { MARKETS } from "@/lib/constants";
 import { useIsolatedPairs, type IsolatedPairInfo } from "@/hooks/useIsolatedPairs";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +27,7 @@ interface LiquidationOpportunity {
 }
 
 interface IsolatedLiquidationOpportunity {
-  pair: IsolatedPairInfo;
+  pair: IsolatedPairInfo & { pair: `0x${string}` };
   borrowedAmount: bigint;
   borrowedShares: bigint;
   collateral: bigint;
@@ -37,31 +38,37 @@ export default function LiquidationsPage() {
   const [selectedIsolated, setSelectedIsolated] = useState<IsolatedLiquidationOpportunity | null>(null);
   const [searchAddress, setSearchAddress] = useState("");
   const [checkAddress, setCheckAddress] = useState<`0x${string}` | undefined>();
-  const { pairs: isolatedPairs } = useIsolatedPairs();
+  const { pairs: allPairs } = useIsolatedPairs();
+  const isolatedPairs = useMemo(
+    () => allPairs.filter((p): p is IsolatedPairInfo & { pair: `0x${string}` } => p.pair !== null),
+    [allPairs],
+  );
+  const pool = LUMINA.contracts.pool;
+  const dataProvider = LUMINA.contracts.poolDataProvider;
 
-  const { data: accountData, isLoading: isLoadingHf, error: hfError } = useReadContract({
-    address: ADDRESSES.pool,
+  const { data: accountData, isLoading: isLoadingHf, error: hfError } = useLuminaReadContract({
+    address: pool ?? undefined,
     abi: POOL_ABI,
     functionName: "getUserAccountData",
     args: checkAddress ? [checkAddress] : undefined,
-    query: { enabled: !!checkAddress },
+    query: { enabled: !!checkAddress && !!pool, ...QUERY.user },
   });
 
   const hf = accountData ? (accountData as readonly bigint[])[5] : undefined;
 
   // F-007: Use DataProvider.getUserReserveData to determine actual debt/collateral per address
-  const userReserveContracts = checkAddress
+  const userReserveContracts = checkAddress && dataProvider
     ? MARKETS.map((m) => ({
-        address: ADDRESSES.dataProvider as `0x${string}`,
+        address: dataProvider,
         abi: DATA_PROVIDER_ABI,
         functionName: "getUserReserveData" as const,
         args: [m.asset, checkAddress] as const,
       }))
     : [];
 
-  const userReserveResults = useReadContracts({
+  const userReserveResults = useLuminaReadContracts({
     contracts: userReserveContracts,
-    query: { enabled: !!checkAddress && hf !== undefined && hf !== null },
+    query: { enabled: !!checkAddress && hf !== undefined && hf !== null, ...QUERY.user },
   });
 
   const opportunities: LiquidationOpportunity[] = [];
@@ -140,9 +147,9 @@ export default function LiquidationsPage() {
         args: [checkAddress] as const,
       }))
     : [];
-  const isolatedSnapshots = useReadContracts({
+  const isolatedSnapshots = useLuminaReadContracts({
     contracts: isolatedSnapshotContracts,
-    query: { enabled: !!checkAddress && isolatedPairs.length > 0 },
+    query: { enabled: !!checkAddress && isolatedPairs.length > 0, ...QUERY.user },
   });
 
   const isolatedConvContracts = checkAddress && isolatedSnapshots.data
@@ -158,9 +165,9 @@ export default function LiquidationsPage() {
         ];
       })
     : [];
-  const isolatedConv = useReadContracts({
+  const isolatedConv = useLuminaReadContracts({
     contracts: isolatedConvContracts,
-    query: { enabled: !!checkAddress && !!isolatedSnapshots.data },
+    query: { enabled: !!checkAddress && !!isolatedSnapshots.data, ...QUERY.user },
   });
 
   const isolatedOpportunities: IsolatedLiquidationOpportunity[] = useMemo(() => {
@@ -195,7 +202,7 @@ export default function LiquidationsPage() {
     if (hfError) return <p className="text-xs font-mono text-destructive">Error reading health factor. Address may have no position.</p>;
     if (hf !== undefined && hf !== null) {
       const hfBigInt = hf as bigint;
-      if (hfBigInt === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) {
+      if (hfBigInt === MAX_HEALTH_FACTOR) {
         return <p className="text-xs font-mono text-green-500">Health Factor: Infinite (no debt)</p>;
       }
       const hfNum = Number(formatUnits(hfBigInt, 18));

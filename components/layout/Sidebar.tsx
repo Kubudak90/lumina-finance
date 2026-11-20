@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Wallet,
   Activity,
   TrendingUp,
   Zap,
@@ -14,20 +13,17 @@ import {
   X,
 } from "lucide-react";
 import { isLighterPath } from "@/lib/lighter/config";
+import { NETWORK_NAME } from "@/lib/chains";
+import { LUMINA_CHAIN_ID } from "@/lib/deployments";
 import { useSidebar } from "@/providers/SidebarProvider";
 
 const MAIN_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/markets", label: "Markets", icon: TrendingUp },
   { href: "/isolated", label: "Isolated", icon: Lock },
-  { href: "/leverage", label: "Leverage", icon: Zap },
   { href: "/portfolio", label: "Portfolio", icon: Coins },
   { href: "/liquidations", label: "Liquidations", icon: Activity },
   { href: "/lighter", label: "Lighter", icon: ChartLine },
-];
-
-const ACCOUNT_NAV = [
-  { href: "/faucet", label: "Faucet", icon: Wallet },
 ];
 
 export function Sidebar() {
@@ -83,54 +79,20 @@ export function Sidebar() {
             </Link>
           );
         })}
-
-        <div className="pt-6">
-          <p className="px-3 mb-3 text-[10px] font-semibold tracking-widest text-text-dim uppercase">
-            Account
-          </p>
-          {ACCOUNT_NAV.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={closeMobile}
-                className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors
-                  ${
-                    active
-                      ? "bg-accent/10 text-accent"
-                      : "text-text-dim hover:bg-white/5 hover:text-foreground"
-                  }
-                `}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
       </div>
 
       {/* Network Status */}
       <div className="p-4">
         <div className="technical-border rounded-md p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold tracking-widest text-text-dim uppercase">
-              Network
-            </span>
-            <span className="flex items-center gap-1.5 text-xs text-success">
-              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              Live
-            </span>
-          </div>
+          <span className="text-[10px] font-semibold tracking-widest text-text-dim uppercase">
+            Network
+          </span>
           <p className="mt-1.5 text-xs font-mono text-foreground">
-            {isLighterPath(pathname) ? "Lighter · Ethereum L1" : "Base Sepolia"}
+            {isLighterPath(pathname) ? "Lighter trading (read-only)" : NETWORK_NAME}
           </p>
-          <div className="mt-2 h-1 rounded-full bg-border overflow-hidden">
-            <div className="h-full w-3/4 rounded-full bg-accent/50" />
-          </div>
+          {!isLighterPath(pathname) && (
+            <p className="mt-0.5 text-[10px] font-mono text-text-dim">chain {LUMINA_CHAIN_ID}</p>
+          )}
         </div>
       </div>
     </div>

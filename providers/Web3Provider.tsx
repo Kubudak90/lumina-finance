@@ -1,34 +1,60 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { WagmiProvider, http } from "wagmi";
-import { mainnet } from "wagmi/chains";
+import { WagmiProvider, custom, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, darkTheme, getDefaultConfig } from "@rainbow-me/rainbowkit";
-import { defaultChain } from "@/lib/chains";
+import {
+  injectedWallet,
+  metaMaskWallet,
+  rainbowWallet,
+  walletConnectWallet,
+} from "@rainbow-me/rainbowkit/wallets";
+import { luminaChain, rpcUrlFor } from "@/lib/chains";
 import { defaultQueryClientOptions } from "@/lib/queryPolicy";
 import "@rainbow-me/rainbowkit/styles.css";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
+const rpcUrl = rpcUrlFor(luminaChain.id);
 
+/**
+ * Without an RPC URL every request fails fast with a clear error instead of falling back to a
+ * public endpoint; the UI shows "RPC not configured" and disables actions.
+ */
+const unconfiguredTransport = custom({
+  request: async () => {
+    throw new Error("Lumina RPC not configured (NEXT_PUBLIC_LIGHTER_DEVNET_RPC_URL)");
+  },
+});
+
+/**
+ * The lending config has exactly one chain: Lighter EVM devnet (19529). No Ethereum mainnet: the
+ * read-only /lighter view only needs the connected address, not an L1 chain (FE-03). Wallets are
+ * injected + WalletConnect-based so the CSP only has to allow the WalletConnect origins (FE-02).
+ */
 const config = getDefaultConfig({
   appName: "Lumina Finance",
   projectId: walletConnectProjectId,
-  // Ethereum is the L1 used by the official lighter-ts example. Lending stays
-  // on Base Sepolia; NetworkGuard only auto-switches off `/lighter`.
-  chains: [defaultChain, mainnet],
+  chains: [luminaChain],
   transports: {
-    [defaultChain.id]: http(),
-    [mainnet.id]: http(),
+    [luminaChain.id]: rpcUrl ? http(rpcUrl) : unconfiguredTransport,
   },
+  wallets: [
+    {
+      groupName: "Wallets",
+      wallets: [injectedWallet, metaMaskWallet, rainbowWallet, walletConnectWallet],
+    },
+  ],
   ssr: true,
 });
 
-if (process.env.NODE_ENV === "development" && !walletConnectProjectId) {
-  console.warn(
-    "[Web3Provider] NEXT_PUBLIC_WC_PROJECT_ID is not set. WalletConnect will not work. " +
-      "Get a project ID at https://cloud.walletconnect.com and add it to your .env.local file."
-  );
+if (process.env.NODE_ENV === "development") {
+  if (!walletConnectProjectId) {
+    console.warn("[Web3Provider] NEXT_PUBLIC_WC_PROJECT_ID is not set. WalletConnect will not work.");
+  }
+  if (!rpcUrl) {
+    console.warn("[Web3Provider] NEXT_PUBLIC_LIGHTER_DEVNET_RPC_URL is not set. Lumina reads will fail.");
+  }
 }
 
 const queryClient = new QueryClient({
@@ -46,7 +72,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={rainbowTheme} modalSize="compact" initialChain={defaultChain}>
+        <RainbowKitProvider theme={rainbowTheme} modalSize="compact" initialChain={luminaChain}>
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>

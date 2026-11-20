@@ -2,19 +2,21 @@
 
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
-import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { txExplorerUrl } from "@/lib/explorer";
-import { QUERY } from "@/lib/queryPolicy";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { useAccount } from "wagmi";
 import { toast } from "sonner";
-import { TxButton } from "@/components/common/TxButton";
-import { POOL_ABI, ATOKEN_ABI } from "@/lib/abis";
-import { ADDRESSES } from "@/lib/contracts";
+import { safeParseUnits, isValidDecimalInput, formatHealthFactor, MAX_HEALTH_FACTOR } from "@/lib/format";
+import { explorerToastAction } from "@/lib/explorer";
+import { AAVE_ENTIRE_BALANCE } from "@/lib/approvals";
+import { POOL_ABI } from "@/lib/abis";
+import { LUMINA } from "@/lib/deployments";
 import { parseErrorMessage } from "@/lib/errorMessages";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
-import { formatHealthFactor } from "@/lib/format";
-import { getMarketByAsset } from "@/lib/constants";
+import { useLuminaWrite } from "@/hooks/chain";
+import { useUserPosition } from "@/hooks/useUserPosition";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
+import { useAllMarkets } from "@/hooks/useAllMarkets";
+import { TxButton } from "@/components/common/TxButton";
+import { ExplorerLink } from "@/components/common/ExplorerLink";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,119 +28,66 @@ interface WithdrawModalProps {
   onClose: () => void;
 }
 
+/** Core withdraw. Withdrawing the whole balance sends Aave's entire-balance sentinel (no dust, FE-09). */
 export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModalProps) {
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const pool = LUMINA.contracts.pool;
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const { positions, accountData, stamp } = useUserPosition();
+  const { priceOf } = useOraclePrices();
+  const { getMarket } = useAllMarkets();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
-
-  const market = getMarketByAsset(asset);
-  const { healthFactor } = useHealthFactor();
-
-  // Supplied balance (aToken balance)
-  const suppliedBalance = useReadContract({
-    address: market?.aToken,
-    abi: ATOKEN_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !!market },
-  });
-  const supplied = (suppliedBalance.data as bigint) ?? 0n;
+  const position = positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase());
+  const supplied = position?.supplied ?? 0n;
   const suppliedFormatted = formatUnits(supplied, decimals);
+  const withdrawAll = supplied > 0n && parsedAmount >= supplied;
+  const liquidity = getMarket(asset)?.availableLiquidity;
 
-  // Health factor helpers
-  const isMaxHf = healthFactor === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-
-  // F-015: Simulate post-withdrawal health factor using BigInt arithmetic
-  // Read user account data for simulation
-  const accountDataResult = useReadContract({
-    address: ADDRESSES.pool,
-    abi: POOL_ABI,
-    functionName: "getUserAccountData",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address, ...QUERY.user },
-  });
-
-  const oraclePriceResult = useReadContract({
-    address: ADDRESSES.oracle,
-    abi: [{ name: "getAssetPrice", type: "function", stateMutability: "view", inputs: [{ name: "asset", type: "address" }], outputs: [{ name: "", type: "uint256" }] }] as const,
-    functionName: "getAssetPrice",
-    args: [asset],
-  });
-
-  let totalCollateralBase = 0n;
-  let totalDebtBase = 0n;
-  let currentLiquidationThreshold = 0n;
-  try {
-    const d = accountDataResult.data as Record<string, bigint> | readonly bigint[] | undefined;
-    if (d) {
-      if (Array.isArray(d)) {
-        totalCollateralBase = d[0] ?? 0n;
-        totalDebtBase = d[1] ?? 0n;
-        currentLiquidationThreshold = d[3] ?? 0n;
-      } else {
-        const obj = d as Record<string, bigint>;
-        totalCollateralBase = obj.totalCollateralBase ?? 0n;
-        totalDebtBase = obj.totalDebtBase ?? 0n;
-        currentLiquidationThreshold = obj.currentLiquidationThreshold ?? 0n;
-      }
-    }
-  } catch { /* ignore */ }
-
-  const priceRaw = (oraclePriceResult.data as bigint) ?? 0n;
-  const DECIMALS_FACTOR = 10n ** BigInt(decimals);
-  const withdrawValueInBase = parsedAmount > 0n && priceRaw > 0n
-    ? (parsedAmount * priceRaw) / DECIMALS_FACTOR
-    : 0n;
-  const newTotalCollateral = totalCollateralBase > withdrawValueInBase
-    ? totalCollateralBase - withdrawValueInBase
-    : 0n;
-  const collateralWeighted = newTotalCollateral * currentLiquidationThreshold / 10000n;
-
+  const healthFactor = accountData?.healthFactor;
+  const isMaxHf = healthFactor === MAX_HEALTH_FACTOR;
+  const priceRaw = priceOf(asset) ?? 0n;
+  const totalCollateralBase = accountData?.totalCollateralBase ?? 0n;
+  const totalDebtBase = accountData?.totalDebtBase ?? 0n;
+  const currentLiquidationThreshold = accountData?.currentLiquidationThreshold ?? 0n;
+  // Post-withdraw HF (display only), counting the withdrawn value only if it is collateral.
+  const withdrawValueInBase =
+    parsedAmount > 0n && priceRaw > 0n && position?.collateralEnabled
+      ? (parsedAmount * priceRaw) / 10n ** BigInt(decimals)
+      : 0n;
+  const newTotalCollateral = totalCollateralBase > withdrawValueInBase ? totalCollateralBase - withdrawValueInBase : 0n;
   let simulatedHf: number | null = null;
   if (totalDebtBase > 0n && parsedAmount > 0n) {
-    const HF_SCALE = 10n ** 18n;
-    const simulatedHfScaled = (collateralWeighted * HF_SCALE) / totalDebtBase;
-    simulatedHf = Number(simulatedHfScaled) / 1e18;
+    const collateralWeighted = (newTotalCollateral * currentLiquidationThreshold) / 10_000n;
+    simulatedHf = Number((collateralWeighted * 10n ** 18n) / totalDebtBase) / 1e18;
   }
-
   const simulatedHfColor = simulatedHf === null ? "text-muted-foreground"
     : simulatedHf >= 2 ? "text-emerald-400"
     : simulatedHf >= 1.2 ? "text-amber-400"
     : "text-red-400";
 
-  // Error toast refs for repeated errors (F-012)
   const prevErrorRef = useRef<Error | null>(null);
-
   useEffect(() => {
     if (error && error !== prevErrorRef.current) {
       prevErrorRef.current = error;
-      toast.error("Withdrawal failed", {
-        description: parseErrorMessage(error),
-      });
+      toast.error("Withdrawal failed", { description: parseErrorMessage(error) });
     }
   }, [error]);
 
   useEffect(() => {
     if (isSuccess && hash) {
-      toast.success("Withdrawal successful", {
-        description: "Transaction confirmed",
-        action: {
-          label: "View on Explorer",
-          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
-        },
-      });
+      toast.success("Withdrawal successful", { description: "Transaction confirmed", action: explorerToastAction(hash) });
     }
   }, [isSuccess, hash]);
 
   const handleWithdraw = () => {
-    if (!address) return;
+    if (!address || !pool || parsedAmount === 0n) return;
     void send({
-      address: ADDRESSES.pool,
+      address: pool,
       abi: POOL_ABI,
       functionName: "withdraw",
-      args: [asset, parsedAmount, address],
+      args: [asset, withdrawAll ? AAVE_ENTIRE_BALANCE : parsedAmount, address],
     });
   };
 
@@ -151,17 +100,8 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
             <DialogHeader className="items-center">
               <DialogTitle className="text-xl">Withdrawal Successful</DialogTitle>
             </DialogHeader>
-            <p className="text-muted-foreground mt-2 mb-4">You withdrew {amount} {symbol}</p>
-            {hash && (
-              <a
-                href={txExplorerUrl(hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-accent hover:underline font-mono"
-              >
-                View transaction
-              </a>
-            )}
+            <p className="text-muted-foreground mt-2 mb-4">You withdrew {withdrawAll ? "all your" : amount} {symbol}</p>
+            {hash && <ExplorerLink hash={hash} />}
             <Button variant="link" onClick={onClose}>Close</Button>
           </div>
         ) : (
@@ -198,10 +138,13 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
                 {parsedAmount > supplied && (
                   <p className="text-xs text-destructive mt-1">Amount exceeds supplied balance</p>
                 )}
+                {liquidity !== undefined && parsedAmount > liquidity && (
+                  <p className="text-xs text-amber-500 mt-1">Exceeds the reserve&apos;s available liquidity</p>
+                )}
+                <div className="mt-1"><FreshnessStamp stamp={stamp} label="Balance" /></div>
               </div>
 
-              {/* Health Factor with simulation */}
-              {healthFactor && (
+              {healthFactor !== undefined && (
                 <div className="technical-border bg-background p-3 space-y-1.5">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Health Factor</span>
@@ -216,24 +159,14 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
                     </div>
                   </div>
                   {simulatedHf !== null && simulatedHf < 1.0 && (
-                    <p className="text-xs text-red-500 font-medium">
-                      This withdrawal will put you below liquidation threshold.
-                    </p>
+                    <p className="text-xs text-red-500 font-medium">This withdrawal would put you below the liquidation threshold.</p>
                   )}
                   {simulatedHf !== null && simulatedHf >= 1.0 && simulatedHf < 1.5 && (
                     <p className="text-xs text-amber-500 font-medium">
-                      Warning: Withdrawing may lower your health factor and increase liquidation risk.
+                      Warning: withdrawing lowers your health factor and increases liquidation risk.
                     </p>
                   )}
-                  {simulatedHf !== null && simulatedHf >= 1.5 && (
-                    <p className="text-xs text-muted-foreground">Withdrawing reduces your health factor</p>
-                  )}
-                  {!isMaxHf && simulatedHf === null && (
-                    <p className="text-xs text-muted-foreground">Enter an amount to see health factor impact</p>
-                  )}
-                  {isMaxHf && (
-                    <p className="text-xs text-muted-foreground">No debt -- withdrawal is safe</p>
-                  )}
+                  {isMaxHf && <p className="text-xs text-muted-foreground">No debt: withdrawal does not affect a health factor</p>}
                 </div>
               )}
 
@@ -242,7 +175,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
                 isPending={isPending}
                 isSimulating={isSimulating}
                 isConfirming={isConfirming}
-                disabled={!address || !amount || parsedAmount === 0n || parsedAmount > supplied}
+                disabled={!address || parsedAmount === 0n || parsedAmount > supplied}
               >
                 Withdraw {symbol}
               </TxButton>

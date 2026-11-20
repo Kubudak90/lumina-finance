@@ -2,14 +2,18 @@
 
 import { useState, useEffect, useRef } from "react";
 import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { txExplorerUrl } from "@/lib/explorer";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { explorerToastAction } from "@/lib/explorer";
+import { exactApproval } from "@/lib/approvals";
+import { QUERY } from "@/lib/queryPolicy";
+import { useAccount } from "wagmi";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
+import { AllowanceNote } from "@/components/common/AllowanceNote";
+import { ExplorerLink } from "@/components/common/ExplorerLink";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
-import { ADDRESSES } from "@/lib/contracts";
+import { LUMINA } from "@/lib/deployments";
 import { parseErrorMessage } from "@/lib/errorMessages";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -38,8 +42,9 @@ export function LiquidateModal({
   const [pendingLiquidateAfterApproval, setPendingLiquidateAfterApproval] = useState(false);
   const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
-  const approval = useTokenApproval(debtAsset, ADDRESSES.pool, address);
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const pool = LUMINA.contracts.pool;
+  const approval = useTokenApproval(debtAsset, pool, address);
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
   const parsedAmount = amount ? (safeParseUnits(amount, debtDecimals) ?? 0n) : 0n;
 
@@ -48,12 +53,12 @@ export function LiquidateModal({
   const exceedsMax = parsedAmount > 0n && maxLiquidatable > 0n && parsedAmount > maxLiquidatable;
 
   // F-008: Check wallet balance of debt token
-  const walletBalanceResult = useReadContract({
+  const walletBalanceResult = useLuminaReadContract({
     address: debtAsset,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const walletBalance = (walletBalanceResult.data as bigint) ?? 0n;
   const insufficientBalance = parsedAmount > 0n && parsedAmount > walletBalance;
@@ -82,13 +87,7 @@ export function LiquidateModal({
 
   useEffect(() => {
     if (isSuccess && hash) {
-      toast.success("Liquidation successful", {
-        description: "Transaction confirmed",
-        action: {
-          label: "View on Explorer",
-          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
-        },
-      });
+      toast.success("Liquidation successful", { description: "Transaction confirmed", action: explorerToastAction(hash) });
     }
   }, [isSuccess, hash]);
 
@@ -101,25 +100,28 @@ export function LiquidateModal({
   useEffect(() => {
     if (approval.isSuccess && pendingLiquidateAfterApproval) {
       setPendingLiquidateAfterApproval(false);
+      if (!pool) return;
       void send({
-        address: ADDRESSES.pool,
+        address: pool,
         abi: POOL_ABI,
         functionName: "liquidationCall",
         args: [collateralAsset, debtAsset, borrower, approvedAmountRef.current, false],
       });
     }
-  }, [approval.isSuccess, pendingLiquidateAfterApproval, collateralAsset, debtAsset, borrower, send]);
+  }, [approval.isSuccess, pendingLiquidateAfterApproval, collateralAsset, debtAsset, borrower, pool, send]);
 
   const handleLiquidate = () => {
+    if (!pool || parsedAmount === 0n) return;
     if (approval.needsApproval(parsedAmount)) {
       approvedAmountRef.current = parsedAmount;
-      approval.approve(parsedAmount);
+      // Pool pulls at most debtToCover: approve exactly that.
+      approval.approve(exactApproval(parsedAmount));
       setPendingLiquidateAfterApproval(true);
       return;
     }
     // Aave V3: liquidationCall(collateralAsset, debtAsset, user, debtToCover, receiveAToken)
     void send({
-      address: ADDRESSES.pool,
+      address: pool,
       abi: POOL_ABI,
       functionName: "liquidationCall",
       args: [collateralAsset, debtAsset, borrower, parsedAmount, false],
@@ -135,16 +137,7 @@ export function LiquidateModal({
             <DialogHeader className="items-center">
               <DialogTitle className="text-xl">Liquidation Successful</DialogTitle>
             </DialogHeader>
-            {hash && (
-              <a
-                href={txExplorerUrl(hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-accent hover:underline font-mono mt-2"
-              >
-                View transaction
-              </a>
-            )}
+            {hash && <ExplorerLink hash={hash} />}
             <Button variant="link" onClick={onClose} className="mt-4">Close</Button>
           </div>
         ) : (
@@ -172,6 +165,13 @@ export function LiquidateModal({
                   <p className="text-xs text-destructive mt-1">Insufficient balance</p>
                 )}
               </div>
+              <AllowanceNote
+                symbol={debtSymbol}
+                decimals={debtDecimals}
+                spenderLabel="Pool"
+                allowance={approval.allowance}
+                approveAmount={parsedAmount > 0n && approval.needsApproval(parsedAmount) ? parsedAmount : undefined}
+              />
               <TxButton
                 onClick={handleLiquidate}
                 isPending={isPending || approval.isPending}

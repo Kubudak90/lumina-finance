@@ -2,19 +2,22 @@
 
 import { useState, useEffect, useRef } from "react";
 import { formatUnits } from "viem";
-import { safeParseUnits, isValidDecimalInput } from "@/lib/format";
-import { txExplorerUrl } from "@/lib/explorer";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
+import { useAccount } from "wagmi";
 import { toast } from "sonner";
+import { safeParseUnits, isValidDecimalInput, formatHealthFactor } from "@/lib/format";
+import { explorerToastAction } from "@/lib/explorer";
+import { exactApproval } from "@/lib/approvals";
+import { QUERY } from "@/lib/queryPolicy";
+import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
+import { LUMINA } from "@/lib/deployments";
+import { parseErrorMessage } from "@/lib/errorMessages";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { useTokenApproval } from "@/hooks/useTokenApproval";
+import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { TxButton } from "@/components/common/TxButton";
 import { TxPreviewCard } from "@/components/common/TxPreview";
-import { useTokenApproval } from "@/hooks/useTokenApproval";
-import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
-import { ADDRESSES } from "@/lib/contracts";
-import { parseErrorMessage } from "@/lib/errorMessages";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
-import { formatHealthFactor } from "@/lib/format";
+import { AllowanceNote } from "@/components/common/AllowanceNote";
+import { ExplorerLink } from "@/components/common/ExplorerLink";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -31,90 +34,77 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
   const [pendingSupplyAfterApproval, setPendingSupplyAfterApproval] = useState(false);
   const approvedAmountRef = useRef<bigint>(0n);
   const { address } = useAccount();
-  const approval = useTokenApproval(asset, ADDRESSES.pool, address);
+  const pool = LUMINA.contracts.pool;
+  const approval = useTokenApproval(asset, pool, address);
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating, preview } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating, preview } = useLuminaWrite();
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
 
-  // Wallet balance
-  const walletBalance = useReadContract({
+  const walletBalance = useLuminaReadContract({
     address: asset,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...QUERY.user },
   });
-  const balance = (walletBalance.data as bigint) ?? 0n;
+  const balance = (walletBalance.data as bigint | undefined) ?? 0n;
   const balanceFormatted = formatUnits(balance, decimals);
 
-  // Health factor
   const { healthFactor } = useHealthFactor();
 
-  // Error toast refs for repeated errors (F-012)
   const prevErrorRef = useRef<Error | null>(null);
   const prevApprovalErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
     if (error && error !== prevErrorRef.current) {
       prevErrorRef.current = error;
-      toast.error("Supply failed", {
-        description: parseErrorMessage(error),
-      });
+      toast.error("Supply failed", { description: parseErrorMessage(error) });
     }
   }, [error]);
 
   useEffect(() => {
     if (approval.error && approval.error !== prevApprovalErrorRef.current) {
       prevApprovalErrorRef.current = approval.error;
-      toast.error("Approval failed", {
-        description: parseErrorMessage(approval.error),
-      });
+      toast.error("Approval failed", { description: parseErrorMessage(approval.error) });
     }
   }, [approval.error]);
 
   useEffect(() => {
     if (isSuccess && hash) {
       setPendingSupplyAfterApproval(false);
-      toast.success("Supply successful", {
-        description: "Transaction confirmed",
-        action: {
-          label: "View on Explorer",
-          onClick: () => window.open(txExplorerUrl(hash), "_blank"),
-        },
-      });
+      toast.success("Supply successful", { description: "Transaction confirmed", action: explorerToastAction(hash) });
     }
   }, [isSuccess, hash]);
 
-  // Reset pending approval flag when the amount input changes
   useEffect(() => {
     setPendingSupplyAfterApproval(false);
   }, [amount]);
 
-  // F-003: Auto-proceed with supply after approval succeeds
+  // Auto-proceed with supply after the (exact) approval confirms.
   useEffect(() => {
     if (approval.isSuccess && pendingSupplyAfterApproval) {
       setPendingSupplyAfterApproval(false);
-      if (!address) return;
+      if (!address || !pool) return;
       void send({
-        address: ADDRESSES.pool,
+        address: pool,
         abi: POOL_ABI,
         functionName: "supply",
         args: [asset, approvedAmountRef.current, address, 0],
       });
     }
-  }, [approval.isSuccess, pendingSupplyAfterApproval, address, asset, send]);
+  }, [approval.isSuccess, pendingSupplyAfterApproval, address, asset, pool, send]);
 
   const handleSupply = () => {
-    if (!address) return;
+    if (!address || !pool || parsedAmount === 0n) return;
     if (approval.needsApproval(parsedAmount)) {
       approvedAmountRef.current = parsedAmount;
-      approval.approve(parsedAmount);
+      approval.approve(exactApproval(parsedAmount));
       setPendingSupplyAfterApproval(true);
       return;
     }
     void send({
-      address: ADDRESSES.pool,
+      address: pool,
       abi: POOL_ABI,
       functionName: "supply",
       args: [asset, parsedAmount, address, 0],
@@ -131,16 +121,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
               <DialogTitle className="text-xl">Supply Successful</DialogTitle>
             </DialogHeader>
             <p className="text-muted-foreground mt-2 mb-4">You supplied {amount} {symbol}</p>
-            {hash && (
-              <a
-                href={txExplorerUrl(hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-accent hover:underline font-mono"
-              >
-                View transaction
-              </a>
-            )}
+            {hash && <ExplorerLink hash={hash} />}
             <Button variant="link" onClick={onClose}>Close</Button>
           </div>
         ) : (
@@ -178,6 +159,15 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
                   <p className="text-xs text-destructive mt-1">Insufficient balance</p>
                 )}
               </div>
+
+              <AllowanceNote
+                symbol={symbol}
+                decimals={decimals}
+                spenderLabel="Pool"
+                allowance={approval.allowance}
+                approveAmount={parsedAmount > 0n && approval.needsApproval(parsedAmount) ? parsedAmount : undefined}
+              />
+
               <TxButton
                 onClick={handleSupply}
                 isPending={isPending || approval.isPending}
@@ -189,8 +179,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
               </TxButton>
               <TxPreviewCard preview={preview} />
 
-              {/* Health Factor */}
-              {healthFactor && (
+              {healthFactor !== undefined && (
                 <div className="technical-border bg-background p-3 space-y-1.5">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Health Factor</span>

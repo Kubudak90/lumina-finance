@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount } from "wagmi";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { explorerToastAction } from "@/lib/explorer";
+import { repayApproval } from "@/lib/approvals";
+import { QUERY } from "@/lib/queryPolicy";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
+import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { ERC20_ABI, ISOLATED_PAIR_ABI } from "@/lib/abis";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -29,13 +32,12 @@ interface Props {
   onClose: () => void;
 }
 
-const MAX_UINT128 = 2n ** 128n - 1n;
-
 /**
  * LightlendPair.liquidate(_sharesToLiquidate, _deadline, _borrower).
  * Liquidator pays in the asset (asset.transferFrom on liquidator) and receives
- * collateral. Reverts if borrower is solvent. Approval needed: asset → pair
- * for the asset amount equivalent to the shares being liquidated.
+ * collateral. Reverts if borrower is solvent. Like a repay this is share-based (the pair pulls the
+ * shares' value after accruing interest), so the approval carries the same repay buffer:
+ * ceil(currentShareValue × 1.001) + 1.
  */
 export function IsolatedLiquidateModal({
   pair,
@@ -57,28 +59,42 @@ export function IsolatedLiquidateModal({
   const { address } = useAccount();
   const approval = useTokenApproval(asset, pair, address);
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(borrowerDebtAsset, assetDecimals);
+  const full = parsed > 0n && parsed >= borrowerDebtAsset;
 
   // Convert input asset amount → shares using on-chain conversion
-  const sharesPreview = useReadContract({
+  const sharesPreview = useLuminaReadContract({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "toBorrowShares",
     args: [parsed, false, true],
-    query: { enabled: parsed > 0n && parsed <= borrowerDebtAsset },
+    query: { enabled: parsed > 0n && !full, ...QUERY.user },
   });
   const computedShares = (sharesPreview.data as bigint | undefined) ?? 0n;
+  const sharesToLiquidate = full ? borrowerDebtShares : computedShares;
+
+  // Current value of those shares (rounded up, previewing interest).
+  const shareValueRead = useLuminaReadContract({
+    address: pair,
+    abi: ISOLATED_PAIR_ABI,
+    functionName: "toBorrowAmount",
+    args: [sharesToLiquidate, true, true],
+    query: { enabled: sharesToLiquidate > 0n, ...QUERY.user },
+  });
+  const shareValue = shareValueRead.data as bigint | undefined;
+  const approveAmount = shareValue !== undefined && shareValue > 0n ? repayApproval(shareValue) : undefined;
+  const approvalNeeded = approveAmount !== undefined && approval.needsApproval(approveAmount);
 
   // Wallet balance
-  const walletBalance = useReadContract({
+  const walletBalance = useLuminaReadContract({
     address: asset,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const walletRaw = (walletBalance.data as bigint | undefined) ?? 0n;
   const insufficientWallet = parsed > walletRaw;
@@ -95,7 +111,7 @@ export function IsolatedLiquidateModal({
     if (isSuccess && hash) {
       toast.success("Liquidation successful", {
         description: `Received ${collateralSymbol} collateral`,
-        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
+        action: explorerToastAction(hash, "View"),
       });
     }
   }, [isSuccess, hash, collateralSymbol]);
@@ -115,8 +131,8 @@ export function IsolatedLiquidateModal({
 
   const doLiquidate = () => {
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
-    let shares = parsed >= borrowerDebtAsset ? borrowerDebtShares : pendingSharesRef.current || computedShares;
-    if (shares > MAX_UINT128) shares = MAX_UINT128;
+    const shares = pendingSharesRef.current;
+    if (shares === 0n) return;
     void send({
       address: pair,
       abi: ISOLATED_PAIR_ABI,
@@ -126,13 +142,11 @@ export function IsolatedLiquidateModal({
   };
 
   const handleLiquidate = () => {
-    if (!address) return;
-    const sharesToLiquidate = parsed >= borrowerDebtAsset ? borrowerDebtShares : computedShares;
-    if (sharesToLiquidate === 0n) return;
+    if (!address || sharesToLiquidate === 0n || approveAmount === undefined) return;
 
-    if (approval.needsApproval(parsed)) {
+    if (approvalNeeded) {
       pendingSharesRef.current = sharesToLiquidate;
-      approval.approve(parsed);
+      approval.approve(approveAmount);
       setPendingLiqAfterApproval(true);
       return;
     }
@@ -211,14 +225,23 @@ export function IsolatedLiquidateModal({
                 )}
               </div>
 
+              <AllowanceNote
+                symbol={assetSymbol}
+                decimals={assetDecimals}
+                spenderLabel="pair"
+                allowance={approval.allowance}
+                approveAmount={approvalNeeded ? approveAmount : undefined}
+                expectedPull={shareValue}
+                buffered
+              />
               <TxButton
                 onClick={handleLiquidate}
                 isPending={isPending || approval.isPending}
                 isSimulating={isSimulating || approval.isSimulating}
                 isConfirming={isConfirming || approval.isConfirming}
-                disabled={!address || parsed === 0n || insufficientWallet || borrowerDebtShares === 0n}
+                disabled={!address || parsed === 0n || insufficientWallet || borrowerDebtShares === 0n || approveAmount === undefined}
               >
-                {approval.needsApproval(parsed) ? `Approve ${assetSymbol}` : "Liquidate"}
+                {approvalNeeded ? `Approve ${assetSymbol}` : "Liquidate"}
               </TxButton>
             </div>
           </>

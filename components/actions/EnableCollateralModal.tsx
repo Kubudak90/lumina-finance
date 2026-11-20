@@ -2,20 +2,19 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount } from "wagmi";
+import { useLuminaWrite } from "@/hooks/chain";
+import { explorerToastAction } from "@/lib/explorer";
 import { TxButton } from "@/components/common/TxButton";
-import { POOL_ABI, ERC20_ABI } from "@/lib/abis";
-import { QUERY } from "@/lib/queryPolicy";
-import { ADDRESSES } from "@/lib/contracts";
+import { ExplorerLink } from "@/components/common/ExplorerLink";
+import { POOL_ABI } from "@/lib/abis";
+import { LUMINA } from "@/lib/deployments";
+import { useUserPosition } from "@/hooks/useUserPosition";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { parseErrorMessage } from "@/lib/errorMessages";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { formatHealthFactor } from "@/lib/format";
-import { getMarketByAsset } from "@/lib/constants";
 
 interface EnableCollateralModalProps {
   asset: `0x${string}`;
@@ -26,21 +25,13 @@ interface EnableCollateralModalProps {
 
 export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose }: EnableCollateralModalProps) {
   const { address } = useAccount();
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
-  const { healthFactor } = useHealthFactor();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const { positions, accountData } = useUserPosition();
+  const healthFactor = accountData?.healthFactor;
+  const pool = LUMINA.contracts.pool;
 
-  const market = getMarketByAsset(asset);
-  const aTokenAddress = market?.aToken;
-
-  // Read user's aToken balance — Aave V3 reverts (error 43) on enable with zero balance.
-  const aTokenBalance = useReadContract({
-    address: aTokenAddress,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !!aTokenAddress, ...QUERY.user },
-  });
-  const balance = (aTokenBalance.data as bigint | undefined) ?? 0n;
+  // aToken balance — Aave V3 reverts (error 43) on enable with zero balance.
+  const balance = positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.supplied ?? 0n;
   const hasSupply = balance > 0n;
 
   const newValue = !currentlyEnabled;
@@ -57,16 +48,14 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
 
   useEffect(() => {
     if (isSuccess && hash) {
-      toast.success(`Collateral ${newValue ? "enabled" : "disabled"}`, {
-        action: { label: "View on Explorer", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
-      });
+      toast.success(`Collateral ${newValue ? "enabled" : "disabled"}`, { action: explorerToastAction(hash) });
     }
   }, [isSuccess, hash, newValue]);
 
   const handleToggle = () => {
-    if (!address || blockedNoSupply) return;
+    if (!address || !pool || blockedNoSupply) return;
     void send({
-      address: ADDRESSES.pool,
+      address: pool,
       abi: POOL_ABI,
       functionName: "setUserUseReserveAsCollateral",
       args: [asset, newValue],
@@ -85,11 +74,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
             <p className="text-muted-foreground mt-2 mb-4">
               You {newValue ? "enabled" : "disabled"} {symbol} as collateral
             </p>
-            {hash && (
-              <a href={txExplorerUrl(hash)} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline font-mono">
-                View transaction
-              </a>
-            )}
+            {hash && <ExplorerLink hash={hash} />}
             <Button variant="link" onClick={onClose} className="mt-2">Close</Button>
           </div>
         ) : (
@@ -123,7 +108,7 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
                 </div>
               )}
 
-              {healthFactor && !blockedNoSupply && (
+              {healthFactor !== undefined && !blockedNoSupply && (
                 <div className="technical-border bg-background p-3 space-y-1.5">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Health Factor</span>

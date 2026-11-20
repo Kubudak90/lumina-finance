@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useLuminaWrite } from "@/hooks/chain";
+import { explorerToastAction } from "@/lib/explorer";
+import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
@@ -19,6 +20,10 @@ interface Props {
   collateralSymbol: string;
   collateralDecimals: number;
   collateralAmount: bigint; // user's current collateral
+  /** Borrower has debt in this pair. */
+  hasDebt: boolean;
+  /** Pair oracle reports bad data (price guard tripped): removal with debt reverts. */
+  oracleBadData: boolean | undefined;
   onClose: () => void;
 }
 
@@ -31,12 +36,15 @@ export function IsolatedRemoveCollateralModal({
   collateralSymbol,
   collateralDecimals,
   collateralAmount,
+  hasDebt,
+  oracleBadData,
   onClose,
 }: Props) {
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const blocked = hasDebt && oracleBadData !== false;
 
   const parsed = amount ? (safeParseUnits(amount, collateralDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(collateralAmount, collateralDecimals);
@@ -54,7 +62,7 @@ export function IsolatedRemoveCollateralModal({
     if (isSuccess && hash) {
       toast.success("Collateral removed", {
         description: `Removed ${amount} ${collateralSymbol}`,
-        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
+        action: explorerToastAction(hash, "View"),
       });
     }
   }, [isSuccess, hash, amount, collateralSymbol]);
@@ -117,12 +125,19 @@ export function IsolatedRemoveCollateralModal({
                 </div>
                 {overMax && <p className="text-xs text-destructive mt-1">Exceeds posted collateral</p>}
               </div>
+              {blocked && (
+                <p className="text-xs text-amber-400">
+                  {oracleBadData === undefined
+                    ? "Pair oracle status unknown; removing collateral while in debt is disabled."
+                    : `The price guard blocks borrows on this pair. ${GUARD_BLOCKED_NOTE.isolated}`}
+                </p>
+              )}
               <TxButton
                 onClick={handleRemove}
                 isPending={isPending}
                 isSimulating={isSimulating}
                 isConfirming={isConfirming}
-                disabled={!address || parsed === 0n || overMax}
+                disabled={!address || parsed === 0n || overMax || blocked}
               >
                 Remove {collateralSymbol}
               </TxButton>

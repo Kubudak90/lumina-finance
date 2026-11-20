@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount } from "wagmi";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { explorerToastAction } from "@/lib/explorer";
+import { exactApproval } from "@/lib/approvals";
+import { QUERY } from "@/lib/queryPolicy";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
+import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { useTokenApproval } from "@/hooks/useTokenApproval";
 import { ERC20_ABI, ISOLATED_PAIR_ABI } from "@/lib/abis";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,16 +34,16 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
   const { address } = useAccount();
   const approval = useTokenApproval(asset, pair, address);
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
 
-  const balance = useReadContract({
+  const balance = useLuminaReadContract({
     address: asset,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...QUERY.user },
   });
   const balanceRaw = (balance.data as bigint | undefined) ?? 0n;
   const balanceFormatted = formatUnits(balanceRaw, assetDecimals);
@@ -57,7 +60,7 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
     if (isSuccess && hash) {
       toast.success("Asset deposited", {
         description: `Lent ${amount} ${assetSymbol}`,
-        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
+        action: explorerToastAction(hash, "View"),
       });
     }
   }, [isSuccess, hash, amount, assetSymbol]);
@@ -81,10 +84,10 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
   }, [approval.isSuccess, pendingDepositAfterApproval, pair, address, send]);
 
   const handleLend = () => {
-    if (!address) return;
+    if (!address || parsed === 0n) return;
     if (approval.needsApproval(parsed)) {
       pendingAmountRef.current = parsed;
-      approval.approve(parsed);
+      approval.approve(exactApproval(parsed));
       setPendingDepositAfterApproval(true);
       return;
     }
@@ -147,6 +150,13 @@ export function IsolatedLendModal({ pair, asset, assetSymbol, assetDecimals, onC
                   <p className="text-xs text-destructive mt-1">Insufficient balance</p>
                 )}
               </div>
+              <AllowanceNote
+                symbol={assetSymbol}
+                decimals={assetDecimals}
+                spenderLabel="pair"
+                allowance={approval.allowance}
+                approveAmount={parsed > 0n && approval.needsApproval(parsed) ? parsed : undefined}
+              />
               <TxButton
                 onClick={handleLend}
                 isPending={isPending || approval.isPending}

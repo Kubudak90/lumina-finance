@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useReadContract } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useAccount } from "wagmi";
+import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { explorerToastAction } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
@@ -30,9 +30,9 @@ export function IsolatedWithdrawModal({ pair, assetSymbol, assetDecimals, onClos
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
-  const max = useReadContract({
+  const max = useLuminaReadContract({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "maxWithdraw",
@@ -56,7 +56,7 @@ export function IsolatedWithdrawModal({ pair, assetSymbol, assetDecimals, onClos
     if (isSuccess && hash) {
       toast.success("Withdraw successful", {
         description: `Withdrew ${amount} ${assetSymbol}`,
-        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
+        action: explorerToastAction(hash, "View"),
       });
     }
   }, [isSuccess, hash, amount, assetSymbol]);
