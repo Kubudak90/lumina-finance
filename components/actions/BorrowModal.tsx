@@ -6,7 +6,7 @@ import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { safeParseUnits, isValidDecimalInput, formatHealthFactor, MAX_HEALTH_FACTOR } from "@/lib/format";
 import { explorerToastAction } from "@/lib/explorer";
-import { coreBorrowMax } from "@/lib/borrowMax";
+import { coreBorrowMaxFromReads } from "@/lib/borrowMax";
 import { POOL_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
 import { parseErrorMessage } from "@/lib/errorMessages";
@@ -46,30 +46,29 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
   const market = getMarket(asset);
-  const priceRaw = priceOf(asset) ?? 0n;
+  const price = priceOf(asset);
+  const priceRaw = price ?? 0n;
   const healthFactor = accountData?.healthFactor;
   const totalDebtBase = accountData?.totalDebtBase ?? 0n;
   const totalCollateralBase = accountData?.totalCollateralBase ?? 0n;
   const currentLiquidationThreshold = accountData?.currentLiquidationThreshold ?? 0n;
-  const availableLiquidity = market?.availableLiquidity ?? 0n;
+  const availableLiquidity = market?.availableLiquidity;
 
   // FE-05: LTV-based capacity (availableBorrowsBase), 99% haircut, capped by liquidity and the
-  // borrow cap, in bigint, floored to base units.
-  const maxBorrow =
-    accountData && market && priceRaw > 0n
-      ? coreBorrowMax({
-          availableBorrowsBase: accountData.availableBorrowsBase,
-          assetPriceBase: priceRaw,
-          decimals,
-          availableLiquidity,
-          borrowCapTokens: market.borrowCap,
-          totalDebt: market.totalDebt,
-        })
-      : 0n;
+  // borrow cap, in bigint, floored to base units. null ("unavailable") when any input read failed
+  // or is still loading — never computed from a missing value (Codex #9).
+  const maxBorrow = coreBorrowMaxFromReads({
+    availableBorrowsBase: accountData?.availableBorrowsBase,
+    assetPriceBase: price,
+    decimals,
+    availableLiquidity,
+    borrowCapTokens: market?.borrowCap,
+    totalDebt: market?.totalDebt,
+  });
   const capacityTokens =
-    accountData && priceRaw > 0n
-      ? (accountData.availableBorrowsBase * 10n ** BigInt(decimals)) / priceRaw
-      : 0n;
+    accountData && price !== undefined && price > 0n
+      ? (accountData.availableBorrowsBase * 10n ** BigInt(decimals)) / price
+      : undefined;
 
   // Post-borrow HF (display only): (collateral × LT) / (debt + amount × price).
   const collateralWeighted = (totalCollateralBase * currentLiquidationThreshold) / 10_000n;
@@ -84,7 +83,7 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
     : simulatedHf >= 1.2 ? "text-amber-400"
     : "text-red-400";
   const isMaxHf = healthFactor === MAX_HEALTH_FACTOR;
-  const overMax = parsedAmount > maxBorrow;
+  const overMax = maxBorrow !== null && parsedAmount > maxBorrow;
 
   const prevErrorRef = useRef<Error | null>(null);
   useEffect(() => {
@@ -134,13 +133,13 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
               <div className="technical-border bg-background p-3 space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Borrow capacity (LTV)</span>
-                  <span className="font-mono">{fmt(capacityTokens, decimals)} {symbol}</span>
+                  <span className="font-mono">{capacityTokens === undefined ? "unavailable" : `${fmt(capacityTokens, decimals)} ${symbol}`}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Pool liquidity</span>
-                  <span className="font-mono">{fmt(availableLiquidity, decimals)} {symbol}</span>
+                  <span className="font-mono">{availableLiquidity === undefined ? "unavailable" : `${fmt(availableLiquidity, decimals)} ${symbol}`}</span>
                 </div>
-                {market && market.borrowCap > 0n && (
+                {market?.borrowCap !== undefined && market.borrowCap > 0n && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Borrow cap</span>
                     <span className="font-mono">{market.borrowCap.toString()} {symbol}</span>
@@ -153,11 +152,15 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm text-muted-foreground">Amount</label>
                   <span className="text-sm text-muted-foreground">
-                    Max (99%): <span className="font-mono">{fmt(maxBorrow, decimals)}</span> {symbol}
+                    Max (99%):{" "}
+                    <span className="font-mono" data-testid="borrow-max">
+                      {maxBorrow === null ? "unavailable" : `${fmt(maxBorrow, decimals)} ${symbol}`}
+                    </span>
                   </span>
                 </div>
                 <div className="relative">
                   <Input
+                    aria-label="Amount"
                     type="number"
                     value={amount}
                     onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) setAmount(v); }}
@@ -168,7 +171,8 @@ export function BorrowModal({ asset, symbol, decimals, onClose }: BorrowModalPro
                   />
                   <button
                     type="button"
-                    onClick={() => setAmount(formatUnits(maxBorrow, decimals))}
+                    disabled={maxBorrow === null}
+                    onClick={() => maxBorrow !== null && setAmount(formatUnits(maxBorrow, decimals))}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
                   >
                     MAX

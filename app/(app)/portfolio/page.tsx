@@ -16,7 +16,8 @@ import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { getMarketBySymbol, type MarketConfig } from "@/lib/constants";
 import { formatPercent } from "@/lib/format";
-import { formatUsd, isolatedCollateralUsd, sumUsd, usdValue } from "@/lib/prices";
+import { formatUsd, usdValue } from "@/lib/prices";
+import { coreLegsUsd, isolatedLegsUsd, oldestStamp } from "@/lib/valuation";
 import { chainFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
 import { useFreshnessNow } from "@/lib/portfolio/clock";
 import { STALE_AFTER_SECONDS } from "@/lib/queryPolicy";
@@ -36,9 +37,16 @@ const LighterPortfolioEmbed = dynamic(
 export default function PortfolioPage() {
   const { isConnected } = useAccount();
   const { positions, accountData, stamp, isLoading: positionsLoading } = useUserPosition();
-  const { positions: isolatedPositions, stamp: isolatedStamp, isLoading: isolatedLoading } = useUserIsolatedPositions();
+  const {
+    positions: isolatedPositions,
+    incomplete: isolatedIncomplete,
+    stamp: isolatedStamp,
+    conversionStamp,
+    pairsStamp,
+    isLoading: isolatedLoading,
+  } = useUserIsolatedPositions();
   const healthFactor = accountData?.healthFactor;
-  const { priceOf } = useOraclePrices();
+  const { priceOf, stamp: priceStamp } = useOraclePrices();
   const { markets } = useAllMarkets();
   const now = useFreshnessNow();
   const [modal, setModal] = useState<{ type: "withdraw" | "repay"; market: MarketConfig } | null>(null);
@@ -62,20 +70,18 @@ export default function PortfolioPage() {
   }
 
   // FE-06: core legs priced by AaveOracle.getAssetPrice (keyed by asset address); isolated
-  // collateral converted to asset units through the pair oracle's exchange rate, then priced.
-  const totalSuppliedUsd = sumUsd(positions.map((p) => usdValue(p.supplied, p.decimals, priceOf(p.asset))));
-  const totalBorrowedUsd = sumUsd(positions.map((p) => usdValue(p.borrowed, p.decimals, priceOf(p.asset))));
-  const isolatedSupplyUsd = sumUsd(
-    isolatedPositions.map((p) => usdValue(p.suppliedAssets, p.assetDecimals, priceOf(p.asset))),
-  );
-  const isolatedDebtUsd = sumUsd(
-    isolatedPositions.map((p) => usdValue(p.borrowedAssets, p.assetDecimals, priceOf(p.asset))),
-  );
-  const isolatedCollateralTotal = sumUsd(
-    isolatedPositions.map((p) =>
-      isolatedCollateralUsd(p.collateralAmount, p.exchangeRate, p.assetDecimals, priceOf(p.asset)),
-    ),
-  );
+  // collateral converted through the pair oracle's exchange rate in one division. A failed read
+  // makes the affected total unavailable (Codex #9).
+  const core = coreLegsUsd(positions, priceOf);
+  const iso = isolatedLegsUsd(isolatedPositions, priceOf, isolatedIncomplete);
+  const totalSuppliedUsd = core.supplied;
+  const totalBorrowedUsd = core.borrowed;
+  const isolatedSupplyUsd = iso.supply;
+  const isolatedDebtUsd = iso.debt;
+  const isolatedCollateralTotal = iso.collateral;
+  // Each valuation is as old as the oldest read it combines.
+  const poolValuationStamp = oldestStamp([stamp, priceStamp]);
+  const isolatedValuationStamp = oldestStamp([isolatedStamp, conversionStamp, pairsStamp, priceStamp]);
 
   const legs = [totalSuppliedUsd, totalBorrowedUsd, isolatedSupplyUsd, isolatedDebtUsd, isolatedCollateralTotal];
   // The unified Lighter view needs every leg; it gets nothing rather than a silently wrong total.
@@ -91,11 +97,11 @@ export default function PortfolioPage() {
 
   const netWorth =
     totalSuppliedUsd !== undefined && totalBorrowedUsd !== undefined ? totalSuppliedUsd - totalBorrowedUsd : undefined;
-  const luminaStatus = chainFreshness(stamp?.timestamp, now, STALE_AFTER_SECONDS);
-  const isolatedStatus = chainFreshness(isolatedStamp?.timestamp, now, STALE_AFTER_SECONDS);
+  const luminaStatus = chainFreshness(poolValuationStamp?.timestamp, now, STALE_AFTER_SECONDS);
+  const isolatedStatus = chainFreshness(isolatedValuationStamp?.timestamp, now, STALE_AFTER_SECONDS);
 
   const supplies = positions
-    .filter((p) => p.supplied > 0n)
+    .filter((p): p is typeof p & { supplied: bigint } => p.supplied !== undefined && p.supplied > 0n)
     .map((p) => {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
@@ -107,7 +113,7 @@ export default function PortfolioPage() {
     });
 
   const borrows = positions
-    .filter((p) => p.borrowed > 0n)
+    .filter((p): p is typeof p & { borrowed: bigint } => p.borrowed !== undefined && p.borrowed > 0n)
     .map((p) => {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
@@ -119,7 +125,7 @@ export default function PortfolioPage() {
     });
 
   const collateral = positions
-    .filter((p) => p.collateral > 0n)
+    .filter((p): p is typeof p & { collateral: bigint } => p.collateral !== undefined && p.collateral > 0n)
     .map((p) => {
       const cfg = markets.find((m) => m.asset.toLowerCase() === p.asset.toLowerCase())?.config;
       return {
@@ -146,8 +152,8 @@ export default function PortfolioPage() {
       </div>
 
       <div className="flex flex-wrap gap-4">
-        <FreshnessStamp stamp={stamp} label="Pool" />
-        <FreshnessStamp stamp={isolatedStamp} label="Isolated" />
+        <FreshnessStamp stamp={poolValuationStamp} label="Pool valuation" />
+        <FreshnessStamp stamp={isolatedValuationStamp} label="Isolated valuation" />
       </div>
 
       {lumina ? (

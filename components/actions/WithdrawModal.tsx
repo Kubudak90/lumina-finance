@@ -28,9 +28,14 @@ interface WithdrawModalProps {
   onClose: () => void;
 }
 
-/** Core withdraw. Withdrawing the whole balance sends Aave's entire-balance sentinel (no dust, FE-09). */
+/**
+ * Core withdraw. MAX sets a "withdraw all" intent, kept apart from the amount text until the user
+ * edits it; with it the withdraw sends Aave's entire-balance sentinel, so interest accrued after
+ * the last poll is withdrawn too and no dust aTokens remain (FE-09, Codex #5).
+ */
 export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModalProps) {
   const [amount, setAmount] = useState("");
+  const [withdrawAll, setWithdrawAll] = useState(false);
   const { address } = useAccount();
   const pool = LUMINA.contracts.pool;
   const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
@@ -40,9 +45,11 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
 
   const parsedAmount = amount ? (safeParseUnits(amount, decimals) ?? 0n) : 0n;
   const position = positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase());
-  const supplied = position?.supplied ?? 0n;
-  const suppliedFormatted = formatUnits(supplied, decimals);
-  const withdrawAll = supplied > 0n && parsedAmount >= supplied;
+  const supplied = position?.supplied;
+  const suppliedFormatted = supplied === undefined ? "" : formatUnits(supplied, decimals);
+  const shownAmount = withdrawAll && supplied !== undefined ? suppliedFormatted : amount;
+  // With the intent, what leaves is the whole (polled) balance.
+  const effectiveAmount = withdrawAll ? (supplied ?? 0n) : parsedAmount;
   const liquidity = getMarket(asset)?.availableLiquidity;
 
   const healthFactor = accountData?.healthFactor;
@@ -53,12 +60,12 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
   const currentLiquidationThreshold = accountData?.currentLiquidationThreshold ?? 0n;
   // Post-withdraw HF (display only), counting the withdrawn value only if it is collateral.
   const withdrawValueInBase =
-    parsedAmount > 0n && priceRaw > 0n && position?.collateralEnabled
-      ? (parsedAmount * priceRaw) / 10n ** BigInt(decimals)
+    effectiveAmount > 0n && priceRaw > 0n && position?.collateralEnabled
+      ? (effectiveAmount * priceRaw) / 10n ** BigInt(decimals)
       : 0n;
   const newTotalCollateral = totalCollateralBase > withdrawValueInBase ? totalCollateralBase - withdrawValueInBase : 0n;
   let simulatedHf: number | null = null;
-  if (totalDebtBase > 0n && parsedAmount > 0n) {
+  if (totalDebtBase > 0n && effectiveAmount > 0n) {
     const collateralWeighted = (newTotalCollateral * currentLiquidationThreshold) / 10_000n;
     simulatedHf = Number((collateralWeighted * 10n ** 18n) / totalDebtBase) / 1e18;
   }
@@ -82,7 +89,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
   }, [isSuccess, hash]);
 
   const handleWithdraw = () => {
-    if (!address || !pool || parsedAmount === 0n) return;
+    if (!address || !pool || effectiveAmount === 0n) return;
     void send({
       address: pool,
       abi: POOL_ABI,
@@ -114,14 +121,21 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm text-muted-foreground">Amount</label>
                   <span className="text-sm text-muted-foreground">
-                    Supplied: <span className="font-mono">{Number(suppliedFormatted).toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> {symbol}
+                    Supplied: <span className="font-mono">{supplied === undefined ? "—" : Number(suppliedFormatted).toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> {symbol}
                   </span>
                 </div>
                 <div className="relative">
                   <Input
+                    aria-label="Amount"
                     type="number"
-                    value={amount}
-                    onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) setAmount(v); }}
+                    value={shownAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) {
+                        setWithdrawAll(false);
+                        setAmount(v);
+                      }
+                    }}
                     placeholder="0.00"
                     min="0"
                     step="any"
@@ -129,16 +143,21 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
                   />
                   <button
                     type="button"
-                    onClick={() => setAmount(suppliedFormatted)}
+                    disabled={supplied === undefined || supplied === 0n}
+                    onClick={() => {
+                      setWithdrawAll(true);
+                      setAmount(suppliedFormatted);
+                    }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
                   >
                     MAX
                   </button>
                 </div>
-                {parsedAmount > supplied && (
+                {withdrawAll && <p className="text-xs text-accent mt-1">Withdraw all: the whole balance at execution, interest included.</p>}
+                {supplied !== undefined && !withdrawAll && parsedAmount > supplied && (
                   <p className="text-xs text-destructive mt-1">Amount exceeds supplied balance</p>
                 )}
-                {liquidity !== undefined && parsedAmount > liquidity && (
+                {liquidity !== undefined && effectiveAmount > liquidity && (
                   <p className="text-xs text-amber-500 mt-1">Exceeds the reserve&apos;s available liquidity</p>
                 )}
                 <div className="mt-1"><FreshnessStamp stamp={stamp} label="Balance" /></div>
@@ -175,7 +194,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
                 isPending={isPending}
                 isSimulating={isSimulating}
                 isConfirming={isConfirming}
-                disabled={!address || parsedAmount === 0n || parsedAmount > supplied}
+                disabled={!address || supplied === undefined || effectiveAmount === 0n || (!withdrawAll && parsedAmount > supplied)}
               >
                 Withdraw {symbol}
               </TxButton>

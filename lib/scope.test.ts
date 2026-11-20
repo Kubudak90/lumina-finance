@@ -35,7 +35,8 @@ const files = walk(repoRoot)
   .map((path) => ({ rel: relative(repoRoot, path).split("\\").join("/"), path }))
   .filter(({ rel }) => rel !== "package-lock.json" && rel !== SELF && !VENDORED.has(rel))
   .map(({ rel, path }) => ({ rel, source: readFileSync(path, "utf8") }));
-const code = files.filter(({ rel }) => /\.(ts|tsx|mjs|js)$/.test(rel));
+/** Application code (tests excluded: they name the patterns they check for). */
+const code = files.filter(({ rel }) => /\.(ts|tsx|mjs|js)$/.test(rel) && !rel.startsWith("test/") && !/\.test\.tsx?$/.test(rel));
 
 /** Patterns are assembled from pieces so this file does not match itself. */
 const p = (...parts: string[]) => parts.join("");
@@ -107,7 +108,7 @@ describe("chain pinning (FE-03)", () => {
     const wrapper = code.find(({ rel }) => rel === "hooks/chain/index.ts")!.source;
     expect(wrapper).toMatch(/useWaitForTransactionReceipt\(\{[^}]*chainId: LUMINA_CHAIN_ID/);
     expect(wrapper).toMatch(/usePublicClient\(\{ chainId: LUMINA_CHAIN_ID \}\)/);
-    expect(wrapper).toMatch(/pinChainId\(parameters, LUMINA_CHAIN_ID\)/);
+    expect(wrapper).toMatch(/pinChainId\(\{ \.\.\.parameters, query \}, LUMINA_CHAIN_ID\)/);
     expect(wrapper).toMatch(/pinContracts\(contractList, LUMINA_CHAIN_ID\)/);
     expect(wrapper).toMatch(/executePinnedWrite\(/);
   });
@@ -125,6 +126,24 @@ describe("scope (spec §3.3, non-goals)", () => {
     expect(offenders(/openPosition|closePosition|leveragedPosition|repayAssetWithCollateral|LOOPING_ABI/, code)).toEqual([]);
     expect(offenders(/href=["'`]\/(leverage|faucet|admin)/, code)).toEqual([]);
     expect(offenders(/LeverageCloseModal|useDebtDelegation/, code)).toEqual([]);
+  });
+
+  it("keeps MetaMask on injected/WalletConnect, never the MetaMask SDK (Codex #12)", () => {
+    expect(offenders(/metaMaskWallet|coinbaseWallet|@metamask\/sdk/, code)).toEqual([]);
+  });
+
+  it("never reads the stored Lighter signing seed (Codex #13)", () => {
+    const lighter = code.filter(({ rel }) => rel.startsWith("lib/lighter/"));
+    expect(offenders(/readLSAccountSignature|writeLSAccountSignature|getItem\(\s*SIGNATURE_KEY/, lighter)).toEqual([]);
+    // The read-only session never builds a signer client or loads the WASM signer.
+    const session = lighter.find(({ rel }) => rel === "lib/lighter/runtime/session.tsx")!.source;
+    expect(session).not.toMatch(/createClient|initWASM|stored\.seed/);
+  });
+
+  it("binds every approval to its follow-up (no free-standing approve helper)", () => {
+    expect(offenders(/useTokenApproval/, code)).toEqual([]);
+    const approveSites = offenders(/functionName:\s*"approve"/, code);
+    expect(approveSites).toEqual(["hooks/useApprovalFlow.ts"]);
   });
 
   it("has no UI that writes a network name into on-chain token names", () => {

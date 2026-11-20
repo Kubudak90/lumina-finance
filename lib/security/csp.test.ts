@@ -30,6 +30,46 @@ describe("CSP and anti-framing headers (FE-02)", () => {
     expect(csp).not.toMatch(/coingecko|jsdelivr/);
   });
 
+  it("ships exactly this origin list (compared as a whole, Codex #14)", () => {
+    const shipped = buildCsp({ rpcUrl: "https://rpc.devnet.example" });
+    expect(directive(shipped, "connect-src")).toEqual([
+      "'self'",
+      "https://rpc.devnet.example",
+      "wss://relay.walletconnect.org",
+      "wss://relay.walletconnect.com",
+      "https://rpc.walletconnect.org",
+      "https://rpc.walletconnect.com",
+      "https://verify.walletconnect.org",
+      "https://verify.walletconnect.com",
+      "https://pulse.walletconnect.org",
+      "https://mainnet.zklighter.elliot.ai",
+      "wss://mainnet.zklighter.elliot.ai",
+    ]);
+    expect(directive(shipped, "frame-src")).toEqual(["https://verify.walletconnect.org", "https://verify.walletconnect.com"]);
+    expect(directive(shipped, "script-src")).toEqual(["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'"]);
+    expect(directive(shipped, "img-src")).toEqual(["'self'", "data:", "blob:"]);
+    expect(directive(shipped, "font-src")).toEqual(["'self'", "data:"]);
+    expect(directive(shipped, "style-src")).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(shipped.split("; ").map((d) => d.split(" ")[0])).toEqual([
+      "default-src",
+      "script-src",
+      "style-src",
+      "img-src",
+      "font-src",
+      "connect-src",
+      "frame-src",
+      "worker-src",
+      "manifest-src",
+      "object-src",
+      "base-uri",
+      "form-action",
+      "frame-ancestors",
+      "upgrade-insecure-requests",
+    ]);
+    // No MetaMask SDK relay: MetaMask mobile goes through WalletConnect (Codex #12).
+    expect(shipped).not.toMatch(/metamask/i);
+  });
+
   it("locks down scripts, objects and forms", () => {
     expect(directive(csp, "default-src")).toEqual(["'self'"]);
     expect(directive(csp, "object-src")).toEqual(["'none'"]);

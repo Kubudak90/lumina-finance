@@ -5,21 +5,20 @@ import { useAccount } from "wagmi";
 import { ATOKEN_ABI, DATA_PROVIDER_ABI, POOL_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { QUERY } from "@/lib/queryPolicy";
 import { LUMINA } from "@/lib/deployments";
-import { safeBigInt } from "@/lib/format";
-import { resultAt, useLuminaMulticall, type ContractCall } from "@/hooks/chain";
+import { bigintAt, resultAt, useLuminaMulticall, type ContractCall } from "@/hooks/chain";
 import { STAMP_CALLS, STAMP_OFFSET, readStamp } from "@/hooks/useBlockStamp";
 
 export interface UserMarketPosition {
   asset: `0x${string}`;
   symbol: string;
   decimals: number;
-  /** aToken balance (supplied incl. interest). */
-  supplied: bigint;
-  /** variable debt token balance (debt incl. interest). */
-  borrowed: bigint;
+  /** aToken balance (supplied incl. interest); undefined if the read failed or is loading. */
+  supplied: bigint | undefined;
+  /** variable debt token balance (debt incl. interest); undefined if the read failed or is loading. */
+  borrowed: bigint | undefined;
   /** Supplied amount counted as collateral (0 when collateral is disabled). */
-  collateral: bigint;
-  collateralEnabled: boolean;
+  collateral: bigint | undefined;
+  collateralEnabled: boolean | undefined;
 }
 
 export interface UserAccountData {
@@ -63,33 +62,28 @@ export function useUserPosition() {
 
   const accountData: UserAccountData | undefined = useMemo(() => {
     const d = resultAt<readonly unknown[]>(results, ACCOUNT_INDEX);
-    if (!d) return undefined;
-    return {
-      totalCollateralBase: safeBigInt(d[0]),
-      totalDebtBase: safeBigInt(d[1]),
-      availableBorrowsBase: safeBigInt(d[2]),
-      currentLiquidationThreshold: safeBigInt(d[3]),
-      ltv: safeBigInt(d[4]),
-      healthFactor: safeBigInt(d[5]),
-    };
+    if (!d || d.length < 6 || !d.every((v) => typeof v === "bigint")) return undefined;
+    const [totalCollateralBase, totalDebtBase, availableBorrowsBase, currentLiquidationThreshold, ltv, healthFactor] =
+      d as readonly bigint[];
+    return { totalCollateralBase, totalDebtBase, availableBorrowsBase, currentLiquidationThreshold, ltv, healthFactor };
   }, [results]);
 
   const positions: UserMarketPosition[] = useMemo(
     () =>
       LUMINA.coreMarkets.map((m, i) => {
         const base = MARKETS_OFFSET + i * CALLS_PER_MARKET;
-        const supplied = safeBigInt(resultAt(results, base));
-        const borrowed = safeBigInt(resultAt(results, base + 1));
+        const supplied = bigintAt(results, base);
+        const borrowed = bigintAt(results, base + 1);
         // getUserReserveData(...)[8] = usageAsCollateralEnabled
         const reserve = resultAt<readonly unknown[]>(results, base + 2);
-        const collateralEnabled = reserve ? reserve[8] === true : false;
+        const collateralEnabled = reserve && typeof reserve[8] === "boolean" ? reserve[8] : undefined;
         return {
           asset: m.asset,
           symbol: m.symbol,
           decimals: m.decimals,
           supplied,
           borrowed,
-          collateral: collateralEnabled ? supplied : 0n,
+          collateral: collateralEnabled === undefined ? undefined : collateralEnabled ? supplied : 0n,
           collateralEnabled,
         };
       }),

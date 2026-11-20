@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { explorerToastAction } from "@/lib/explorer";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
@@ -17,8 +18,6 @@ import { parseErrorMessage } from "@/lib/errorMessages";
 
 interface Props {
   pair: `0x${string}`;
-  assetSymbol: string;
-  assetDecimals: number;
   onClose: () => void;
 }
 
@@ -26,7 +25,10 @@ interface Props {
  * Lender-side withdraw — calls LightlendPair.withdraw(amount, receiver, owner).
  * No token approval needed (the pair burns the lender's shares directly).
  */
-export function IsolatedWithdrawModal({ pair, assetSymbol, assetDecimals, onClose }: Props) {
+export function IsolatedWithdrawModal({ pair, onClose }: Props) {
+  const info = useIsolatedPair(pair);
+  const assetSymbol = info?.assetSymbol ?? "";
+  const assetDecimals = info?.assetDecimals ?? 18;
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 

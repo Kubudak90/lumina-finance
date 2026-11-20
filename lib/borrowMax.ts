@@ -87,3 +87,49 @@ export function collateralInAsset(collateral: bigint, exchangeRate: bigint): big
   if (exchangeRate <= 0n) return 0n;
   return (collateral * EXCHANGE_PRECISION) / exchangeRate;
 }
+
+type Maybe<T> = { [K in keyof T]: T[K] | undefined };
+
+/**
+ * Borrow MAX from on-chain reads that may have failed (Codex r1 #9). Returns null — "unavailable" —
+ * when any input the limit depends on is missing; a failed read is never treated as zero.
+ * `totalDebt` is only needed when there is a borrow cap.
+ */
+export function coreBorrowMaxFromReads(input: Maybe<CoreBorrowMaxInput>): bigint | null {
+  const { availableBorrowsBase, assetPriceBase, decimals, availableLiquidity, borrowCapTokens, totalDebt } = input;
+  if (
+    availableBorrowsBase === undefined ||
+    assetPriceBase === undefined ||
+    decimals === undefined ||
+    availableLiquidity === undefined ||
+    borrowCapTokens === undefined ||
+    (borrowCapTokens > 0n && totalDebt === undefined)
+  ) {
+    return null;
+  }
+  return coreBorrowMax({
+    availableBorrowsBase,
+    assetPriceBase,
+    decimals,
+    availableLiquidity,
+    borrowCapTokens,
+    totalDebt: totalDebt ?? 0n,
+  });
+}
+
+/** Isolated borrow MAX from reads that may have failed; null when any input is missing. */
+export function isolatedBorrowMaxFromReads(input: Maybe<IsolatedBorrowMaxInput>): bigint | null {
+  const { collateral, currentDebt, exchangeRate, maxLtv, availableLiquidity, borrowLimit, totalBorrow } = input;
+  if (
+    collateral === undefined ||
+    currentDebt === undefined ||
+    exchangeRate === undefined ||
+    maxLtv === undefined ||
+    availableLiquidity === undefined ||
+    borrowLimit === undefined ||
+    totalBorrow === undefined
+  ) {
+    return null;
+  }
+  return isolatedBorrowMax({ collateral, currentDebt, exchangeRate, maxLtv, availableLiquidity, borrowLimit, totalBorrow });
+}

@@ -1,12 +1,10 @@
 import { MULTICALL3_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
 import { resultAt, type CallResult, type ContractCall } from "@/hooks/chain";
+import type { BlockStamp } from "@/lib/valuation";
 
 /** Block a multicall was executed at (Multicall3 getBlockNumber / getCurrentBlockTimestamp). */
-export interface BlockStamp {
-  number: bigint;
-  timestamp: bigint;
-}
+export type { BlockStamp };
 
 /**
  * Prepend these to a multicall: they run in the same eth_call as the reads after them, so the

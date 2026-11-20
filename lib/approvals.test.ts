@@ -18,7 +18,9 @@ import {
   planIsolatedRepay,
   repayApproval,
   residualAllowance,
-  sharesToAmountUp,
+  coreFullRepayFunding,
+  vaultToAmount,
+  vaultToShares,
 } from "./approvals";
 
 const DECIMALS = [6, 18] as const;
@@ -77,25 +79,46 @@ describe("repay approval = ceil(assetValue × 1.001) + 1", () => {
 });
 
 describe("core repay plan (partial and full)", () => {
-  it.each(DECIMALS)("partial repay sends the amount and approves it with the buffer (%i decimals)", (decimals) => {
+  it.each(DECIMALS)("partial repay sends the finite amount; the allowance threshold is the buffered amount (%i decimals)", (decimals) => {
     const debt = parseUnits("100", decimals);
     const input = parseUnits("40", decimals);
-    const plan = planCoreRepay({ input, debt });
+    const plan = planCoreRepay({ input, debt, repayAll: false });
     expect(plan.full).toBe(false);
     expect(plan.amountArg).toBe(input);
+    // Codex #4a: the threshold for a partial repay is buffered too, not the raw amount.
     expect(plan.approve).toBe(repayApproval(input));
+    expect(needsApproval(input, plan.approve)).toBe(true);
   });
 
-  it.each(DECIMALS)("full repay sends the entire-debt sentinel and approves the buffered debt (%i decimals)", (decimals) => {
+  it.each(DECIMALS)("'repay all' intent sends the entire-debt sentinel and approves the buffered current debt (%i decimals)", (decimals) => {
     const debt = parseUnits("100.123", decimals);
-    for (const input of [debt, debt + 5n]) {
-      const plan = planCoreRepay({ input, debt });
-      expect(plan.full).toBe(true);
-      expect(plan.amountArg).toBe(AAVE_ENTIRE_BALANCE);
-      expect(plan.approve).toBe(repayApproval(debt));
-      // The sentinel is an amount argument only; it is never an allowance.
-      expect(plan.approve).toBeLessThan(MAX_APPROVAL);
-    }
+    const plan = planCoreRepay({ input: 0n, debt, repayAll: true });
+    expect(plan.full).toBe(true);
+    expect(plan.amountArg).toBe(AAVE_ENTIRE_BALANCE);
+    expect(plan.approve).toBe(repayApproval(debt));
+    // The sentinel is an amount argument only; it is never an allowance.
+    expect(plan.approve).toBeLessThan(MAX_APPROVAL);
+  });
+
+  it("a typed amount equal to the debt stays finite without the intent", () => {
+    const debt = parseUnits("100", 6);
+    expect(planCoreRepay({ input: debt, debt, repayAll: false }).amountArg).toBe(debt);
+  });
+
+  it("debt refreshing from 100 to 100.000001 after MAX: still the sentinel, approval covers the new debt (Codex #5)", () => {
+    const before = planCoreRepay({ input: parseUnits("100", 6), debt: parseUnits("100", 6), repayAll: true });
+    const after = planCoreRepay({ input: parseUnits("100", 6), debt: parseUnits("100.000001", 6), repayAll: true });
+    expect(before.amountArg).toBe(AAVE_ENTIRE_BALANCE);
+    expect(after.amountArg).toBe(AAVE_ENTIRE_BALANCE);
+    expect(after.approve).toBe(repayApproval(parseUnits("100.000001", 6)));
+    expect(coversAccrual(after.approve, parseUnits("100.000001", 6))).toBe(true);
+  });
+
+  it("a full repay needs the wallet to hold the debt plus the accrual margin, else offers the wallet (Codex #6)", () => {
+    const debt = parseUnits("1", 18);
+    expect(coreFullRepayFunding(debt, debt)).toEqual({ fundable: false, partial: debt });
+    expect(coreFullRepayFunding(ceilWithRepayBuffer(debt), debt)).toEqual({ fundable: true });
+    expect(coreFullRepayFunding(parseUnits("0.4", 18), debt)).toEqual({ fundable: false, partial: parseUnits("0.4", 18) });
   });
 });
 
@@ -153,7 +176,7 @@ describe("spec §6.1 FE criterion: core (Aave variable debt)", () => {
     for (const human of ["0.000001", "1", "2500.5", "1000000"]) {
       const scaled = parseUnits(human, decimals);
       const debtAtN = aaveDebtAfter(scaled, index, CORE_MAX_RATE_RAY, 0n);
-      const plan = planCoreRepay({ input: debtAtN, debt: debtAtN });
+      const plan = planCoreRepay({ input: debtAtN, debt: debtAtN, repayAll: true });
       for (const k of CORE_WARPS) {
         const debtAtRepay = aaveDebtAfter(scaled, index, CORE_MAX_RATE_RAY, k);
         expect(debtAtRepay).toBeGreaterThanOrEqual(debtAtN);
@@ -166,7 +189,7 @@ describe("spec §6.1 FE criterion: core (Aave variable debt)", () => {
     const scaled = parseUnits("1000", decimals);
     const debtAtN = aaveDebtAfter(scaled, index, CORE_MAX_RATE_RAY, 0n);
     const input = debtAtN / 3n;
-    const plan = planCoreRepay({ input, debt: debtAtN });
+    const plan = planCoreRepay({ input, debt: debtAtN, repayAll: false });
     for (const k of CORE_WARPS) {
       const debtAtRepay = aaveDebtAfter(scaled, index, CORE_MAX_RATE_RAY, k);
       const pulled = input < debtAtRepay ? input : debtAtRepay; // Aave: min(amount, debt)
@@ -177,64 +200,93 @@ describe("spec §6.1 FE criterion: core (Aave variable debt)", () => {
   it("the buffer has a limit: far beyond it the old approval no longer covers a full repay", () => {
     const scaled = parseUnits("1000", 18);
     const debtAtN = aaveDebtAfter(scaled, index, CORE_MAX_RATE_RAY, 0n);
-    const plan = planCoreRepay({ input: debtAtN, debt: debtAtN });
+    const plan = planCoreRepay({ input: debtAtN, debt: debtAtN, repayAll: true });
     const debtLater = aaveDebtAfter(scaled, index, CORE_MAX_RATE_RAY, 4_000n);
     expect(coversAccrual(plan.approve, debtLater)).toBe(false);
   });
 });
 
-describe("spec §6.1 FE criterion: isolated (FraxLend shares)", () => {
+describe("VaultAccount rounding (lumina-isolated contracts/libraries/VaultAccount.sol)", () => {
+  it("applies the 1e3 virtual amount and shares like the contract (Codex #14 case)", () => {
+    // total debt 1000, total shares 1: one share is (1 × 2000) / 1001 = 1, rounded up to 2.
+    expect(vaultToAmount({ amount: 1_000n, shares: 1n }, 1n, true)).toBe(2n);
+    expect(vaultToAmount({ amount: 1_000n, shares: 1n }, 1n, false)).toBe(1n);
+    // Without the offsets one share would be worth 1000; the contract never does that.
+    expect(vaultToAmount({ amount: 1_000n, shares: 1n }, 1n, true)).not.toBe(1_000n);
+    // toShares mirrors it: 2 raw units buy (2 × 1001) / 2000 = 1 share.
+    expect(vaultToShares({ amount: 1_000n, shares: 1n }, 2n, false)).toBe(1n);
+    // Empty vault: 1:1 through the offsets.
+    expect(vaultToAmount({ amount: 0n, shares: 0n }, 5n, true)).toBe(5n);
+  });
+});
+
+describe("spec §6.1 FE criterion: isolated (FraxLend shares, VaultAccount rounding)", () => {
   // Pair accounting at block N: amount > shares after earlier accrual.
   const pairAt = (decimals: number) => ({
-    totalAmount: parseUnits("1000000", decimals) + 12_345n,
-    totalShares: parseUnits("950000", decimals),
+    amount: parseUnits("1000000", decimals) + 12_345n,
+    shares: parseUnits("950000", decimals),
+  });
+
+  /** Pair state at N+k: accrued totalBorrow amount, same shares (worst-case remainder carry). */
+  const later = (total: { amount: bigint; shares: bigint }, k: bigint) => ({
+    amount: isolatedTotalBorrowAfter(total.amount, ISOLATED_MAX_RATE_PER_SEC, k),
+    shares: total.shares,
   });
 
   it.each(DECIMALS)("full repay of all borrow shares at N+k fits the approval made at N (%i decimals)", (decimals) => {
-    const { totalAmount, totalShares } = pairAt(decimals);
+    const total = pairAt(decimals);
     for (const humanShares of ["0.000001", "1", "5000", "950000"]) {
       const shares = parseUnits(humanShares, decimals);
-      const valueAtN = sharesToAmountUp(shares, totalAmount, totalShares);
+      const valueAtN = vaultToAmount(total, shares, true); // toBorrowAmount(shares, true, true)
       const plan = planIsolatedRepay({ full: true, borrowedShares: shares, sharesForInput: 0n, shareValue: valueAtN });
       for (const k of ISOLATED_WARPS) {
-        const totalLater = isolatedTotalBorrowAfter(totalAmount, ISOLATED_MAX_RATE_PER_SEC, k);
-        const pulled = sharesToAmountUp(plan.shares, totalLater, totalShares); // repayAsset → toAmount(roundUp)
+        const pulled = vaultToAmount(later(total, k), plan.shares, true); // repayAsset → toAmount(roundUp)
         expect(coversAccrual(plan.approve, pulled), `${humanShares} shares after ${k}s`).toBe(true);
       }
     }
   });
 
   it.each(DECIMALS)("partial repay (shares for an amount) at N+k fits the approval made at N (%i decimals)", (decimals) => {
-    const { totalAmount, totalShares } = pairAt(decimals);
+    const total = pairAt(decimals);
     for (const humanInput of ["0.5", "17.25", "250000"]) {
       const input = parseUnits(humanInput, decimals);
-      const sharesForInput = (input * totalShares) / totalAmount; // toBorrowShares(amount, roundUp = false)
-      const valueAtN = sharesToAmountUp(sharesForInput, totalAmount, totalShares);
-      expect(valueAtN).toBeLessThanOrEqual(input);
-      const plan = planIsolatedRepay({ full: false, borrowedShares: totalShares, sharesForInput, shareValue: valueAtN });
+      const sharesForInput = vaultToShares(total, input, false); // toBorrowShares(amount, false, true)
+      const valueAtN = vaultToAmount(total, sharesForInput, true);
+      expect(valueAtN).toBeLessThanOrEqual(input + 1n);
+      const plan = planIsolatedRepay({ full: false, borrowedShares: total.shares, sharesForInput, shareValue: valueAtN });
       for (const k of ISOLATED_WARPS) {
-        const totalLater = isolatedTotalBorrowAfter(totalAmount, ISOLATED_MAX_RATE_PER_SEC, k);
-        const pulled = sharesToAmountUp(plan.shares, totalLater, totalShares);
+        const pulled = vaultToAmount(later(total, k), plan.shares, true);
         expect(pulled).toBeGreaterThanOrEqual(valueAtN);
         expect(coversAccrual(plan.approve, pulled), `${humanInput} after ${k}s`).toBe(true);
       }
     }
   });
 
-  it("an exact (unbuffered) approval would fail after one block — the R1-5 / R2-1 bug", () => {
-    const { totalAmount, totalShares } = pairAt(18);
+  it("the Codex case: tiny vault (debt 1000, shares 1), one share at N and after accrual", () => {
+    const total = { amount: 1_000n, shares: 1n };
+    const valueAtN = vaultToAmount(total, 1n, true);
+    expect(valueAtN).toBe(2n);
+    const plan = planIsolatedRepay({ full: true, borrowedShares: 1n, sharesForInput: 0n, shareValue: valueAtN });
+    expect(plan.approve).toBe(4n); // ceil(2 × 1.001) + 1
+    for (const k of ISOLATED_WARPS) {
+      expect(coversAccrual(plan.approve, vaultToAmount(later(total, k), 1n, true))).toBe(true);
+    }
+  });
+
+  it("an exact (unbuffered) approval fails after accrual — the R1-5 / R2-1 bug", () => {
+    const total = pairAt(18);
     const shares = parseUnits("5000", 18);
-    const valueAtN = sharesToAmountUp(shares, totalAmount, totalShares);
-    const totalLater = isolatedTotalBorrowAfter(totalAmount, ISOLATED_MAX_RATE_PER_SEC, 1n);
-    expect(coversAccrual(valueAtN, sharesToAmountUp(shares, totalLater, totalShares))).toBe(false);
-    expect(coversAccrual(repayApproval(valueAtN), sharesToAmountUp(shares, totalLater, totalShares))).toBe(true);
+    const valueAtN = vaultToAmount(total, shares, true);
+    const pulled = vaultToAmount(later(total, 1n), shares, true);
+    expect(coversAccrual(valueAtN, pulled)).toBe(false);
+    expect(coversAccrual(repayApproval(valueAtN), pulled)).toBe(true);
   });
 
   it("the buffer has a limit: far beyond it the old approval no longer covers", () => {
-    const { totalAmount, totalShares } = pairAt(6);
+    const total = pairAt(6);
     const shares = parseUnits("5000", 6);
-    const valueAtN = sharesToAmountUp(shares, totalAmount, totalShares);
-    const totalLater = isolatedTotalBorrowAfter(totalAmount, ISOLATED_MAX_RATE_PER_SEC, 40_000n);
-    expect(coversAccrual(repayApproval(valueAtN), sharesToAmountUp(shares, totalLater, totalShares))).toBe(false);
+    const valueAtN = vaultToAmount(total, shares, true);
+    const pulled = vaultToAmount(later(total, 40_000n), shares, true);
+    expect(coversAccrual(repayApproval(valueAtN), pulled)).toBe(false);
   });
 });

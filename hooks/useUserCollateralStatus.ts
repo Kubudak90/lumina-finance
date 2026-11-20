@@ -8,7 +8,7 @@ export function useUserCollateralStatus() {
   const { positions, isLoading } = useUserPosition();
   const isCollateralEnabled = useCallback(
     (asset: string): boolean =>
-      positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.collateralEnabled ?? false,
+      positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.collateralEnabled === true,
     [positions],
   );
   return { isCollateralEnabled, isLoading };

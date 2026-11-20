@@ -73,7 +73,7 @@ export function residualAllowance(approved: bigint, pulled: bigint): bigint {
 export interface CoreRepayPlan {
   /** `amount` argument of Pool.repay. */
   amountArg: bigint;
-  /** Allowance to request from the Pool before the repay. */
+  /** Allowance to request from the Pool before the repay (also the allowance threshold). */
   approve: bigint;
   /** The asset value the approval is based on (current debt for a full repay). */
   assetValue: bigint;
@@ -81,17 +81,30 @@ export interface CoreRepayPlan {
 }
 
 /**
- * Core (Aave) repay. A full repay (input >= current debt) sends the entire-debt sentinel so no dust
- * remains, and approves the buffered current debt; a partial repay sends `input` and approves the
- * buffered `input`.
+ * Core (Aave) repay. `repayAll` is the user's "repay everything" intent (set by MAX, kept apart
+ * from the amount text): it sends the entire-debt sentinel, so the pool takes the debt as of the
+ * repay block and no dust remains, and approves the buffered CURRENT debt. Otherwise the typed
+ * amount is sent as a finite argument (Aave pulls min(amount, debt)) and the buffered amount is
+ * approved. Either way the allowance threshold is `approve` (R1-5: every repay is buffered).
  */
-export function planCoreRepay(params: { input: bigint; debt: bigint }): CoreRepayPlan {
-  const { input, debt } = params;
-  if (input <= 0n) throw new RangeError("repay amount must be > 0");
-  if (debt > 0n && input >= debt) {
+export function planCoreRepay(params: { input: bigint; debt: bigint; repayAll: boolean }): CoreRepayPlan {
+  const { input, debt, repayAll } = params;
+  if (repayAll) {
+    if (debt <= 0n) throw new RangeError("no debt to repay");
     return { amountArg: AAVE_ENTIRE_BALANCE, approve: repayApproval(debt), assetValue: debt, full: true };
   }
-  return { amountArg: input, approve: repayApproval(input), assetValue: input, full: false };
+  if (input <= 0n) throw new RangeError("repay amount must be > 0");
+  const pulled = debt > 0n && input > debt ? debt : input;
+  return { amountArg: input, approve: repayApproval(input), assetValue: pulled, full: false };
+}
+
+/**
+ * A full core repay pulls the debt as of the repay block. The wallet must hold the current debt
+ * plus the accrual margin the approval allows for; otherwise offer a partial repay of the wallet.
+ */
+export function coreFullRepayFunding(wallet: bigint, debt: bigint): { fundable: true } | { fundable: false; partial: bigint } {
+  if (wallet >= ceilWithRepayBuffer(debt)) return { fundable: true };
+  return { fundable: false, partial: wallet < debt ? wallet : debt };
 }
 
 export interface IsolatedRepayPlan {
@@ -153,21 +166,42 @@ export function aaveDebtAfter(scaledDebt: bigint, index: bigint, annualRateRay: 
 
 export const FRAXLEND_RATE_PRECISION = 10n ** 18n;
 
-/** FraxLend VaultAccount.toAmount(shares, roundUp = true). */
-export function sharesToAmountUp(shares: bigint, totalAmount: bigint, totalShares: bigint): bigint {
-  if (totalShares === 0n) return shares;
-  const amount = (shares * totalAmount) / totalShares;
-  return (amount * totalShares) / totalAmount < shares ? amount + 1n : amount;
+/** VaultAccountingLibrary offsets (lumina-isolated contracts/libraries/VaultAccount.sol). */
+export const VAULT_VIRTUAL_SHARES = 1_000n;
+export const VAULT_VIRTUAL_AMOUNT = 1_000n;
+
+export interface VaultTotals {
+  amount: bigint;
+  shares: bigint;
+}
+
+/** VaultAccountingLibrary.toAmount, with the virtual offsets and the same rounding. */
+export function vaultToAmount(total: VaultTotals, shares: bigint, roundUp: boolean): bigint {
+  const totalAmount = total.amount + VAULT_VIRTUAL_AMOUNT;
+  const totalShares = total.shares + VAULT_VIRTUAL_SHARES;
+  let amount = (shares * totalAmount) / totalShares;
+  if (roundUp && (amount * totalShares) / totalAmount < shares) amount += 1n;
+  return amount;
+}
+
+/** VaultAccountingLibrary.toShares, with the virtual offsets and the same rounding. */
+export function vaultToShares(total: VaultTotals, amount: bigint, roundUp: boolean): bigint {
+  const totalAmount = total.amount + VAULT_VIRTUAL_AMOUNT;
+  const totalShares = total.shares + VAULT_VIRTUAL_SHARES;
+  let shares = (amount * totalShares) / totalAmount;
+  if (roundUp && (shares * totalAmount) / totalShares < amount) shares += 1n;
+  return shares;
 }
 
 /**
- * Isolated pair total borrow after `seconds` at `ratePerSec` (1e18 precision). FraxLend accrues
- * `seconds × amount × rate / 1e18`; rounding up here over-approximates the debt (conservative).
+ * Isolated pair total borrow after `seconds` at `ratePerSec` (1e18 precision).
+ * LightlendPairCore._calculateInterest: interest = (dt × amount × rate + remainder) / 1e18 with a
+ * carried remainder < 1e18 (ISO-09); the worst case remainder (1e18 − 1) is used here, which
+ * over-approximates the debt (conservative for the approval check).
  */
 export function isolatedTotalBorrowAfter(totalBorrowAmount: bigint, ratePerSec: bigint, seconds: bigint): bigint {
-  const numerator = seconds * totalBorrowAmount * ratePerSec;
-  const interest = (numerator + FRAXLEND_RATE_PRECISION - 1n) / FRAXLEND_RATE_PRECISION;
-  return totalBorrowAmount + interest;
+  const numerator = seconds * totalBorrowAmount * ratePerSec + (FRAXLEND_RATE_PRECISION - 1n);
+  return totalBorrowAmount + numerator / FRAXLEND_RATE_PRECISION;
 }
 
 /** The spec §6.1 check: does an allowance of `approved` cover a pull of `pulledAtRepay`? */

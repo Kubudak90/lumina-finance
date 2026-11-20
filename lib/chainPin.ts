@@ -73,20 +73,24 @@ export interface PinnedWriteDeps<Simulated extends object, Result> {
   walletChainId: number | undefined;
   /** Chain of the public client used for simulation. */
   simulatorChainId: number | undefined;
+  /** Chain id the configured RPC actually reported (eth_chainId). */
+  rpcChainId: number | undefined;
   simulate: (params: WriteRequest & { account: `0x${string}`; chainId: number }) => Promise<{ request: Simulated }>;
   write: (params: Simulated & { chainId: number }) => Promise<Result>;
 }
 
 /**
  * Validate → simulate on the pinned chain → send with `chainId`, so wagmi also asserts the wallet
- * chain at signing time. Throws before any wallet prompt if a chain does not match.
+ * chain at signing time. Throws before any wallet prompt if the wallet, the RPC (eth_chainId), the
+ * simulating client or the request is on another chain.
  */
 export async function executePinnedWrite<Simulated extends object, Result>(
   deps: PinnedWriteDeps<Simulated, Result>,
 ): Promise<Result> {
-  const { request, account, expectedChainId, walletChainId, simulatorChainId, simulate, write } = deps;
+  const { request, account, expectedChainId, walletChainId, simulatorChainId, rpcChainId, simulate, write } = deps;
   if (!account) throw new Error("Wallet not connected");
   assertWalletChain(expectedChainId, walletChainId);
+  if (rpcChainId !== expectedChainId) throw new ChainMismatchError(expectedChainId, rpcChainId, "RPC");
   if (simulatorChainId !== expectedChainId) {
     throw new ChainMismatchError(expectedChainId, simulatorChainId, "RPC client");
   }

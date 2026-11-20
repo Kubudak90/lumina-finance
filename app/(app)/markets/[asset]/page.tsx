@@ -21,6 +21,8 @@ import { QUERY } from "@/lib/queryPolicy";
 import { formatPercent } from "@/lib/format";
 import { formatUsd, usdValue } from "@/lib/prices";
 import { INTEREST_RATE_STRATEGY_V2_ABI } from "@/lib/abis";
+import { LUMINA } from "@/lib/deployments";
+import { curveStrategy } from "@/lib/strategy";
 
 const RAY = 1e27;
 
@@ -40,8 +42,10 @@ export default function MarketDetailPage() {
       }
     : { ltv: "--", liqThreshold: "--", liqBonus: "--" };
 
-  // Rate curve from the reserve's DefaultReserveInterestRateStrategyV2 (per-reserve params, ray).
-  const strategy = info?.interestRateStrategy ?? null;
+  // Rate curve from the MANIFEST's DefaultReserveInterestRateStrategyV2 (per-reserve params, ray).
+  // If the reserve reports another strategy, the curve is unavailable and the unlisted address is
+  // never called (Codex #2).
+  const strategy = curveStrategy(LUMINA.contracts.reserveInterestRateStrategy, info?.interestRateStrategy);
   const strategyRead = useLuminaMulticall(
     market
       ? (["getBaseVariableBorrowRate", "getVariableRateSlope1", "getVariableRateSlope2", "getOptimalUsageRatio"] as const).map(
@@ -57,21 +61,24 @@ export default function MarketDetailPage() {
     return <div className="text-muted-foreground">Market not found</div>;
   }
 
-  const supplyRate = info?.supplyRate ?? 0n;
-  const borrowRate = info?.borrowRate ?? 0n;
-  const totalSupply = info?.totalSupply ?? 0n;
-  const totalBorrow = info?.totalBorrow ?? 0n;
-  const reserves = info?.accruedToTreasury ?? 0n;
+  const supplyRate = info?.supplyRate;
+  const borrowRate = info?.borrowRate;
+  const totalSupply = info?.totalSupply;
+  const totalBorrow = info?.totalBorrow;
+  const reserves = info?.accruedToTreasury;
 
-  const util = totalSupply > 0n
-    ? Number((totalBorrow * 10000n) / totalSupply) / 100
-    : 0;
+  const util =
+    totalSupply === undefined || totalBorrow === undefined
+      ? undefined
+      : totalSupply > 0n
+        ? Number((totalBorrow * 10000n) / totalSupply) / 100
+        : 0;
 
   const price = priceOf(market.asset);
 
   // FE-13: no invented curve; show "unavailable" when the strategy cannot be read.
   const strategyValues = [0, 1, 2, 3].map((i) => resultAt<bigint>(strategyRead.results, i));
-  const chartParams = strategyValues.every((v) => v !== undefined)
+  const chartParams = strategy !== null && util !== undefined && strategyValues.every((v) => v !== undefined)
     ? {
         baseRate: Number(strategyValues[0]) / RAY,
         slope1: Number(strategyValues[1]) / RAY,
@@ -102,7 +109,7 @@ export default function MarketDetailPage() {
       <div className="grid md:grid-cols-3 gap-4 animate-in-delay-1">
         <StatCard label="Supply APY" value={formatPercent(supplyRate)} />
         <StatCard label="Borrow APY" value={formatPercent(borrowRate)} />
-        <StatCard label="Utilization" value={`${util.toFixed(1)}%`} />
+        <StatCard label="Utilization" value={util === undefined ? "—" : `${util.toFixed(1)}%`} />
       </div>
 
       {/* Risk parameters */}
@@ -125,7 +132,7 @@ export default function MarketDetailPage() {
           </div>
           <StatCard label="Reserves" value={formatUsd(usdValue(reserves, market.decimals, price))} />
           {chartParams ? (
-            <RateCurveChart {...chartParams} currentUtil={util} />
+            <RateCurveChart {...chartParams} currentUtil={util ?? 0} />
           ) : (
             <div className="technical-border bg-card p-4 text-sm text-muted-foreground">Rate curve unavailable</div>
           )}

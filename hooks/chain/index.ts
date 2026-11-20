@@ -3,10 +3,11 @@
 /**
  * The only place the app touches wagmi's contract hooks (ESLint `no-restricted-imports` and
  * `lib/scope.test.ts` enforce it). Every read and write here is pinned to the Lumina chain
- * (19529), whatever chain the wallet is on (FE-03).
+ * (19529), whatever chain the wallet is on (FE-03), and nothing reads, simulates or writes until
+ * the configured RPC has answered eth_chainId = 19529 (Codex r1 #1).
  */
 import { useCallback, useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useAccount,
   useConfig,
@@ -28,11 +29,48 @@ import type { Abi, ContractFunctionArgs, ContractFunctionName } from "viem";
 import { LUMINA_CHAIN_ID, isDeployed } from "@/lib/deployments";
 import { NETWORK_NAME, rpcUrlFor } from "@/lib/chains";
 import { executePinnedWrite, pinChainId, pinContracts, type WriteRequest } from "@/lib/chainPin";
+import { parseChainId } from "@/lib/rpcGuard";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
 
 export { LUMINA_CHAIN_ID };
 
-/** `useReadContract`, always on the Lumina chain. */
+// ---------------------------------------------------------------------------------------------
+// RPC chain verification
+// ---------------------------------------------------------------------------------------------
+
+export type RpcChainStatus =
+  | { status: "unconfigured"; rpcChainId: undefined }
+  | { status: "checking"; rpcChainId: undefined }
+  | { status: "error"; rpcChainId: undefined; error: Error }
+  | { status: "mismatch"; rpcChainId: number | undefined }
+  | { status: "ok"; rpcChainId: number };
+
+/** Re-check the RPC's chain id every minute; the transport also refuses requests on a mismatch. */
+const RPC_CHAIN_CHECK_MS = 60_000;
+
+export function useRpcChainStatus(): RpcChainStatus {
+  const client = usePublicClient({ chainId: LUMINA_CHAIN_ID });
+  const configured = Boolean(rpcUrlFor(LUMINA_CHAIN_ID));
+  const query = useQuery({
+    queryKey: ["lumina", "rpc-chain-id", LUMINA_CHAIN_ID],
+    queryFn: async () => parseChainId(await client!.request({ method: "eth_chainId" })),
+    enabled: configured && !!client,
+    staleTime: RPC_CHAIN_CHECK_MS,
+    refetchInterval: RPC_CHAIN_CHECK_MS,
+    retry: 1,
+  });
+  if (!configured) return { status: "unconfigured", rpcChainId: undefined };
+  if (query.isError) return { status: "error", rpcChainId: undefined, error: query.error as Error };
+  if (query.data === undefined) return { status: "checking", rpcChainId: undefined };
+  if (query.data !== LUMINA_CHAIN_ID) return { status: "mismatch", rpcChainId: query.data ?? undefined };
+  return { status: "ok", rpcChainId: query.data };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pinned reads
+// ---------------------------------------------------------------------------------------------
+
+/** `useReadContract`, always on the Lumina chain, and only once the RPC chain is verified. */
 export function useLuminaReadContract<
   const abi extends Abi | readonly unknown[],
   functionName extends ContractFunctionName<abi, "pure" | "view">,
@@ -42,10 +80,12 @@ export function useLuminaReadContract<
 >(
   parameters: UseReadContractParameters<abi, functionName, args, config, selectData>,
 ): UseReadContractReturnType<abi, functionName, args, selectData> {
-  return useReadContract(pinChainId(parameters, LUMINA_CHAIN_ID) as typeof parameters);
+  const rpc = useRpcChainStatus();
+  const query = { ...(parameters.query ?? {}), enabled: rpc.status === "ok" && (parameters.query?.enabled ?? true) };
+  return useReadContract(pinChainId({ ...parameters, query }, LUMINA_CHAIN_ID) as typeof parameters);
 }
 
-/** `useReadContracts`, with every contract pinned to the Lumina chain. */
+/** `useReadContracts`, every contract pinned to the Lumina chain, gated on the RPC chain check. */
 export function useLuminaReadContracts<
   const contracts extends readonly unknown[],
   allowFailure extends boolean = true,
@@ -54,8 +94,10 @@ export function useLuminaReadContracts<
 >(
   parameters: UseReadContractsParameters<contracts, allowFailure, config, selectData>,
 ): UseReadContractsReturnType<contracts, allowFailure, selectData> {
+  const rpc = useRpcChainStatus();
   const contractList = (parameters.contracts ?? []) as unknown as readonly object[];
-  const pinned = { ...parameters, contracts: pinContracts(contractList, LUMINA_CHAIN_ID) };
+  const query = { ...(parameters.query ?? {}), enabled: rpc.status === "ok" && (parameters.query?.enabled ?? true) };
+  const pinned = { ...parameters, query, contracts: pinContracts(contractList, LUMINA_CHAIN_ID) };
   return useReadContracts(pinned as unknown as typeof parameters);
 }
 
@@ -64,28 +106,41 @@ export function useLuminaPublicClient() {
   return usePublicClient({ chainId: LUMINA_CHAIN_ID });
 }
 
+// ---------------------------------------------------------------------------------------------
+// Action gate
+// ---------------------------------------------------------------------------------------------
+
 export type ActionGate = { ready: true; reason: null } | { ready: false; reason: string };
 
 /**
- * Whether a transaction button may be enabled: wallet connected, on the Lumina chain, RPC
- * configured, manifest deployed. Every TxButton uses this (FE-03: disable on the wrong chain).
+ * Whether a transaction button may be enabled: RPC configured and verified on chain 19529,
+ * manifest deployed, wallet connected to chain 19529. Every TxButton uses this (FE-03).
  */
 export function useActionGate(): ActionGate {
   const { isConnected, chainId } = useAccount();
-  if (!rpcUrlFor(LUMINA_CHAIN_ID)) return { ready: false, reason: "RPC not configured" };
+  const rpc = useRpcChainStatus();
+  if (rpc.status === "unconfigured") return { ready: false, reason: "RPC not configured" };
+  if (rpc.status === "mismatch") return { ready: false, reason: "RPC on the wrong chain" };
+  if (rpc.status === "error") return { ready: false, reason: "RPC unavailable" };
+  if (rpc.status === "checking") return { ready: false, reason: "Checking RPC…" };
   if (!isDeployed()) return { ready: false, reason: "Not deployed yet" };
   if (!isConnected) return { ready: false, reason: "Connect wallet" };
   if (chainId !== LUMINA_CHAIN_ID) return { ready: false, reason: `Switch to ${NETWORK_NAME}` };
   return { ready: true, reason: null };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Pinned writes and receipts
+// ---------------------------------------------------------------------------------------------
+
 /**
  * Validate → simulate on the Lumina chain → send with `chainId` → await the receipt on the Lumina
- * chain → invalidate reads. Simulation runs on send, not on every keystroke.
+ * chain → invalidate reads. `send` resolves to the transaction hash (undefined on failure).
  */
 export function useLuminaWrite() {
   const { address, chainId: walletChainId } = useAccount();
   const config = useConfig();
+  const rpc = useRpcChainStatus();
   const queryClient = useQueryClient();
   const write = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: write.data, chainId: LUMINA_CHAIN_ID });
@@ -99,7 +154,7 @@ export function useLuminaWrite() {
   }, [receipt.isSuccess, queryClient]);
 
   const send = useCallback(
-    async (request: WriteRequest) => {
+    async (request: WriteRequest): Promise<`0x${string}` | undefined> => {
       setSimulating(true);
       setSimulationError(null);
       setPreview(describeWrite(request as Parameters<typeof describeWrite>[0]));
@@ -116,6 +171,7 @@ export function useLuminaWrite() {
           expectedChainId: LUMINA_CHAIN_ID,
           walletChainId,
           simulatorChainId,
+          rpcChainId: rpc.rpcChainId,
           simulate: (params) => simulateContract(config, params as never) as Promise<{ request: object }>,
           write: (params) => write.writeContractAsync(params as never),
         });
@@ -126,7 +182,7 @@ export function useLuminaWrite() {
         setSimulating(false);
       }
     },
-    [address, walletChainId, config, write],
+    [address, walletChainId, config, write, rpc.rpcChainId],
   );
 
   return {
@@ -137,6 +193,10 @@ export function useLuminaWrite() {
     isConfirming: receipt.isLoading,
     isSuccess: receipt.isSuccess,
     hash: write.data,
+    /** Receipt of the last transaction sent by this hook instance. */
+    receipt: receipt.data
+      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status }
+      : undefined,
     error: simulationError ?? write.error ?? receipt.error,
     reset: write.reset,
   };
@@ -176,8 +236,17 @@ export function useLuminaMulticall(
   return { ...query, results };
 }
 
-/** Result of call `i`, or undefined if it failed or has not loaded. */
+/**
+ * Result of call `i`, or undefined if it failed or has not loaded. Callers treat undefined as
+ * "unavailable", never as zero.
+ */
 export function resultAt<T>(results: readonly CallResult[] | undefined, i: number): T | undefined {
   const r = results?.[i];
   return r && r.status === "success" ? (r.result as T) : undefined;
+}
+
+/** bigint result of call `i`, or undefined if it failed, is missing or is not a bigint. */
+export function bigintAt(results: readonly CallResult[] | undefined, i: number): bigint | undefined {
+  const v = resultAt<unknown>(results, i);
+  return typeof v === "bigint" ? v : undefined;
 }

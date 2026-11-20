@@ -42,6 +42,7 @@ function deps(overrides: Partial<Parameters<typeof executePinnedWrite>[0]> = {})
       expectedChainId: LUMINA_CHAIN_ID,
       walletChainId: LUMINA_CHAIN_ID as number | undefined,
       simulatorChainId: LUMINA_CHAIN_ID as number | undefined,
+      rpcChainId: LUMINA_CHAIN_ID as number | undefined,
       simulate,
       write,
       ...overrides,
@@ -112,6 +113,15 @@ describe("executePinnedWrite", () => {
     await expect(executePinnedWrite(args)).rejects.toThrow(ChainMismatchError);
     expect(simulate).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the RPC's eth_chainId is not the Lumina chain (Codex #1)", async () => {
+    for (const rpcChainId of [1, undefined]) {
+      const { args, simulate, write } = deps({ rpcChainId });
+      await expect(executePinnedWrite(args)).rejects.toThrow(ChainMismatchError);
+      expect(simulate).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    }
   });
 
   it("refuses a request that names another chain", async () => {

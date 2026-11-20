@@ -7,7 +7,8 @@ import { useUserPosition } from "@/hooks/useUserPosition";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAccount } from "wagmi";
 import { formatPercent, formatHealthFactor, formatTokenAmount, MAX_HEALTH_FACTOR } from "@/lib/format";
-import { formatUsd, sumUsd, usdValue } from "@/lib/prices";
+import { formatUsd, usdValue } from "@/lib/prices";
+import { coreLegsUsd, oldestStamp } from "@/lib/valuation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SupplyModal } from "@/components/actions/SupplyModal";
 import { BorrowModal } from "@/components/actions/BorrowModal";
@@ -35,7 +36,9 @@ export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
   const { positions, accountData, stamp } = useUserPosition();
   const healthFactor = accountData?.healthFactor;
-  const { priceOf } = useOraclePrices();
+  const { priceOf, stamp: priceStamp } = useOraclePrices();
+  // Valuations combine positions and prices: show the older of the two blocks.
+  const valuationStamp = oldestStamp([stamp, priceStamp]);
   const { isConnected: walletConnected } = useAccount();
   const isCollateralEnabled = (asset: string) =>
     positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.collateralEnabled ?? false;
@@ -43,8 +46,9 @@ export default function Dashboard() {
   const [modal, setModal] = useState<ModalState>(null);
 
   // USD totals from AaveOracle prices (FE-06); "—" if a needed price is unavailable.
-  const userTotalSupplied = sumUsd(positions.map((p) => usdValue(p.supplied, p.decimals, priceOf(p.asset))));
-  const userTotalBorrowed = sumUsd(positions.map((p) => usdValue(p.borrowed, p.decimals, priceOf(p.asset))));
+  const legs = coreLegsUsd(positions, priceOf);
+  const userTotalSupplied = legs.supplied;
+  const userTotalBorrowed = legs.borrowed;
 
   // HF
   const isMaxHf = healthFactor === MAX_HEALTH_FACTOR;
@@ -81,7 +85,7 @@ export default function Dashboard() {
       <GuardNotice venue="core" />
       {walletConnected && (
         <div className="flex justify-end">
-          <FreshnessStamp stamp={stamp} label="Positions" />
+          <FreshnessStamp stamp={valuationStamp} label="Valuation" />
         </div>
       )}
       {/* ─── Stats Grid ─── */}
@@ -248,7 +252,7 @@ export default function Dashboard() {
                   filtered.map((m) => {
                     const mInfo = getMarketInfo(m.asset);
                     const pos = positions.find((p) => p.asset.toLowerCase() === m.asset.toLowerCase());
-                    const supplied = pos?.supplied ?? 0n;
+                    const supplied = pos?.supplied;
                     const suppliedUsd = usdValue(supplied, m.decimals, priceOf(m.asset));
                     const hasCollateral = isCollateralEnabled(m.asset);
 
@@ -270,7 +274,7 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs font-mono text-foreground">
-                            {formatTokenAmount(pos?.supplied ?? 0n, m.decimals)}
+                            {supplied === undefined ? "—" : formatTokenAmount(supplied, m.decimals)}
                           </div>
                           <div className="text-[10px] text-text-dim font-mono">
                             {formatUsd(suppliedUsd)}
@@ -305,7 +309,7 @@ export default function Dashboard() {
                             >
                               Supply
                             </button>
-                            {supplied > 0n && (
+                            {supplied !== undefined && supplied > 0n && (
                               <button
                                 onClick={() => setModal({ type: "withdraw", market: m })}
                                 className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
@@ -366,7 +370,7 @@ export default function Dashboard() {
                   filtered.map((m) => {
                     const mInfo = getMarketInfo(m.asset);
                     const pos = positions.find((p) => p.asset.toLowerCase() === m.asset.toLowerCase());
-                    const borrowed = pos?.borrowed ?? 0n;
+                    const borrowed = pos?.borrowed;
                     const borrowedUsd = usdValue(borrowed, m.decimals, priceOf(m.asset));
 
                     return (
@@ -387,7 +391,7 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs font-mono text-foreground">
-                            {formatTokenAmount(pos?.borrowed ?? 0n, m.decimals)}
+                            {borrowed === undefined ? "—" : formatTokenAmount(borrowed, m.decimals)}
                           </div>
                           <div className="text-[10px] text-text-dim font-mono">
                             {formatUsd(borrowedUsd)}
@@ -406,7 +410,7 @@ export default function Dashboard() {
                             >
                               Borrow
                             </button>
-                            {borrowed > 0n && (
+                            {borrowed !== undefined && borrowed > 0n && (
                               <button
                                 onClick={() => setModal({ type: "repay", market: m })}
                                 className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"

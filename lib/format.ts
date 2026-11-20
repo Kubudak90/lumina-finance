@@ -3,7 +3,8 @@ import { formatUnits, parseUnits, getAddress } from "viem";
 /** Aave returns type(uint256).max as the health factor of an account without debt. */
 export const MAX_HEALTH_FACTOR = (1n << 256n) - 1n;
 
-export function formatPercent(rateBigInt: bigint): string {
+export function formatPercent(rateBigInt: bigint | undefined): string {
+  if (rateBigInt === undefined) return "—";
   // Aave V3 rates are in RAY format (1e27). Divide by 1e25 to get a percentage.
   // e.g., 4e25 = 4%
   const pct = Number(rateBigInt) / 1e25;

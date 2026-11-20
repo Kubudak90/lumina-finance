@@ -40,7 +40,12 @@ export function MarketTable({ markets }: MarketTableProps) {
         </TableHeader>
         <TableBody>
           {markets.map((m) => {
-            const util = m.totalSupply > 0n ? Number((m.totalBorrow * 10000n) / m.totalSupply) / 100 : 0;
+            const util =
+              m.totalSupply === undefined || m.totalBorrow === undefined
+                ? undefined
+                : m.totalSupply > 0n
+                  ? Number((m.totalBorrow * 10000n) / m.totalSupply) / 100
+                  : 0;
             const price = priceOf(m.asset);
             return (
               <Link key={m.symbol} href={`/markets/${m.symbol.toLowerCase()}`} className="contents">
@@ -61,9 +66,9 @@ export function MarketTable({ markets }: MarketTableProps) {
                   <TableCell className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <div className="w-16 h-1.5 bg-border overflow-hidden">
-                        <div className="h-full bg-accent" style={{ width: `${util}%` }} />
+                        <div className="h-full bg-accent" style={{ width: `${util ?? 0}%` }} />
                       </div>
-                      <span className="text-sm text-muted-foreground font-mono">{util.toFixed(0)}%</span>
+                      <span className="text-sm text-muted-foreground font-mono">{util === undefined ? "—" : `${util.toFixed(0)}%`}</span>
                     </div>
                   </TableCell>
                   <TableCell className="px-6 py-4 font-mono text-foreground">

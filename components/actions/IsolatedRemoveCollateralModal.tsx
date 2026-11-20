@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaWrite } from "@/hooks/chain";
+import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
+import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { explorerToastAction } from "@/lib/explorer";
 import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
 import { toast } from "sonner";
@@ -17,13 +19,6 @@ import { parseErrorMessage } from "@/lib/errorMessages";
 
 interface Props {
   pair: `0x${string}`;
-  collateralSymbol: string;
-  collateralDecimals: number;
-  collateralAmount: bigint; // user's current collateral
-  /** Borrower has debt in this pair. */
-  hasDebt: boolean;
-  /** Pair oracle reports bad data (price guard tripped): removal with debt reverts. */
-  oracleBadData: boolean | undefined;
   onClose: () => void;
 }
 
@@ -31,15 +26,16 @@ interface Props {
  * Borrower-side collateral release — calls LightlendPair.removeCollateral(amount, receiver).
  * Reverts if the resulting position becomes insolvent.
  */
-export function IsolatedRemoveCollateralModal({
-  pair,
-  collateralSymbol,
-  collateralDecimals,
-  collateralAmount,
-  hasDebt,
-  oracleBadData,
-  onClose,
-}: Props) {
+export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
+  // Live pair and position data on every render (Codex #8).
+  const info = useIsolatedPair(pair);
+  const position = useIsolatedPosition(pair);
+  const collateralSymbol = info?.collateralSymbol ?? "";
+  const collateralDecimals = info?.collateralDecimals ?? 18;
+  const collateralAmount = position?.collateralAmount ?? 0n;
+  const hasDebt = (position?.borrowedShares ?? 0n) > 0n;
+  // Pair oracle bad data (price guard tripped): removal while in debt reverts.
+  const oracleBadData = info?.oracleBadData;
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 

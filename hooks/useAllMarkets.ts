@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import { ATOKEN_ABI, DATA_PROVIDER_ABI, POOL_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { QUERY } from "@/lib/queryPolicy";
 import { LUMINA, type CoreMarket } from "@/lib/deployments";
-import { safeBigInt } from "@/lib/format";
-import { resultAt, useLuminaMulticall, type ContractCall } from "@/hooks/chain";
+import { bigintAt, resultAt, useLuminaMulticall, type ContractCall } from "@/hooks/chain";
 
 export interface ReserveConfig {
   ltv: number; // bps
@@ -18,26 +17,31 @@ export interface ReserveConfig {
   isFrozen: boolean;
 }
 
+/**
+ * Every on-chain field is `undefined` when its read failed or has not loaded: callers show
+ * "unavailable" and never compute limits or USD values from a missing read (Codex r1 #9).
+ */
 export interface MarketInfo extends CoreMarket {
   /** aToken totalSupply. */
-  totalSupply: bigint;
+  totalSupply: bigint | undefined;
   /** variable debt token totalSupply. */
-  totalBorrow: bigint;
+  totalBorrow: bigint | undefined;
   /** currentLiquidityRate (ray). */
-  supplyRate: bigint;
+  supplyRate: bigint | undefined;
   /** currentVariableBorrowRate (ray). */
-  borrowRate: bigint;
-  accruedToTreasury: bigint;
-  interestRateStrategy: `0x${string}` | null;
+  borrowRate: bigint | undefined;
+  accruedToTreasury: bigint | undefined;
+  /** Strategy the reserve reports (compared with the manifest's, never called directly). */
+  interestRateStrategy: `0x${string}` | undefined;
   /** Pool.getVirtualUnderlyingBalance: what can be borrowed / withdrawn right now. */
-  availableLiquidity: bigint;
+  availableLiquidity: bigint | undefined;
   /** Whole tokens; 0 = no cap. */
-  borrowCap: bigint;
-  supplyCap: bigint;
+  borrowCap: bigint | undefined;
+  supplyCap: bigint | undefined;
   /** DataProvider.getTotalDebt (base units). */
-  totalDebt: bigint;
+  totalDebt: bigint | undefined;
   config: ReserveConfig | undefined;
-  paused: boolean;
+  paused: boolean | undefined;
   loaded: boolean;
 }
 
@@ -82,22 +86,23 @@ export function useAllMarkets() {
         const base = i * PER_MARKET;
         const reserve = resultAt<ReserveDataStruct>(results, base);
         const caps = resultAt<readonly [bigint, bigint]>(results, base + 4);
+        const paused = resultAt<unknown>(results, base + 7);
         const cfg = resultAt<readonly [bigint, bigint, bigint, bigint, bigint, boolean, boolean, boolean, boolean, boolean]>(
           results,
           base + 6,
         );
         return {
           ...m,
-          totalSupply: safeBigInt(resultAt(results, base + 1)),
-          totalBorrow: safeBigInt(resultAt(results, base + 2)),
-          supplyRate: reserve?.currentLiquidityRate ?? 0n,
-          borrowRate: reserve?.currentVariableBorrowRate ?? 0n,
-          accruedToTreasury: reserve?.accruedToTreasury ?? 0n,
-          interestRateStrategy: reserve?.interestRateStrategyAddress ?? null,
-          availableLiquidity: safeBigInt(resultAt(results, base + 3)),
-          borrowCap: caps?.[0] ?? 0n,
-          supplyCap: caps?.[1] ?? 0n,
-          totalDebt: safeBigInt(resultAt(results, base + 5)),
+          totalSupply: bigintAt(results, base + 1),
+          totalBorrow: bigintAt(results, base + 2),
+          supplyRate: reserve?.currentLiquidityRate,
+          borrowRate: reserve?.currentVariableBorrowRate,
+          accruedToTreasury: reserve?.accruedToTreasury,
+          interestRateStrategy: reserve?.interestRateStrategyAddress,
+          availableLiquidity: bigintAt(results, base + 3),
+          borrowCap: caps?.[0],
+          supplyCap: caps?.[1],
+          totalDebt: bigintAt(results, base + 5),
           config: cfg
             ? {
                 ltv: Number(cfg[1]),
@@ -110,7 +115,7 @@ export function useAllMarkets() {
                 isFrozen: cfg[9],
               }
             : undefined,
-          paused: resultAt<boolean>(results, base + 7) ?? false,
+          paused: typeof paused === "boolean" ? paused : undefined,
           loaded: reserve !== undefined,
         };
       }),

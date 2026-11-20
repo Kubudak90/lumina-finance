@@ -94,6 +94,7 @@ export type ContractKey =
   | "priceGuard"
   | "isolatedRegistry"
   | "isolatedDeployer"
+  | "reserveInterestRateStrategy"
   /** Periphery recorded by the S4c deploy (absent from the template until then). Not read by the UI yet. */
   | "uiPoolDataProvider";
 
@@ -128,6 +129,7 @@ const CONTRACT_KEYS: readonly ContractKey[] = [
   "priceGuard",
   "isolatedRegistry",
   "isolatedDeployer",
+  "reserveInterestRateStrategy",
   "uiPoolDataProvider",
 ];
 

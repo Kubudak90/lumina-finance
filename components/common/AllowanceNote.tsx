@@ -6,8 +6,9 @@ function fmt(value: bigint, decimals: number) {
 }
 
 /**
- * Shows the current allowance and, for buffered repay approvals, the most that can remain
- * approved after the repay (residual allowance, spec §3.3).
+ * Current allowance, what this action approves, and (for buffered repays) an ESTIMATE of what
+ * stays approved afterwards, computed from the effective allowance (Codex r1 #7). The real
+ * remainder is read on-chain after the transaction (PostTxAllowance).
  */
 export function AllowanceNote({
   symbol,
@@ -28,6 +29,7 @@ export function AllowanceNote({
   expectedPull?: bigint;
   buffered?: boolean;
 }) {
+  const effective = approveAmount !== undefined && approveAmount > 0n ? approveAmount : allowance;
   return (
     <div className="technical-border bg-background p-3 space-y-1 text-xs font-mono">
       <div className="flex justify-between">
@@ -37,13 +39,13 @@ export function AllowanceNote({
       {approveAmount !== undefined && approveAmount > 0n && (
         <div className="flex justify-between">
           <span className="text-muted-foreground">{buffered ? "Approves (value + 0.1% + 1 wei)" : "Approves (exact)"}</span>
-          <span>{`${fmt(approveAmount, decimals)} ${symbol}`}</span>
+          <span data-testid="approve-amount">{`${fmt(approveAmount, decimals)} ${symbol}`}</span>
         </div>
       )}
-      {buffered && approveAmount !== undefined && expectedPull !== undefined && (
+      {buffered && effective !== undefined && expectedPull !== undefined && (
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Max residual allowance after repay</span>
-          <span>{`${fmt(residualAllowance(approveAmount, expectedPull), decimals)} ${symbol}`}</span>
+          <span className="text-muted-foreground">Residual after repay (estimated, from the effective allowance)</span>
+          <span>{`≈ ${fmt(residualAllowance(effective, expectedPull), decimals)} ${symbol}`}</span>
         </div>
       )}
     </div>
