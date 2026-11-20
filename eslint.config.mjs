@@ -51,6 +51,8 @@ export default defineConfig([
     "build/**",
     "next-env.d.ts",
     "public/lighter/**",
+    // Local git worktrees (gitignored); each is linted in its own checkout.
+    ".worktrees/**",
     // Vendored byte-identical from lumina-monorepo; linted there.
     "deployments/index.mjs",
   ]),
