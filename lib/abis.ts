@@ -385,6 +385,13 @@ export const ISOLATED_PAIR_ABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
+    name: "maxRedeem",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_owner", type: "address" }],
+    outputs: [{ name: "_maxShares", type: "uint256" }],
+  },
+  {
     name: "getPairAccounting",
     type: "function",
     stateMutability: "view",

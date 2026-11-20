@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { ALICE, BOB, fake, hashOf, mine, resetFake, update } from "../support/fakeChain";
+import { ALICE, BOB, fake, flushWrites, hashOf, mine, resetFake, update } from "../support/fakeChain";
 
 vi.mock("@/hooks/chain", async () => (await import("../support/fakeChain")).chainModule);
 vi.mock("wagmi", async () => (await import("../support/fakeChain")).wagmiModule);
@@ -69,8 +69,16 @@ describe("approval → follow-up binding in the hook (Codex #3)", () => {
     await act(async () => hook.result.current.start({ amount: 100n }, 100n));
     await act(async () => mine(hashOf(1)));
     expect(onProceed).toHaveBeenCalledTimes(1);
-    // Second round: new approval hash 2; hash 1 is already mined but must not count.
+
+    // Second round. The write hook keeps reporting approval #1's (successful) receipt until the
+    // new hash reaches it: the flow, bound to hash #2, must not continue on that stale receipt.
+    fake.deferHashUpdate = true;
     await act(async () => hook.result.current.start({ amount: 100n }, 100n));
+    expect(fake.sends).toHaveLength(2);
+    await act(async () => update(() => {})); // re-render with the stale receipt still present
+    expect(onProceed).toHaveBeenCalledTimes(1);
+
+    await act(async () => flushWrites());
     expect(onProceed).toHaveBeenCalledTimes(1);
     await act(async () => mine(hashOf(2)));
     expect(onProceed).toHaveBeenCalledTimes(2);

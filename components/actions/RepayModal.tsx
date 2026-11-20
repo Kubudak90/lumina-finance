@@ -6,7 +6,7 @@ import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { safeParseUnits, isValidDecimalInput, formatHealthFactor } from "@/lib/format";
 import { explorerToastAction } from "@/lib/explorer";
-import { coreFullRepayFunding, planCoreRepay } from "@/lib/approvals";
+import { coreFullRepayFunding, hasExecutionHeadroom, planCoreRepay } from "@/lib/approvals";
 import { QUERY } from "@/lib/queryPolicy";
 import { POOL_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { LUMINA, getCoreMarketByAsset } from "@/lib/deployments";
@@ -39,8 +39,10 @@ const fmt = (v: bigint, d: number, max = 6) => Number(formatUnits(v, d)).toLocal
  * - MAX sets a "repay all" intent, kept apart from the amount text until the user edits it: the
  *   repay then sends Aave's entire-debt sentinel and approves the buffered CURRENT debt (#5).
  * - Every repay's allowance threshold is the buffered amount (R1-5, Codex #4a).
- * - The wallet must hold the current debt plus the accrual margin for a full repay; otherwise a
- *   partial repay of the wallet balance is offered (#6). Re-checked after the approval confirms.
+ * - The wallet must hold the execution headroom over the current debt (ceil(debt × 1.0005) + 1)
+ *   for a full repay; otherwise a partial repay of the wallet balance is offered (#6). After the
+ *   approval confirms, wallet and allowance are re-read and need only that headroom over the
+ *   accrued debt, never a fresh 10 bps buffer (Gemini r2 C1).
  */
 export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps) {
   const [amount, setAmount] = useState("");
@@ -93,6 +95,8 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
       return;
     }
     if (next.full) {
+      // The pool pulls the debt at execution: wallet and allowance need only the execution headroom
+      // over the CURRENT debt (half the approval buffer), not a fresh buffer (Gemini r2 C1).
       const f = coreFullRepayFunding(walletNow, debtNow);
       if (!f.fundable) {
         setNotice(
@@ -100,13 +104,20 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
         );
         return;
       }
-    } else if (walletNow < next.amountArg) {
-      setNotice("Your wallet balance no longer covers the amount; nothing was sent.");
-      return;
-    }
-    if (allowanceNow < next.approve) {
-      setNotice("The debt grew past the approved amount; approve again.");
-      return;
+      if (!hasExecutionHeadroom({ allowance: allowanceNow, wallet: walletNow, value: debtNow })) {
+        setNotice("The debt grew past the approved amount; approve again.");
+        return;
+      }
+    } else {
+      // A finite repay pulls exactly the amount (at most the debt): no accrual margin needed.
+      if (walletNow < next.amountArg) {
+        setNotice("Your wallet balance no longer covers the amount; nothing was sent.");
+        return;
+      }
+      if (allowanceNow < next.amountArg) {
+        setNotice("The allowance no longer covers the amount; approve again.");
+        return;
+      }
     }
     setSubmittedFull(next.full);
     await send({ address: pool, abi: POOL_ABI, functionName: "repay", args: [asset, next.amountArg, 2n, address] });
@@ -226,7 +237,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
                 {shortForPartial && <p className="text-xs text-destructive mt-1">Insufficient wallet balance</p>}
                 {funding && !funding.fundable && (
                   <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="partial-offer">
-                    <p>Your wallet does not cover the full debt plus the 0.1% accrual margin.</p>
+                    <p>Your wallet does not cover the full debt plus the accrual margin (0.05%).</p>
                     <button type="button" className="underline" onClick={() => offerPartial(funding.partial)}>
                       Repay {fmt(funding.partial, decimals)} {symbol} (wallet balance) instead
                     </button>

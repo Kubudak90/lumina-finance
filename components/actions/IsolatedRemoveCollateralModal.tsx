@@ -29,7 +29,9 @@ interface Props {
 export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   // Live pair and position data on every render (Codex #8).
   const info = useIsolatedPair(pair);
-  const position = useIsolatedPosition(pair);
+  const positionState = useIsolatedPosition(pair);
+  const position = positionState.position;
+  const positionKnown = positionState.status === "known";
   const collateralSymbol = info?.collateralSymbol ?? "";
   const collateralDecimals = info?.collateralDecimals ?? 18;
   const collateralAmount = position?.collateralAmount ?? 0n;
@@ -133,7 +135,7 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
                 isPending={isPending}
                 isSimulating={isSimulating}
                 isConfirming={isConfirming}
-                disabled={!address || parsed === 0n || overMax || blocked}
+                disabled={!address || !positionKnown || parsed === 0n || overMax || blocked}
               >
                 Remove {collateralSymbol}
               </TxButton>

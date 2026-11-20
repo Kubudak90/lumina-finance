@@ -17,6 +17,7 @@ import { GuardNotice } from "@/components/common/GuardNotice";
 import { DeploymentNotice } from "@/components/common/DeploymentNotice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isolatedLtv } from "@/lib/borrowMax";
+import { oldestStamp } from "@/lib/valuation";
 import { collateralPerWholeAsset } from "@/lib/prices";
 
 type DeployedPair = IsolatedPairInfo & { pair: `0x${string}` };
@@ -39,7 +40,16 @@ function fmt(value: bigint | undefined, decimals: number, max = 4): string {
 export default function IsolatedPage() {
   const { isConnected } = useAccount();
   const { pairs, isLoading: pairsLoading } = useIsolatedPairs();
-  const { positions, stamp, isLoading: positionsLoading } = useUserIsolatedPositions();
+  const {
+    positions,
+    unknownPairs,
+    stamp,
+    conversionStamp,
+    pairsStamp,
+    isLoading: positionsLoading,
+  } = useUserIsolatedPositions();
+  // The table combines snapshots, conversions and pair rates: show the oldest of their blocks.
+  const tableStamp = oldestStamp([stamp, conversionStamp, pairsStamp]);
   const [modal, setModal] = useState<ModalState>(null);
 
   return (
@@ -85,7 +95,7 @@ export default function IsolatedPage() {
         <div className="animate-in-delay-2">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Your Positions</span>
-            <span className="ml-auto"><FreshnessStamp stamp={stamp} /></span>
+            <span className="ml-auto"><FreshnessStamp stamp={tableStamp} /></span>
           </div>
           <div className="technical-border bg-card overflow-x-auto">
             <table className="w-full">
@@ -104,14 +114,27 @@ export default function IsolatedPage() {
                   <tr>
                     <td colSpan={6} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
-                ) : positions.length === 0 ? (
+                ) : positions.length === 0 && unknownPairs.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="h-24 text-center text-muted-foreground text-xs px-6">
                       No active positions. Lend or borrow on a pair below to get started.
                     </td>
                   </tr>
                 ) : (
-                  positions.filter((p): p is DeployedPosition => p.pair !== null).map((p) => {
+                  <>
+                  {/* A pair whose snapshot failed is flagged, not dropped (Gemini r2 m2). */}
+                  {unknownPairs.map((pairAddress) => {
+                    const pairInfo = pairs.find((x) => x.pair?.toLowerCase() === pairAddress);
+                    return (
+                      <tr key={`unknown-${pairAddress}`} className="border-b border-border/50" data-testid="unknown-position-row">
+                        <td className="px-6 py-4 font-mono text-sm">{pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}</td>
+                        <td colSpan={5} className="px-6 py-4 text-right text-xs text-amber-400">
+                          Position unavailable: the read failed or is still loading
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {positions.filter((p): p is DeployedPosition => p.pair !== null).map((p) => {
                     const ltv =
                       p.exchangeRate !== undefined && p.borrowedAssets !== undefined
                         ? isolatedLtv(p.borrowedAssets, p.collateralAmount, p.exchangeRate)
@@ -178,7 +201,8 @@ export default function IsolatedPage() {
                       </td>
                     </tr>
                     );
-                  })
+                  })}
+                  </>
                 )}
               </tbody>
             </table>

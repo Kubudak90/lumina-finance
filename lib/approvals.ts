@@ -54,6 +54,21 @@ export function repayApproval(assetValue: bigint): bigint {
   return assertBoundedApproval(ceilWithRepayBuffer(assetValue) + 1n);
 }
 
+export const REPAY_HEADROOM_NUMERATOR = 10_005n;
+export const REPAY_HEADROOM_DENOMINATOR = 10_000n;
+
+/**
+ * Execution headroom required AFTER the approval (Gemini r2 C1): `ceil(value × 1.0005) + 1`, half of
+ * the 10 bps approval buffer. Post-approval checks of a pull that grows with accrual (core full
+ * repay, isolated share repay / liquidation) require allowance and wallet ≥ this, so a few blocks of
+ * interest between approve and send never force a new approval, while what is left still covers the
+ * accrual until execution.
+ */
+export function repayHeadroom(value: bigint): bigint {
+  if (value < 0n) throw new RangeError("value must be >= 0");
+  return (value * REPAY_HEADROOM_NUMERATOR + REPAY_HEADROOM_DENOMINATOR - 1n) / REPAY_HEADROOM_DENOMINATOR + 1n;
+}
+
 /** True when the current allowance does not cover `required` (unknown allowance ⇒ approve). */
 export function needsApproval(allowance: bigint | undefined, required: bigint): boolean {
   if (required <= 0n) return false;
@@ -99,12 +114,19 @@ export function planCoreRepay(params: { input: bigint; debt: bigint; repayAll: b
 }
 
 /**
- * A full core repay pulls the debt as of the repay block. The wallet must hold the current debt
- * plus the accrual margin the approval allows for; otherwise offer a partial repay of the wallet.
+ * A full core repay pulls the debt as of the repay block. The wallet must hold the execution
+ * headroom over the current debt (`repayHeadroom`); otherwise a partial repay of the wallet balance
+ * is offered.
  */
 export function coreFullRepayFunding(wallet: bigint, debt: bigint): { fundable: true } | { fundable: false; partial: bigint } {
-  if (wallet >= ceilWithRepayBuffer(debt)) return { fundable: true };
+  if (wallet >= repayHeadroom(debt)) return { fundable: true };
   return { fundable: false, partial: wallet < debt ? wallet : debt };
+}
+
+/** A pull that grows with accrual is safe to send when allowance and wallet both hold the headroom. */
+export function hasExecutionHeadroom(params: { allowance: bigint; wallet: bigint; value: bigint }): boolean {
+  const need = repayHeadroom(params.value);
+  return params.allowance >= need && params.wallet >= need;
 }
 
 export interface IsolatedRepayPlan {
@@ -202,6 +224,21 @@ export function vaultToShares(total: VaultTotals, amount: bigint, roundUp: boole
 export function isolatedTotalBorrowAfter(totalBorrowAmount: bigint, ratePerSec: bigint, seconds: bigint): bigint {
   const numerator = seconds * totalBorrowAmount * ratePerSec + (FRAXLEND_RATE_PRECISION - 1n);
   return totalBorrowAmount + numerator / FRAXLEND_RATE_PRECISION;
+}
+
+/**
+ * The largest share count whose CURRENT value, with execution headroom, fits in `wallet`, using the
+ * contract's rounding (VaultAccount with the previewed totals, as toBorrowShares/toBorrowAmount do).
+ * Capped at the user's borrow shares; 0 if nothing fits.
+ */
+export function walletBoundedShares(wallet: bigint, totals: VaultTotals, borrowedShares: bigint): bigint {
+  if (wallet <= 1n || borrowedShares <= 0n) return 0n;
+  // Largest v with ceil(v × 1.0005) + 1 <= wallet.
+  const target = ((wallet - 1n) * REPAY_HEADROOM_DENOMINATOR) / REPAY_HEADROOM_NUMERATOR;
+  let shares = vaultToShares(totals, target, false);
+  if (shares > borrowedShares) shares = borrowedShares;
+  while (shares > 0n && repayHeadroom(vaultToAmount(totals, shares, true)) > wallet) shares -= 1n;
+  return shares;
 }
 
 /** The spec §6.1 check: does an allowance of `approved` cover a pull of `pulledAtRepay`? */

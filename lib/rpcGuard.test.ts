@@ -59,3 +59,32 @@ describe("RPC chain verification (Codex #1)", () => {
     await expect(c.getBlockNumber({ cacheTime: 0 })).resolves.toBe(16n);
   });
 });
+
+describe("RPC verification is dropped when the chain changes later (Gemini r2 m1)", () => {
+  it("a later eth_chainId mismatch invalidates the cached verification at once", async () => {
+    let id = LUMINA_HEX;
+    const rpc = fakeRpc(() => id);
+    const c = client(rpc.transport);
+    await expect(c.getBlockNumber({ cacheTime: 0 })).resolves.toBe(16n);
+    id = "0x1"; // the RPC proxy now points at another chain
+    await expect(c.request({ method: "eth_chainId" })).resolves.toBe("0x1"); // status poll sees it
+    await expect(c.getBlockNumber({ cacheTime: 0 })).rejects.toThrow(RpcChainMismatchError);
+  });
+
+  it("a verification expires after its TTL", async () => {
+    let t = 0;
+    let id = LUMINA_HEX;
+    const rpc = fakeRpc(() => id);
+    const c = createPublicClient({
+      chain: luminaChain,
+      transport: chainCheckedTransport(rpc.transport, 19529, { ttlMs: 1_000, now: () => t }),
+    });
+    t = 1;
+    await expect(c.getBlockNumber({ cacheTime: 0 })).resolves.toBe(16n);
+    id = "0x1";
+    t = 500; // within the TTL: no new check
+    await expect(c.getBlockNumber({ cacheTime: 0 })).resolves.toBe(16n);
+    t = 2_000; // expired: re-checked, now refused
+    await expect(c.getBlockNumber({ cacheTime: 0 })).rejects.toThrow(RpcChainMismatchError);
+  });
+});

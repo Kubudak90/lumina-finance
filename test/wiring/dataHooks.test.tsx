@@ -11,7 +11,7 @@ vi.mock("wagmi", async () => (await import("../support/fakeChain")).wagmiModule)
 vi.mock("@/lib/deployments", async (importOriginal) => (await import("../support/mockDeployments")).mockDeployments(importOriginal));
 
 import { useUserPosition } from "@/hooks/useUserPosition";
-import { useUserIsolatedPositions } from "@/hooks/useUserIsolatedPositions";
+import { useIsolatedPosition, useUserIsolatedPositions } from "@/hooks/useUserIsolatedPositions";
 import { useIsolatedPairs } from "@/hooks/useIsolatedPairs";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
@@ -149,6 +149,30 @@ describe("failed subqueries are unavailable, not zero (Codex #9)", () => {
     const { result } = renderHook(() => useUserIsolatedPositions());
     expect(result.current.incomplete).toBe(true);
     expect(isolatedLegsUsd(result.current.positions, priceOf, result.current.incomplete).debt).toBeUndefined();
+  });
+
+  it("isolated: the WHOLE snapshot multicall failing or loading is incomplete, never [] with incomplete=false (Gemini r2 M4)", () => {
+    const base = chainAnswering();
+    // The snapshot multicall has no result at all (failed or still loading).
+    fake.multicall = (calls) => (calls.some((c) => c.functionName === "getUserSnapshot") ? undefined : base(calls));
+    const { result } = renderHook(() => useUserIsolatedPositions());
+    expect(result.current.positions).toEqual([]);
+    expect(result.current.incomplete).toBe(true);
+    expect(result.current.unknownPairs).toEqual([PAIR_USDC_WETH.toLowerCase(), PAIR_WETH_USDC.toLowerCase()]);
+    expect(result.current.knownPairs.size).toBe(0);
+    // The portfolio passes `incomplete`: the isolated legs are unavailable, not $0.
+    expect(isolatedLegsUsd(result.current.positions, priceOf, result.current.incomplete).debt).toBeUndefined();
+  });
+
+  it("isolated: per-pair position state is 'unknown' without a snapshot and 'known' with one", () => {
+    const base = chainAnswering();
+    fake.multicall = (calls) => (calls.some((c) => c.functionName === "getUserSnapshot") ? undefined : base(calls));
+    const unknown = renderHook(() => useIsolatedPosition(PAIR_USDC_WETH));
+    expect(unknown.result.current.status).toBe("unknown");
+    unknown.unmount();
+    fake.multicall = chainAnswering();
+    const known = renderHook(() => useIsolatedPosition(PAIR_WETH_USDC));
+    expect(known.result.current).toEqual({ status: "known", position: undefined }); // loaded: no position
   });
 
   it("core: getTotalDebt fails → the market's totalDebt is unavailable, not 0", () => {

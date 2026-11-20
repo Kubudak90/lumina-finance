@@ -36,6 +36,13 @@ interface FakeState {
   receipts: Map<string, "success" | "reverted">;
   sends: SentRequest[];
   nextHash: number;
+  /**
+   * When true, a write's new hash reaches the hook only on `flushWrites()`: until then the hook
+   * still reports the PREVIOUS transaction's receipt (to test that a stale receipt is ignored).
+   */
+  deferHashUpdate: boolean;
+  /** Fresh on-chain reads made through `useLuminaReader` (for assertions). */
+  freshReads: ContractCall[];
   /** Free-form state for mocked data hooks. */
   data: Record<string, unknown>;
 }
@@ -53,8 +60,19 @@ export const fake: FakeState = {
   receipts: new Map(),
   sends: [],
   nextHash: 1,
+  deferHashUpdate: false,
+  freshReads: [],
   data: {},
 };
+
+const pendingHashUpdates: Array<() => void> = [];
+
+/** Apply deferred hash updates (see `deferHashUpdate`). */
+export function flushWrites() {
+  const updates = pendingHashUpdates.splice(0);
+  for (const u of updates) u();
+  update(() => {});
+}
 
 export function update(fn: (f: FakeState) => void) {
   fn(fake);
@@ -72,6 +90,9 @@ export function resetFake() {
   fake.receipts = new Map();
   fake.sends = [];
   fake.nextHash = 1;
+  fake.deferHashUpdate = false;
+  fake.freshReads = [];
+  pendingHashUpdates.length = 0;
   fake.data = {};
   fake.version += 1;
 }
@@ -138,9 +159,21 @@ export const chainModule = {
       refetch: async () => ({ data: fake.reads.get(key) }),
     };
   },
-  useLuminaReadContracts: () => {
+  useLuminaReadContracts: (params: { contracts?: readonly ContractCall[]; query?: { enabled?: boolean } }) => {
     useFakeVersion();
-    return { data: undefined, isLoading: false };
+    const calls = params.contracts ?? [];
+    const ready = calls.length > 0 && calls.every((c) => !!c.address) && (params.query?.enabled ?? true);
+    const data = ready ? fake.multicall(calls) : undefined;
+    return { data, isLoading: false, refetch: async () => ({ data }) };
+  },
+  useLuminaReader: () => {
+    useFakeVersion();
+    return useCallback(async (calls: readonly ContractCall[]) => {
+      fake.freshReads.push(...calls);
+      const results = fake.multicall(calls);
+      if (!results) throw new Error("fake chain: no answer");
+      return results;
+    }, []);
   },
   useLuminaMulticall: (calls: readonly ContractCall[], options: { enabled?: boolean }) => {
     useFakeVersion();
@@ -155,7 +188,8 @@ export const chainModule = {
     const send = useCallback(async (request: SentRequest) => {
       fake.sends.push(request);
       const hash = hashOf(fake.nextHash++);
-      setLast(hash);
+      if (fake.deferHashUpdate) pendingHashUpdates.push(() => setLast(hash));
+      else setLast(hash);
       return hash;
     }, []);
     const status = last ? fake.receipts.get(last) : undefined;
@@ -185,3 +219,56 @@ export const wagmiModule = {
   },
   useSwitchChain: () => ({ switchChain: () => {}, isPending: false }),
 };
+
+// ---------------------------------------------------------------------------------------------
+// A scripted chain: answers multicalls by function name, from a mutable state
+// ---------------------------------------------------------------------------------------------
+
+export interface ChainState {
+  /** getUserSnapshot by account (lowercase): [assetShares, borrowShares, collateral]. */
+  snapshots: Record<string, readonly [bigint, bigint, bigint]>;
+  /** toBorrowAmount(shares) → value; defaults to shares × perShare. */
+  perShare: bigint;
+  allowance: bigint;
+  wallet: bigint;
+  guardStatus: number;
+  oracleBadData: boolean;
+  rate: bigint;
+  maxLtv: bigint;
+  accounting: readonly [bigint, bigint, bigint, bigint, bigint];
+  borrowLimit: bigint;
+  maxRedeem: bigint;
+}
+
+export function scriptedChain(state: ChainState) {
+  const ok = (result: unknown): CallResult => ({ status: "success", result });
+  return (calls: readonly ContractCall[]): readonly CallResult[] =>
+    calls.map((c) => {
+      switch (c.functionName) {
+        case "getUserSnapshot": {
+          const who = String(c.args?.[0] ?? "").toLowerCase();
+          return ok(state.snapshots[who] ?? [0n, 0n, 0n]);
+        }
+        case "toBorrowAmount":
+          return ok((c.args?.[0] as bigint) * state.perShare);
+        case "allowance":
+          return ok(state.allowance);
+        case "balanceOf":
+          return ok(state.wallet);
+        case "borrowStatus":
+          return ok([state.guardStatus, 0]);
+        case "getPrices":
+          return ok([state.oracleBadData, state.rate, state.rate]);
+        case "maxLTV":
+          return ok(state.maxLtv);
+        case "getPairAccounting":
+          return ok(state.accounting);
+        case "borrowLimit":
+          return ok(state.borrowLimit);
+        case "maxRedeem":
+          return ok(state.maxRedeem);
+        default:
+          return { status: "failure", error: new Error(`unscripted ${c.functionName}`) };
+      }
+    });
+}

@@ -9,8 +9,9 @@ import { useApprovalFlow } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
+import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { explorerToastAction } from "@/lib/explorer";
-import { planIsolatedRepay } from "@/lib/approvals";
+import { hasExecutionHeadroom, planIsolatedRepay, repayHeadroom, walletBoundedShares } from "@/lib/approvals";
 import { QUERY } from "@/lib/queryPolicy";
 import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
@@ -24,23 +25,30 @@ import { parseErrorMessage } from "@/lib/errorMessages";
 
 const fmt = (v: bigint, d: number) => Number(formatUnits(v, d)).toLocaleString("en-US", { maximumFractionDigits: 6 });
 
-type RepayParams = { repayAll: boolean; input: bigint };
+/** "all": every borrow share at send time; "shares": exactly `shares` (typed amount or wallet offer). */
+type RepayParams = { mode: "all" } | { mode: "shares"; shares: bigint };
+type Intent = { kind: "amount" } | { kind: "all" } | { kind: "shares"; shares: bigint };
 
 /**
  * Borrower-side repayment: LightlendPair.repayAsset(shares, borrower). Share-based: the pair pulls
- * the shares' value as of the repay block, so the typed amount is only an estimate. Every repay
- * approves ceil(currentShareValue × 1.001) + 1 (R1-5, R2-1). MAX sets a "repay all" intent that
- * repays the user's CURRENT borrow shares (re-derived on every render, Codex #8); everything is
- * re-checked against the chain after the approval (#6).
+ * the shares' value as of the repay block, so the typed amount is only an estimate.
+ * - Every repay approves ceil(currentShareValue × 1.001) + 1 (R1-5, R2-1).
+ * - Wallet and allowance must hold the execution headroom ceil(value × 1.0005) + 1 before sending;
+ *   a short wallet is offered the largest share repay it covers (Gemini r2 C1/M1).
+ * - Typed shares above the borrow shares are refused (M2).
+ * - Right before sending, the position, allowance, wallet and share value are read from the chain,
+ *   not the poll cache, and the repay is re-planned from them (M3).
  */
 export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onClose: () => void }) {
   const info = useIsolatedPair(pair);
-  const position = useIsolatedPosition(pair);
+  const positionState = useIsolatedPosition(pair);
+  const position = positionState.position;
   const [amount, setAmount] = useState("");
-  const [repayAll, setRepayAll] = useState(false);
+  const [intent, setIntent] = useState<Intent>({ kind: "amount" });
   const [submittedAll, setSubmittedAll] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const { address } = useAccount();
+  const fresh = useIsolatedFreshReads();
 
   const asset = info?.asset;
   const assetSymbol = info?.assetSymbol ?? "";
@@ -51,18 +59,20 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
-  const shownAmount = repayAll && borrowedAmount !== undefined ? formatUnits(borrowedAmount, assetDecimals) : amount;
+  const shownAmount = intent.kind === "all" && borrowedAmount !== undefined ? formatUnits(borrowedAmount, assetDecimals) : amount;
 
-  // Partial: shares for the typed amount (rounded down, previewing interest).
+  // Typed amount: shares it buys now (rounded down, previewing interest), by the contract.
   const sharesPreview = useLuminaReadContract({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "toBorrowShares",
     args: [parsed, false, true],
-    query: { enabled: parsed > 0n && !repayAll, ...QUERY.user },
+    query: { enabled: parsed > 0n && intent.kind === "amount", ...QUERY.user },
   });
   const sharesForInput = sharesPreview.data as bigint | undefined;
-  const shares = repayAll ? borrowedShares : (sharesForInput ?? 0n);
+  const shares =
+    intent.kind === "all" ? borrowedShares : intent.kind === "shares" ? intent.shares : (sharesForInput ?? 0n);
+  const overShares = intent.kind !== "all" && shares > borrowedShares;
 
   // Current value of exactly those shares (rounded up, previewing interest): the R2-1 assetValue.
   const shareValueRead = useLuminaReadContract({
@@ -75,46 +85,52 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const shareValue = shareValueRead.data as bigint | undefined;
 
   const plan =
-    shares > 0n && shareValue !== undefined && shareValue > 0n
-      ? planIsolatedRepay({ full: repayAll, borrowedShares, sharesForInput: sharesForInput ?? 0n, shareValue })
+    shares > 0n && !overShares && shareValue !== undefined && shareValue > 0n
+      ? planIsolatedRepay({ full: intent.kind === "all", borrowedShares, sharesForInput: shares, shareValue })
       : null;
   const walletRaw = wallet.value;
-  const insufficientWallet = plan !== null && walletRaw !== undefined && plan.assetValue > walletRaw;
+  const walletShort = plan !== null && walletRaw !== undefined && walletRaw < repayHeadroom(plan.assetValue);
+  const offerShares =
+    walletShort && walletRaw !== undefined && info?.totalBorrowAmount !== undefined && info.totalBorrowShares !== undefined
+      ? walletBoundedShares(walletRaw, { amount: info.totalBorrowAmount, shares: info.totalBorrowShares }, borrowedShares)
+      : 0n;
 
   const sendRepay = async (params: RepayParams) => {
-    if (!address) return;
+    if (!address || !asset) return;
     setNotice(null);
-    // Shares to repay from the latest polled position (all of them for "repay all").
-    const sharesNow = params.repayAll ? (position?.borrowedShares ?? 0n) : (sharesForInput ?? 0n);
-    if (sharesNow === 0n) {
-      setNotice("Nothing left to repay.");
-      return;
+    try {
+      // From the chain, not the poll cache.
+      const state = await fresh.accountState(pair, address, asset, address);
+      const sharesNow = params.mode === "all" ? state.borrowShares : params.shares;
+      if (sharesNow === 0n || state.borrowShares === 0n) {
+        setNotice("Nothing left to repay.");
+        return;
+      }
+      if (sharesNow > state.borrowShares) {
+        setNotice(`You now owe ${state.borrowShares.toString()} shares, fewer than the ${sharesNow.toString()} selected; nothing was sent.`);
+        return;
+      }
+      const valueNow = await fresh.shareValue(pair, sharesNow);
+      if (!hasExecutionHeadroom({ allowance: state.allowance, wallet: state.wallet, value: valueNow })) {
+        setNotice(
+          state.wallet < repayHeadroom(valueNow)
+            ? `Your wallet (${fmt(state.wallet, assetDecimals)} ${assetSymbol}) no longer covers these shares (${fmt(valueNow, assetDecimals)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
+            : "The shares' value grew past the approved amount; approve again.",
+        );
+        return;
+      }
+      setSubmittedAll(params.mode === "all");
+      await send({ address: pair, abi: ISOLATED_PAIR_ABI, functionName: "repayAsset", args: [sharesNow, address] });
+    } catch (err) {
+      setNotice(`Re-check failed (${(err as Error).message}); nothing was sent.`);
     }
-    const [valueNow, walletNow, allowanceNow] = await Promise.all([
-      shareValueRead.refetch().then((r) => r.data as bigint | undefined),
-      wallet.fetchNow(),
-      flow.refetchAllowance(),
-    ]);
-    if (valueNow === undefined || walletNow === undefined || allowanceNow === undefined) {
-      setNotice("Could not re-read the debt, wallet or allowance; nothing was sent.");
-      return;
-    }
-    if (walletNow < valueNow) {
-      setNotice(`Your wallet (${fmt(walletNow, assetDecimals)} ${assetSymbol}) no longer covers the current value of these shares (${fmt(valueNow, assetDecimals)} ${assetSymbol}).`);
-      return;
-    }
-    if (allowanceNow < valueNow) {
-      setNotice("The shares' value grew past the approved amount; approve again.");
-      return;
-    }
-    setSubmittedAll(params.repayAll);
-    await send({ address: pair, abi: ISOLATED_PAIR_ABI, functionName: "repayAsset", args: [sharesNow, address] });
   };
 
+  const paramsKey = intent.kind === "all" ? "all" : intent.kind === "shares" ? `shares:${intent.shares}` : amount;
   const flow = useApprovalFlow<RepayParams>({
     token: asset ?? pair,
     spender: asset ? pair : null,
-    paramsKey: repayAll ? "all" : amount,
+    paramsKey,
     onProceed: sendRepay,
   });
   const needsApproval = plan !== null && flow.needsApproval(plan.approve);
@@ -135,7 +151,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
 
   const handleRepay = () => {
     if (!address || !plan) return;
-    const params = { repayAll, input: parsed };
+    const params: RepayParams = intent.kind === "all" ? { mode: "all" } : { mode: "shares", shares: plan.shares };
     if (needsApproval) {
       void flow.start(params, plan.approve);
       return;
@@ -162,6 +178,9 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">Pay back {assetSymbol} to settle your debt in this isolated pair.</p>
+              {positionState.status === "unknown" && (
+                <p className="text-xs text-amber-400">Your position could not be read; repaying is disabled until it loads.</p>
+              )}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm text-muted-foreground">Amount</label>
@@ -173,15 +192,15 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
                   <Input
                     aria-label="Amount"
                     type="number"
-                    value={shownAmount}
+                    value={intent.kind === "shares" ? "" : shownAmount}
+                    placeholder={intent.kind === "shares" ? `${intent.shares.toString()} shares` : "0.00"}
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === "" || (isValidDecimalInput(v, assetDecimals) && Number(v) >= 0)) {
-                        setRepayAll(false);
+                        setIntent({ kind: "amount" });
                         setAmount(v);
                       }
                     }}
-                    placeholder="0.00"
                     min="0"
                     step="any"
                     className="h-12 text-lg bg-transparent border-border font-mono pr-16"
@@ -190,7 +209,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
                     type="button"
                     disabled={borrowedShares === 0n}
                     onClick={() => {
-                      setRepayAll(true);
+                      setIntent({ kind: "all" });
                       setAmount(borrowedAmount !== undefined ? formatUnits(borrowedAmount, assetDecimals) : "");
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
@@ -199,7 +218,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
                   </button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1" data-testid="share-estimate">
-                  {repayAll
+                  {intent.kind === "all"
                     ? "Repay all: all your borrow shares; the pair takes their value at execution."
                     : "Estimate: repays the shares this amount buys now; the pair takes their value at execution, which grows with accrual (covered by the 0.1% buffer)."}
                 </p>
@@ -208,8 +227,22 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
                     {plan.shares.toString()} shares ≈ {fmt(plan.assetValue, assetDecimals)} {assetSymbol} now
                   </p>
                 )}
-                {insufficientWallet && <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} balance for the current value</p>}
-                {notice && <p className="text-xs text-amber-400 mt-1">{notice}</p>}
+                {overShares && (
+                  <p className="text-xs text-destructive mt-1" data-testid="share-bound-error">
+                    That is more than your debt ({borrowedShares.toString()} shares); use MAX to repay everything.
+                  </p>
+                )}
+                {walletShort && (
+                  <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="wallet-offer">
+                    <p>Your wallet does not cover these shares plus the accrual margin.</p>
+                    {offerShares > 0n && (
+                      <button type="button" className="underline" onClick={() => setIntent({ kind: "shares", shares: offerShares })}>
+                        Repay {offerShares.toString()} shares instead (what your wallet covers)
+                      </button>
+                    )}
+                  </div>
+                )}
+                {notice && <p className="text-xs text-amber-400 mt-1" data-testid="repay-notice">{notice}</p>}
                 {flow.cancelReason && <p className="text-xs text-amber-400 mt-1">Approval flow cancelled: {flow.cancelReason}.</p>}
               </div>
 
@@ -228,7 +261,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
                 isPending={isPending || flow.isPending}
                 isSimulating={isSimulating || flow.isSimulating}
                 isConfirming={isConfirming || flow.isConfirming || flow.awaitingApproval}
-                disabled={!address || !plan || walletRaw === undefined || insufficientWallet}
+                disabled={!address || positionState.status !== "known" || !plan || walletRaw === undefined || walletShort || overShares}
               >
                 {needsApproval ? `Approve ${assetSymbol}` : `Repay ${assetSymbol}`}
               </TxButton>

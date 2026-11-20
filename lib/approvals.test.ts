@@ -19,8 +19,11 @@ import {
   repayApproval,
   residualAllowance,
   coreFullRepayFunding,
+  hasExecutionHeadroom,
+  repayHeadroom,
   vaultToAmount,
   vaultToShares,
+  walletBoundedShares,
 } from "./approvals";
 
 const DECIMALS = [6, 18] as const;
@@ -114,10 +117,11 @@ describe("core repay plan (partial and full)", () => {
     expect(coversAccrual(after.approve, parseUnits("100.000001", 6))).toBe(true);
   });
 
-  it("a full repay needs the wallet to hold the debt plus the accrual margin, else offers the wallet (Codex #6)", () => {
+  it("a full repay needs the wallet to hold the execution headroom over the debt, else offers the wallet (Codex #6)", () => {
     const debt = parseUnits("1", 18);
     expect(coreFullRepayFunding(debt, debt)).toEqual({ fundable: false, partial: debt });
-    expect(coreFullRepayFunding(ceilWithRepayBuffer(debt), debt)).toEqual({ fundable: true });
+    expect(coreFullRepayFunding(repayHeadroom(debt), debt)).toEqual({ fundable: true });
+    expect(coreFullRepayFunding(repayHeadroom(debt) - 1n, debt).fundable).toBe(false);
     expect(coreFullRepayFunding(parseUnits("0.4", 18), debt)).toEqual({ fundable: false, partial: parseUnits("0.4", 18) });
   });
 });
@@ -142,6 +146,55 @@ describe("isolated repay plan (share-based, partial and full)", () => {
     });
     expect(full.shares).toBe(borrowedShares);
     expect(full.approve).toBe(repayApproval(parseUnits("100", decimals)));
+  });
+});
+
+describe("execution headroom after the approval (Gemini r2 C1)", () => {
+  it("is ceil(value × 1.0005) + 1, half of the approval buffer", () => {
+    expect(repayHeadroom(1n)).toBe(3n); // ceil(1.0005) = 2, + 1
+    expect(repayHeadroom(10_000n)).toBe(10_006n);
+    expect(repayHeadroom(10_001n)).toBe(10_008n); // ceil(10006.0005) = 10007, + 1
+    expect(repayHeadroom(parseUnits("1", 18))).toBe(parseUnits("1.0005", 18) + 1n);
+    expect(repayHeadroom(0n)).toBe(1n);
+  });
+
+  it.each(DECIMALS)("is never above the approval for the same value (%i decimals)", (decimals) => {
+    for (const human of ["0.000001", "1", "123.456", "1000000"]) {
+      const v = parseUnits(human, decimals);
+      expect(repayHeadroom(v)).toBeLessThanOrEqual(repayApproval(v));
+    }
+  });
+
+  it("Gemini's case: 1 WETH at 5% APR, approval mined 2 s later — the old approval still has headroom", () => {
+    const debtN = parseUnits("1", 18);
+    const approved = repayApproval(debtN); // 1.001000000000000001 WETH
+    const debtNow = 1_000_000_003_170_979_198n; // two seconds of 5% APR interest
+    // The round-1 rule (a fresh full buffer) wrongly asks for a new approval:
+    expect(approved < repayApproval(debtNow)).toBe(true);
+    // The headroom rule lets the repay go out:
+    expect(hasExecutionHeadroom({ allowance: approved, wallet: parseUnits("2", 18), value: debtNow })).toBe(true);
+    // …but still refuses when allowance or wallet cannot cover the headroom.
+    expect(hasExecutionHeadroom({ allowance: debtNow, wallet: parseUnits("2", 18), value: debtNow })).toBe(false);
+    expect(hasExecutionHeadroom({ allowance: approved, wallet: debtNow, value: debtNow })).toBe(false);
+  });
+});
+
+describe("wallet-bounded share repay (Gemini r2 M1)", () => {
+  const totals = { amount: parseUnits("1000000", 6) + 12_345n, shares: parseUnits("950000", 6) };
+
+  it("the offered shares' value plus headroom fits the wallet, and one more share would not", () => {
+    for (const human of ["1", "37.5", "999.999999"]) {
+      const wallet = parseUnits(human, 6);
+      const shares = walletBoundedShares(wallet, totals, parseUnits("950000", 6));
+      expect(shares).toBeGreaterThan(0n);
+      expect(repayHeadroom(vaultToAmount(totals, shares, true))).toBeLessThanOrEqual(wallet);
+      expect(repayHeadroom(vaultToAmount(totals, shares + 1n, true))).toBeGreaterThan(wallet);
+    }
+  });
+
+  it("is capped at the borrow shares and is 0 for an empty wallet", () => {
+    expect(walletBoundedShares(parseUnits("1000000", 6), totals, 5n)).toBe(5n);
+    expect(walletBoundedShares(0n, totals, 100n)).toBe(0n);
   });
 });
 

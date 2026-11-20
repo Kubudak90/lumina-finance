@@ -40,12 +40,22 @@ address and every transaction button is disabled ("Not deployed yet").
   client or the request names another chain. Every `TxButton` is disabled while the wallet is on another
   chain. The wagmi config has no other chain (no Ethereum mainnet).
 - **RPC chain check.** The RPC transport (`lib/rpcGuard.ts`) refuses every request until the RPC answers
-  `eth_chainId` = 19529, and `useRpcChainStatus` gates every read, simulation and button on it. A wrong or
-  unreachable RPC shows a blocking banner (`RpcChainBanner`) and disables all actions.
+  `eth_chainId` = 19529; a verification lasts at most 60 s and is dropped at once when a later
+  `eth_chainId` reports another chain or fails. `useRpcChainStatus` gates every read, explicit refetch,
+  receipt poll, simulation and button. A wrong or unreachable RPC shows a blocking banner
+  (`RpcChainBanner`) and disables all actions.
 - **Approve → action binding** (`lib/approvalFlow.ts`, `hooks/useApprovalFlow.ts`). The action that follows
   an approval is bound to the approving account and chain, the user's inputs and the exact approval tx; it
   runs only on that tx's successful receipt and is cancelled by an account, chain or input change. Before
-  sending it re-reads the wallet, the amount the contract will pull and the allowance from the chain.
+  sending it re-reads the wallet, the amount the contract will pull and the allowance from the chain; the
+  isolated follow-ups read the position (`getUserSnapshot`), the pair rate, the guard and the allowance
+  straight from the chain (`useIsolatedFreshReads`), not from the 15 s poll cache, and re-plan from them.
+- **Execution headroom.** After an approval, a pull that grows with accrual (core full repay, isolated
+  share repay and liquidation) is sent only if allowance and wallet both hold `ceil(value × 1.0005) + 1`
+  (`repayHeadroom`), half of the 10 bps approval buffer: a few blocks of interest never force a second
+  approval, and what remains still covers accrual until execution. A short wallet is offered a partial
+  repay (core: the wallet balance; isolated: the largest share count the wallet covers, by the contract's
+  rounding). Typed isolated share amounts above the borrow shares are refused.
 - **Approvals** (`lib/approvals.ts`). Supply, lend (deposit), add-collateral and core liquidation approve
   the exact amount (`liquidationCall` pulls at most `debtToCover`). Every repay, partial or full, on both
   venues approves `ceil(value × 1.001) + 1` and uses that buffered amount as the allowance threshold, where
@@ -99,7 +109,10 @@ address and every transaction button is disabled ("Not deployed yet").
 - The market rate curve reads only the manifest's `reserveInterestRateStrategy`, and only while the
   reserve reports that same address; otherwise the curve is shown as unavailable.
 - Isolated modals keep only the pair address in state and re-derive pair, position and guard data from
-  the polled reads on every render.
+  the polled reads on every render. A position whose snapshot is loading or failed is "unknown", never
+  empty: Borrow MAX is unavailable, the portfolio's isolated legs are unavailable, and the isolated page
+  flags the row. The isolated table shows the oldest block of its snapshot, conversion and pair reads.
+- Isolated withdraw MAX redeems the whole share balance (`redeem`), read from the chain when sending.
 - `/lighter` stays a read-only trading view: it uses only the connected address, so it needs no Ethereum
   mainnet chain and never prompts a network switch. Its Go WASM signer URL (jsDelivr) is not in the CSP;
   that latent path stays blocked until the WASM is vendored (FE-10).

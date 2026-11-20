@@ -6,9 +6,10 @@ import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
 import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { explorerToastAction } from "@/lib/explorer";
-import { repayApproval } from "@/lib/approvals";
+import { hasExecutionHeadroom, repayApproval, repayHeadroom } from "@/lib/approvals";
 import { QUERY } from "@/lib/queryPolicy";
 import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
@@ -37,7 +38,8 @@ interface Props {
 
 const fmt = (v: bigint, d: number, max = 6) => Number(formatUnits(v, d)).toLocaleString("en-US", { maximumFractionDigits: max });
 
-type LiquidateParams = { all: boolean; input: bigint };
+/** "all": every borrow share of the borrower at send time; otherwise exactly `shares`. */
+type LiquidateParams = { all: boolean; shares: bigint };
 
 /** `_deadline` argument: 30 minutes from now (called when sending, never during render). */
 function liquidationDeadline(): bigint {
@@ -47,8 +49,10 @@ function liquidationDeadline(): bigint {
 /**
  * LightlendPair.liquidate(_sharesToLiquidate, _deadline, _borrower). Like a repay this is
  * share-based: the pair pulls the shares' value after accruing interest, so the approval carries
- * the repay buffer — ceil(currentShareValue × 1.001) + 1 — and the wallet is checked against the
- * CURRENT share value, not the typed amount (Codex #6).
+ * the repay buffer — ceil(currentShareValue × 1.001) + 1 — and the wallet must hold the execution
+ * headroom ceil(currentShareValue × 1.0005) + 1, not just the typed amount (Codex #6, Gemini r2 M1).
+ * Shares above the borrower's debt shares are refused (M2), and right before sending the borrower's
+ * shares, the share value, the allowance and the wallet are read from the chain (M3).
  */
 export function IsolatedLiquidateModal({
   pair,
@@ -67,6 +71,7 @@ export function IsolatedLiquidateModal({
   const [all, setAll] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const { address } = useAccount();
+  const fresh = useIsolatedFreshReads();
   const wallet = useWalletBalance(asset);
   const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
 
@@ -82,6 +87,7 @@ export function IsolatedLiquidateModal({
   });
   const computedShares = sharesPreview.data as bigint | undefined;
   const sharesToLiquidate = all ? borrowerDebtShares : (computedShares ?? 0n);
+  const overShares = !all && sharesToLiquidate > borrowerDebtShares;
 
   const shareValueRead = useLuminaReadContract({
     address: pair,
@@ -94,31 +100,37 @@ export function IsolatedLiquidateModal({
   const approveAmount = shareValue !== undefined && shareValue > 0n ? repayApproval(shareValue) : undefined;
   const walletRaw = wallet.value;
   // The pull is the shares' current value (it grows with accrual), not the typed amount.
-  const insufficientWallet = shareValue !== undefined && walletRaw !== undefined && walletRaw < shareValue;
+  const insufficientWallet = shareValue !== undefined && walletRaw !== undefined && walletRaw < repayHeadroom(shareValue);
 
   const sendLiquidation = async (params: LiquidateParams) => {
+    if (!address) return;
     setNotice(null);
-    const shares = params.all ? borrowerDebtShares : (computedShares ?? 0n);
-    if (shares === 0n) return;
-    const [valueNow, walletNow, allowanceNow] = await Promise.all([
-      shareValueRead.refetch().then((r) => r.data as bigint | undefined),
-      wallet.fetchNow(),
-      flow.refetchAllowance(),
-    ]);
-    if (valueNow === undefined || walletNow === undefined || allowanceNow === undefined) {
-      setNotice("Could not re-read the share value, wallet or allowance; nothing was sent.");
-      return;
+    try {
+      // From the chain, not the poll cache: the borrower's shares, then their current value.
+      const state = await fresh.accountState(pair, borrower, asset, address);
+      const shares = params.all ? state.borrowShares : params.shares;
+      if (shares === 0n || state.borrowShares === 0n) {
+        setNotice("The borrower has no debt left; nothing was sent.");
+        return;
+      }
+      if (shares > state.borrowShares) {
+        setNotice(`The borrower now owes ${state.borrowShares.toString()} shares, fewer than the ${shares.toString()} selected; nothing was sent.`);
+        return;
+      }
+      const valueNow = await fresh.shareValue(pair, shares);
+      if (!hasExecutionHeadroom({ allowance: state.allowance, wallet: state.wallet, value: valueNow })) {
+        setNotice(
+          state.wallet < repayHeadroom(valueNow)
+            ? `Your wallet no longer covers these shares (${fmt(valueNow, assetDecimals)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
+            : "The shares' value grew past the approved amount; approve again.",
+        );
+        return;
+      }
+      const deadline = liquidationDeadline();
+      await send({ address: pair, abi: ISOLATED_PAIR_ABI, functionName: "liquidate", args: [shares, deadline, borrower] });
+    } catch (err) {
+      setNotice(`Re-check failed (${(err as Error).message}); nothing was sent.`);
     }
-    if (walletNow < valueNow) {
-      setNotice(`Your wallet no longer covers the current value of these shares (${fmt(valueNow, assetDecimals)} ${assetSymbol}).`);
-      return;
-    }
-    if (allowanceNow < valueNow) {
-      setNotice("The shares' value grew past the approved amount; approve again.");
-      return;
-    }
-    const deadline = liquidationDeadline();
-    await send({ address: pair, abi: ISOLATED_PAIR_ABI, functionName: "liquidate", args: [shares, deadline, borrower] });
   };
 
   const flow = useApprovalFlow<LiquidateParams>({
@@ -145,7 +157,7 @@ export function IsolatedLiquidateModal({
 
   const handleLiquidate = () => {
     if (!address || sharesToLiquidate === 0n || approveAmount === undefined) return;
-    const params = { all, input: parsed };
+    const params: LiquidateParams = { all, shares: sharesToLiquidate };
     if (approvalNeeded) {
       void flow.start(params, approveAmount);
       return;
@@ -228,7 +240,12 @@ export function IsolatedLiquidateModal({
                     Estimate: {sharesToLiquidate.toString()} shares, currently {fmt(shareValue, assetDecimals)} {assetSymbol}; the pair takes their value at execution.
                   </p>
                 )}
-                {insufficientWallet && <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} balance for the current share value</p>}
+                {overShares && (
+                  <p className="text-xs text-destructive mt-1" data-testid="share-bound-error">
+                    More than the borrower&apos;s debt ({borrowerDebtShares.toString()} shares); use MAX.
+                  </p>
+                )}
+                {insufficientWallet && <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} for the current share value plus the accrual margin</p>}
                 {notice && <p className="text-xs text-amber-400 mt-1">{notice}</p>}
                 {flow.cancelReason && <p className="text-xs text-amber-400 mt-1">Approval flow cancelled: {flow.cancelReason}.</p>}
               </div>
@@ -246,7 +263,7 @@ export function IsolatedLiquidateModal({
                 isPending={isPending || flow.isPending}
                 isSimulating={isSimulating || flow.isSimulating}
                 isConfirming={isConfirming || flow.isConfirming || flow.awaitingApproval}
-                disabled={!address || sharesToLiquidate === 0n || walletRaw === undefined || insufficientWallet || borrowerDebtShares === 0n || approveAmount === undefined}
+                disabled={!address || sharesToLiquidate === 0n || overShares || walletRaw === undefined || insufficientWallet || borrowerDebtShares === 0n || approveAmount === undefined}
               >
                 {approvalNeeded ? `Approve ${assetSymbol}` : "Liquidate"}
               </TxButton>

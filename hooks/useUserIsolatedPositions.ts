@@ -56,8 +56,15 @@ export function combineIsolatedPositions(
  */
 export function useUserIsolatedPositions(): {
   positions: UserIsolatedPosition[];
-  /** Some snapshot failed: the position list may be incomplete. */
+  /**
+   * The position list is not known to be complete: the snapshot multicall is loading or failed, or
+   * a deployed pair's snapshot failed (Gemini r2 M4). Totals must then be "unavailable", never $0.
+   */
   incomplete: boolean;
+  /** Deployed pairs (lowercase) whose snapshot did not load: their rows are "unavailable". */
+  unknownPairs: readonly string[];
+  /** Pairs (lowercase) whose snapshot loaded: absent from `positions` means "no position". */
+  knownPairs: ReadonlySet<string>;
   stamp: BlockStamp | undefined;
   conversionStamp: BlockStamp | undefined;
   pairsStamp: BlockStamp | undefined;
@@ -122,9 +129,19 @@ export function useUserIsolatedPositions(): {
     [pairs, snapshotData, conversions.results],
   );
 
+  const deployedPairs = pairs.filter((p) => p.pair !== null);
+  const unknownPairs = deployedPairs
+    .filter((p) => snapshotData[pairs.indexOf(p)] === undefined)
+    .map((p) => p.pair!.toLowerCase());
+  const knownPairs = new Set(
+    deployedPairs.filter((p) => snapshotData[pairs.indexOf(p)] !== undefined).map((p) => p.pair!.toLowerCase()),
+  );
+
   return {
     positions,
-    incomplete: !!snapshots.results && snapshotData.some((s, i) => s === undefined && pairs[i]?.pair !== null),
+    incomplete: !!address && unknownPairs.length > 0,
+    unknownPairs,
+    knownPairs,
     stamp: readStamp(snapshots.results),
     conversionStamp: readStamp(conversions.results),
     pairsStamp,
@@ -132,8 +149,15 @@ export function useUserIsolatedPositions(): {
   };
 }
 
+export type IsolatedPositionState =
+  /** Snapshot loaded: `position` is the user's position, or undefined if they have none. */
+  | { status: "known"; position: UserIsolatedPosition | undefined }
+  /** Snapshot loading or failed: the position is unknown (never treated as empty). */
+  | { status: "unknown"; position: undefined };
+
 /** The user's position in one pair, re-derived from the polled data on every render. */
-export function useIsolatedPosition(pair: string | null | undefined): UserIsolatedPosition | undefined {
-  const { positions } = useUserIsolatedPositions();
-  return pair ? positions.find((p) => p.pair?.toLowerCase() === pair.toLowerCase()) : undefined;
+export function useIsolatedPosition(pair: string | null | undefined): IsolatedPositionState {
+  const { positions, knownPairs } = useUserIsolatedPositions();
+  if (!pair || !knownPairs.has(pair.toLowerCase())) return { status: "unknown", position: undefined };
+  return { status: "known", position: positions.find((p) => p.pair?.toLowerCase() === pair.toLowerCase()) };
 }

@@ -10,6 +10,7 @@ import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useGuardStatus } from "@/hooks/useGuardStatus";
+import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { explorerToastAction } from "@/lib/explorer";
 import { exactApproval } from "@/lib/approvals";
 import { isolatedBorrowMaxFromReads, isolatedLtv } from "@/lib/borrowMax";
@@ -38,7 +39,9 @@ type BorrowParams = { borrow: bigint; collateral: bigint };
  */
 export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; onClose: () => void }) {
   const info = useIsolatedPair(pair);
-  const position = useIsolatedPosition(pair);
+  const positionState = useIsolatedPosition(pair);
+  const position = positionState.position;
+  const fresh = useIsolatedFreshReads();
   const guard = useGuardStatus();
   const [collateralInput, setCollateralInput] = useState("");
   const [borrowInput, setBorrowInput] = useState("");
@@ -58,15 +61,17 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
   const collateralBalanceRaw = wallet.value;
   const collateralBalanceFmt = collateralBalanceRaw === undefined ? "" : formatUnits(collateralBalanceRaw, collateralDecimals);
 
-  const currentCollateral = position?.collateralAmount ?? 0n;
-  // No position yet = no debt; a position whose debt conversion failed = unknown.
-  const currentDebt = position ? position.borrowedAssets : 0n;
+  // Position unknown (snapshot loading or failed) = collateral and debt unknown, never 0 (Gemini r2
+  // M4). Known with no position = none; known with a failed debt conversion = debt unknown.
+  const known = positionState.status === "known";
+  const currentCollateral = known ? (position?.collateralAmount ?? 0n) : undefined;
+  const currentDebt = known ? (position ? position.borrowedAssets : 0n) : undefined;
   const rate = info?.exchangeRate;
   const borrowBlocked = !guard.borrowAllowed || info?.oracleBadData !== false;
 
   const maxFor = (extraCollateral: bigint) =>
     isolatedBorrowMaxFromReads({
-      collateral: currentCollateral + extraCollateral,
+      collateral: currentCollateral === undefined ? undefined : currentCollateral + extraCollateral,
       currentDebt,
       exchangeRate: rate,
       maxLtv: info?.maxLTV,
@@ -77,7 +82,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
   const maxBorrow = maxFor(parsedCollateral);
 
   const ltvAfter =
-    rate !== undefined && currentDebt !== undefined
+    rate !== undefined && currentDebt !== undefined && currentCollateral !== undefined
       ? isolatedLtv(currentDebt + parsedBorrow, currentCollateral + parsedCollateral, rate)
       : null;
   const ltvPercent = ltvAfter === null ? "—" : `${(Number(ltvAfter) / 1000).toFixed(2)}%`;
@@ -86,31 +91,46 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
   const insufficientCollateral = collateralBalanceRaw !== undefined && parsedCollateral > collateralBalanceRaw;
 
   const sendBorrow = async (params: BorrowParams) => {
-    if (!address) return;
+    if (!address || !info || !collateral) return;
     setNotice(null);
-    // Re-check with the latest polled data (this closure is from the latest render).
-    if (borrowBlocked) {
-      setNotice(`Borrowing became blocked; nothing was sent. ${GUARD_BLOCKED_NOTE.isolated}`);
-      return;
-    }
-    const maxNow = maxFor(params.collateral);
-    if (maxNow === null || params.borrow > maxNow) {
-      setNotice("The borrow no longer fits the pair's limits at the current rate; nothing was sent.");
-      return;
-    }
-    if (params.collateral > 0n) {
-      const walletNow = await wallet.fetchNow();
-      if (walletNow === undefined || walletNow < params.collateral) {
-        setNotice("Your collateral balance no longer covers the amount; nothing was sent.");
+    try {
+      // From the chain, not the poll cache (Gemini r2 M3): the user's position, the pair's rate,
+      // oracle flag and limits, the guard, and the collateral allowance and wallet.
+      const [state, risk] = await Promise.all([
+        fresh.accountState(pair, address, collateral, address),
+        fresh.pairRisk(pair, info.dualOracle),
+      ]);
+      if (!risk.guardOk || risk.oracleBadData) {
+        setNotice(`Borrowing became blocked; nothing was sent. ${GUARD_BLOCKED_NOTE.isolated}`);
         return;
       }
+      const debtNow = await fresh.shareValue(pair, state.borrowShares);
+      const maxNow = isolatedBorrowMaxFromReads({
+        collateral: state.collateral + params.collateral,
+        currentDebt: debtNow,
+        exchangeRate: risk.exchangeRate,
+        maxLtv: risk.maxLtv,
+        availableLiquidity: risk.totalAssetAmount > risk.totalBorrowAmount ? risk.totalAssetAmount - risk.totalBorrowAmount : 0n,
+        borrowLimit: risk.borrowLimit,
+        totalBorrow: risk.totalBorrowAmount,
+      });
+      if (maxNow === null || params.borrow > maxNow) {
+        setNotice("The borrow no longer fits the pair's limits at the current rate; nothing was sent.");
+        return;
+      }
+      if (params.collateral > 0n && (state.wallet < params.collateral || state.allowance < params.collateral)) {
+        setNotice("Your collateral balance or allowance no longer covers the amount; nothing was sent.");
+        return;
+      }
+      await send({
+        address: pair,
+        abi: ISOLATED_PAIR_ABI,
+        functionName: "borrowAsset",
+        args: [params.borrow, params.collateral, address],
+      });
+    } catch (err) {
+      setNotice(`Re-check failed (${(err as Error).message}); nothing was sent.`);
     }
-    await send({
-      address: pair,
-      abi: ISOLATED_PAIR_ABI,
-      functionName: "borrowAsset",
-      args: [params.borrow, params.collateral, address],
-    });
   };
 
   const flow = useApprovalFlow<BorrowParams>({
@@ -192,7 +212,12 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
                   step="any"
                   className="h-12 text-lg bg-transparent border-border font-mono"
                 />
-                {currentCollateral > 0n && (
+                {positionState.status === "unknown" && (
+                  <p className="text-xs text-amber-400 mt-1" data-testid="position-unknown">
+                    Your position in this pair could not be read; MAX and borrowing are unavailable until it loads.
+                  </p>
+                )}
+                {currentCollateral !== undefined && currentCollateral > 0n && (
                   <p className="text-xs text-muted-foreground mt-1">Already posted: {fmt(currentCollateral, collateralDecimals)} {collateralSymbol}</p>
                 )}
                 {insufficientCollateral && <p className="text-xs text-destructive mt-1">Insufficient {collateralSymbol} balance</p>}

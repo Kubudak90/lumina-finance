@@ -5,6 +5,7 @@ import { TokenIcon } from "@/components/common/TokenIcon";
 import { formatPercent } from "@/lib/format";
 import { formatUsd, usdValue } from "@/lib/prices";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
+import { marketStatus } from "@/lib/marketStatus";
 import {
   Table,
   TableHeader,
@@ -77,15 +78,15 @@ export function MarketTable({ markets }: MarketTableProps) {
                   <TableCell className="px-6 py-4">
                     {(() => {
                       // From the reserve config, not assumed.
-                      const status = !m.loaded
-                        ? { label: "Unknown", dot: "bg-white/30", text: "text-text-dim" }
-                        : m.paused
-                          ? { label: "Paused", dot: "bg-red-500", text: "text-red-400" }
-                          : m.config?.isFrozen
-                            ? { label: "Frozen", dot: "bg-amber-500", text: "text-amber-400" }
-                            : m.config?.isActive
-                              ? { label: "Active", dot: "bg-emerald-500", text: "text-emerald-400" }
-                              : { label: "Inactive", dot: "bg-white/30", text: "text-text-dim" };
+                      const label = marketStatus(m);
+                      const tone = {
+                        Unknown: { dot: "bg-white/30", text: "text-text-dim" },
+                        Paused: { dot: "bg-red-500", text: "text-red-400" },
+                        Frozen: { dot: "bg-amber-500", text: "text-amber-400" },
+                        Active: { dot: "bg-emerald-500", text: "text-emerald-400" },
+                        Inactive: { dot: "bg-white/30", text: "text-text-dim" },
+                      }[label];
+                      const status = { label, ...tone };
                       return (
                         <div className="flex items-center gap-2">
                           <span className={`inline-block h-2 w-2 rounded-full ${status.dot}`} />

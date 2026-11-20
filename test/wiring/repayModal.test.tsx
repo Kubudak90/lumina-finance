@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ALICE, fake, hashOf, mine, resetFake, setRead } from "../support/fakeChain";
-import { POOL, USDC, fake as addr } from "../support/deployment";
+import { POOL, USDC, WETH, fake as addr } from "../support/deployment";
 import { AAVE_ENTIRE_BALANCE, repayApproval } from "@/lib/approvals";
 
 vi.mock("@/hooks/chain", async () => (await import("../support/fakeChain")).chainModule);
@@ -12,7 +12,8 @@ vi.mock("@/hooks/useHealthFactor", () => ({ useHealthFactor: () => ({ healthFact
 
 import { RepayModal } from "@/components/actions/RepayModal";
 
-// USDC is markets.core[1] → variable debt token fake(0x501) in the fixture.
+// markets.core[0] = WETH, [1] = USDC → variable debt tokens fake(0x500), fake(0x501) in the fixture.
+const WETH_DEBT_TOKEN = addr(0x500);
 const USDC_DEBT_TOKEN = addr(0x501);
 
 beforeEach(() => {
@@ -22,6 +23,45 @@ beforeEach(() => {
   setRead(USDC, "allowance", 0n);
 });
 afterEach(() => cleanup());
+
+describe("RepayModal: interest accrues while the approval mines (Gemini r2 C1)", () => {
+  it("1 WETH at 5% APR: debt grows by 2 s of interest before the follow-up → the repay still goes out with uint256.max", async () => {
+    setRead(WETH, "balanceOf", 2n * 10n ** 18n);
+    setRead(WETH_DEBT_TOKEN, "balanceOf", 10n ** 18n);
+    setRead(WETH, "allowance", 0n);
+    render(<RepayModal asset={WETH} symbol="WETH" decimals={18} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "MAX" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Approve WETH" })));
+    expect(fake.sends[0].args).toEqual([POOL, repayApproval(10n ** 18n)]);
+
+    // While the approval mines: two seconds of 5% APR interest, and the allowance lands.
+    await act(async () => {
+      setRead(WETH_DEBT_TOKEN, "balanceOf", 1_000_000_003_170_979_198n);
+      setRead(WETH, "allowance", repayApproval(10n ** 18n));
+    });
+    await act(async () => mine(hashOf(1)));
+    await act(async () => {});
+    expect(fake.sends).toHaveLength(2);
+    expect(fake.sends[1]).toMatchObject({ functionName: "repay", args: [WETH, AAVE_ENTIRE_BALANCE, 2n, ALICE] });
+  });
+
+  it("still refuses when the allowance cannot cover the headroom over the accrued debt", async () => {
+    setRead(WETH, "balanceOf", 2n * 10n ** 18n);
+    setRead(WETH_DEBT_TOKEN, "balanceOf", 10n ** 18n);
+    setRead(WETH, "allowance", 0n);
+    render(<RepayModal asset={WETH} symbol="WETH" decimals={18} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "MAX" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Approve WETH" })));
+    await act(async () => {
+      setRead(WETH_DEBT_TOKEN, "balanceOf", 1_000_600_000_000_000_000n); // +0.06%: past the headroom
+      setRead(WETH, "allowance", repayApproval(10n ** 18n));
+    });
+    await act(async () => mine(hashOf(1)));
+    await act(async () => {});
+    expect(fake.sends.map((x) => x.functionName)).toEqual(["approve"]);
+    expect(screen.getByTestId("repay-notice").textContent).toMatch(/approve again/);
+  });
+});
 
 describe("RepayModal: 'repay all' intent survives a refresh (Codex #5)", () => {
   it("debt refreshes 100 → 100.000001 after MAX: approval covers the new debt and the tx sends uint256.max", async () => {

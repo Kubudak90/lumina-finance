@@ -82,7 +82,17 @@ export function useLuminaReadContract<
 ): UseReadContractReturnType<abi, functionName, args, selectData> {
   const rpc = useRpcChainStatus();
   const query = { ...(parameters.query ?? {}), enabled: rpc.status === "ok" && (parameters.query?.enabled ?? true) };
-  return useReadContract(pinChainId({ ...parameters, query }, LUMINA_CHAIN_ID) as typeof parameters);
+  const result = useReadContract(pinChainId({ ...parameters, query }, LUMINA_CHAIN_ID) as typeof parameters);
+  return gateRefetch(result, rpc.status === "ok");
+}
+
+/**
+ * An explicit `.refetch()` bypasses `enabled: false`, so it is gated too: while the RPC chain is not
+ * verified it reads nothing and resolves with no data (Gemini r2 m1).
+ */
+function gateRefetch<R extends { refetch: (...args: never[]) => Promise<unknown> }>(result: R, rpcOk: boolean): R {
+  if (rpcOk) return result;
+  return { ...result, refetch: (async () => ({ ...result, data: undefined, status: "error" })) as unknown as R["refetch"] };
 }
 
 /** `useReadContracts`, every contract pinned to the Lumina chain, gated on the RPC chain check. */
@@ -98,7 +108,27 @@ export function useLuminaReadContracts<
   const contractList = (parameters.contracts ?? []) as unknown as readonly object[];
   const query = { ...(parameters.query ?? {}), enabled: rpc.status === "ok" && (parameters.query?.enabled ?? true) };
   const pinned = { ...parameters, query, contracts: pinContracts(contractList, LUMINA_CHAIN_ID) };
-  return useReadContracts(pinned as unknown as typeof parameters);
+  const result = useReadContracts(pinned as unknown as typeof parameters);
+  return gateRefetch(result, rpc.status === "ok");
+}
+
+/**
+ * A one-off read straight from the chain (not the poll cache), for checks right before a send
+ * (Gemini r2 M3). Resolves to one result per call; refuses while the RPC chain is not verified.
+ */
+export function useLuminaReader() {
+  const client = usePublicClient({ chainId: LUMINA_CHAIN_ID });
+  const rpc = useRpcChainStatus();
+  const ok = rpc.status === "ok";
+  return useCallback(
+    async (calls: readonly ContractCall[]): Promise<readonly CallResult[]> => {
+      if (!ok || !client) throw new Error("RPC chain not verified; nothing read");
+      if (calls.some((c) => !c.address)) throw new Error("unknown contract address");
+      const results = await client.multicall({ contracts: calls as never, allowFailure: true });
+      return results as unknown as readonly CallResult[];
+    },
+    [client, ok],
+  );
 }
 
 /** Public client of the Lumina chain (never the wallet's current chain). */
@@ -143,7 +173,12 @@ export function useLuminaWrite() {
   const rpc = useRpcChainStatus();
   const queryClient = useQueryClient();
   const write = useWriteContract();
-  const receipt = useWaitForTransactionReceipt({ hash: write.data, chainId: LUMINA_CHAIN_ID });
+  // Receipts are read from the RPC too: only while its chain is verified (Gemini r2 m1).
+  const receipt = useWaitForTransactionReceipt({
+    hash: write.data,
+    chainId: LUMINA_CHAIN_ID,
+    query: { enabled: rpc.status === "ok" && !!write.data },
+  });
   const [preview, setPreview] = useState<TxPreview | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [simulationError, setSimulationError] = useState<Error | null>(null);

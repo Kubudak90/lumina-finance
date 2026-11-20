@@ -73,7 +73,8 @@ export default function PortfolioPage() {
   // collateral converted through the pair oracle's exchange rate in one division. A failed read
   // makes the affected total unavailable (Codex #9).
   const core = coreLegsUsd(positions, priceOf);
-  const iso = isolatedLegsUsd(isolatedPositions, priceOf, isolatedIncomplete);
+  // Loading or a failed snapshot read = isolated legs unavailable, never $0 (Gemini r2 M4).
+  const iso = isolatedLegsUsd(isolatedPositions, priceOf, isolatedIncomplete || isolatedLoading);
   const totalSuppliedUsd = core.supplied;
   const totalBorrowedUsd = core.borrowed;
   const isolatedSupplyUsd = iso.supply;
@@ -238,6 +239,10 @@ export default function PortfolioPage() {
         <div className="p-4">
           {isolatedLoading ? (
             <p className="text-sm text-muted-foreground">Loading isolated pairs…</p>
+          ) : isolatedIncomplete ? (
+            <p className="text-sm text-amber-400" data-testid="isolated-unavailable">
+              Isolated positions unavailable: a position read failed, so totals are not shown.
+            </p>
           ) : (
             <IsolatedPositionsTable positions={isolatedPositions} />
           )}
