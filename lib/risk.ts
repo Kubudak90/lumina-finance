@@ -685,8 +685,9 @@ export function formatHealth(input: HealthInput): HealthDisplay {
   const { ltv, maxLTV } = input;
   if (ltv === undefined || ltv.kind === "unavailable") return display("unavailable", "—", 0);
   if (ltv.kind === "infinite") return display("liquidatable", "∞", 100);
-  if (maxLTV === undefined) return display("unavailable", formatLtvPercent(ltv.ltv), 0);
+  // No debt is Safe whatever maxLTV is, even an unreadable one (spec §3.1 boundary: debt = 0 → Safe).
   if (ltv.ltv === 0n) return display("safe", formatLtvPercent(0n), 0);
+  if (maxLTV === undefined) return display("unavailable", formatLtvPercent(ltv.ltv), 0);
   if (maxLTV === 0n) return display("liquidatable", formatLtvPercent(ltv.ltv), 100);
   return display(ltvStatus(ltv.ltv, maxLTV), formatLtvPercent(ltv.ltv), gaugePercent((ltv.ltv * GAUGE_FULL_BPS) / maxLTV));
 }

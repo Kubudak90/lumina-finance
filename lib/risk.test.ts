@@ -616,6 +616,15 @@ describe("formatHealth: thresholds, status, gauges", () => {
     expect(formatHealth({ kind: "ltv", ltv: { kind: "unavailable", reason: "missing-input" }, maxLTV: 75_000n }).status).toBe("unavailable");
     expect(formatHealth({ kind: "ltv", ltv: { kind: "value", ltv: 10n }, maxLTV: undefined }).status).toBe("unavailable");
   });
+
+  it("debt 0 (LTV 0%) is Safe even when maxLTV is unreadable (spec §3.1 boundary table)", () => {
+    // A collateral-only position whose pair maxLTV() read failed: no debt, so no liquidation risk.
+    const zero = isolatedLtvOf(iso({ debt: 0n, maxLTV: undefined }));
+    expect(zero).toEqual({ kind: "value", ltv: 0n });
+    expect(formatHealth({ kind: "ltv", ltv: zero, maxLTV: undefined })).toEqual({ status: "safe", statusLabel: "Safe", value: "0.00%", gauge: 0 });
+    // Debt with an unreadable maxLTV stays unavailable.
+    expect(formatHealth({ kind: "ltv", ltv: { kind: "value", ltv: 1n }, maxLTV: undefined }).status).toBe("unavailable");
+  });
 });
 
 // =============================================================================================
