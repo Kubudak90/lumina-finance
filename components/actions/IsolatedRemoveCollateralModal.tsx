@@ -61,7 +61,9 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   const blockShown = hasDebt && (!guard.borrowAllowed || oracle === "bad" || oracle === "unreadable");
 
   const parsed = amount ? (safeParseUnits(amount, collateralDecimals) ?? 0n) : 0n;
-  const overMax = parsed > collateralAmount;
+  // Only against a known position: while the read loads or has failed there is no posted amount to
+  // exceed (FE-07: unknown is never 0), so no over-amount error; the notice says why it waits.
+  const overMax = positionKnown && parsed > collateralAmount;
 
   useTxErrorToast(tx.error, "Remove collateral failed", ctx);
   useTxSuccessToast(tx.isSuccess, tx.hash, "Collateral removed", `Removed ${amount} ${collateralSymbol}`);
@@ -82,7 +84,7 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   // The summary (same read) says this removal leaves the position liquidatable: the pair would
   // revert it (Insolvent), so it is not offered (U4 review r1 #3: no send the summary warns against).
   const afterLiquidatable =
-    preview !== null && formatHealth({ kind: "ltv", ltv: preview.after.ltv, maxLTV: preview.after.maxLTV }).status === "liquidatable";
+    positionKnown && preview !== null && formatHealth({ kind: "ltv", ltv: preview.after.ltv, maxLTV: preview.after.maxLTV }).status === "liquidatable";
 
   return (
     <TxDialog onClose={onClose}>
@@ -99,6 +101,13 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
                 ? "The pair oracle cannot be read right now; removing collateral while in debt is disabled until it can."
                 : "The pair oracle flags its price as bad data; removing collateral while in debt is disabled until it recovers."}{" "}
               {GUARD_BLOCKED_NOTE.isolated}
+            </p>
+          )}
+          {!positionKnown && (
+            <p className="text-xs text-amber-400" data-testid="position-unknown">
+              {read.settled
+                ? "Your position in this pair could not be read; removing collateral is disabled until it loads."
+                : "Reading your position in this pair; removing collateral is disabled until it loads."}
             </p>
           )}
           <p className="text-sm text-muted-foreground">

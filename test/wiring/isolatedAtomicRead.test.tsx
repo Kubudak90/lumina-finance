@@ -236,6 +236,42 @@ describe("IsolatedRemoveCollateralModal: posted collateral, debt and the gate fr
   });
 });
 
+describe("FE-07 while the modal's read loads or has failed: no over-amount error, no send, a notice (U4 r2 #2)", () => {
+  type Multicall = typeof fake.multicall;
+  const loading = (answered: Multicall): Multicall => (calls) =>
+    calls.some((c) => c.functionName === "getUserSnapshot") ? undefined : answered(calls);
+  const failed = (answered: Multicall): Multicall => (calls) =>
+    answered(calls)?.map((r, i) => (calls[i].functionName === "getUserSnapshot" ? { status: "failure" as const, error: new Error("snapshot failed") } : r));
+  const states: Array<[string, (answered: Multicall) => Multicall, RegExp]> = [
+    ["loading", loading, /Reading your position/],
+    ["failed", failed, /could not be read/],
+  ];
+
+  it.each(states)("IsolatedRemoveCollateral, read %s: 0.1 WETH is not 'over' an unknown posted amount", (_state, script, notice) => {
+    fake.multicall = script(fake.multicall);
+    render(<IsolatedRemoveCollateralModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    type("Amount", "0.1");
+    expect(screen.queryByText(/Exceeds posted collateral/)).toBeNull();
+    expect(screen.queryByTestId("remove-insolvent")).toBeNull();
+    expect(screen.queryByTestId("tx-summary-invalid")).toBeNull();
+    expect(screen.getByTestId("position-unknown").textContent).toMatch(notice);
+    expect(sendButton(/^(Remove WETH|Removal blocked)$/).disabled).toBe(true);
+  });
+
+  it.each(states)("IsolatedRepay, read %s: 100 USDC is not 'over' unknown borrow shares", (_state, script, notice) => {
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 100n * E6);
+    setRead(PAIR_USDC_WETH, "toBorrowAmount", 100n * E6);
+    fake.multicall = script(fake.multicall);
+    render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    type("Amount", "100");
+    expect(screen.queryByTestId("share-bound-error")).toBeNull();
+    expect(screen.queryByTestId("wallet-offer")).toBeNull();
+    expect(screen.queryByTestId("tx-summary-invalid")).toBeNull();
+    expect(screen.getByTestId("position-unknown").textContent).toMatch(notice);
+    expect(sendButton(/^(Repay USDC|Approve USDC)$/).disabled).toBe(true);
+  });
+});
+
 describe("IsolatedAddCollateralModal (checked): its summary already reads only the modal's read", () => {
   it("shows the read's position, and stays allowed while the price is bad (spec §5.4)", () => {
     chain.oracle = [true, rateAt(1_600n), rateAt(1_600n)];

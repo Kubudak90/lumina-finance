@@ -82,7 +82,9 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const sharesForInput = sharesPreview.data as bigint | undefined;
   const shares =
     intent.kind === "all" ? borrowedShares : intent.kind === "shares" ? intent.shares : (sharesForInput ?? 0n);
-  const overShares = intent.kind !== "all" && shares > borrowedShares;
+  // Only against a known position: while the read loads or has failed there are no borrow shares to
+  // exceed (FE-07: unknown is never 0), so no over-amount error; the notice says why it waits.
+  const overShares = positionKnown && intent.kind !== "all" && shares > borrowedShares;
 
   // Current value of exactly those shares (rounded up, previewing interest): the R2-1 assetValue.
   const shareValueRead = useLuminaReadContract({
@@ -95,7 +97,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const shareValue = shareValueRead.data as bigint | undefined;
 
   const plan =
-    shares > 0n && !overShares && shareValue !== undefined && shareValue > 0n
+    positionKnown && shares > 0n && !overShares && shareValue !== undefined && shareValue > 0n
       ? planIsolatedRepay({ full: intent.kind === "all", borrowedShares, sharesForInput: shares, shareValue })
       : null;
   const walletRaw = wallet.value;
