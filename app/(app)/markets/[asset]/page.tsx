@@ -18,7 +18,8 @@ import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { resultAt, useLuminaMulticall } from "@/hooks/chain";
 import { getMarketBySymbol } from "@/lib/constants";
 import { QUERY } from "@/lib/queryPolicy";
-import { formatPercent } from "@/lib/format";
+import { formatApy } from "@/lib/format";
+import { coreApy } from "@/lib/risk";
 import { formatUsd, usdValue } from "@/lib/prices";
 import { INTEREST_RATE_STRATEGY_V2_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
@@ -107,8 +108,8 @@ export default function MarketDetailPage() {
 
       {/* Top stat cards */}
       <div className="grid md:grid-cols-3 gap-4 animate-in-delay-1">
-        <StatCard label="Supply APY" value={formatPercent(supplyRate)} />
-        <StatCard label="Borrow APY" value={formatPercent(borrowRate)} />
+        <StatCard label="Supply APY" value={formatApy(coreApy(supplyRate))} />
+        <StatCard label="Borrow APY" value={formatApy(coreApy(borrowRate))} />
         <StatCard label="Utilization" value={util === undefined ? "—" : `${util.toFixed(1)}%`} />
       </div>
 

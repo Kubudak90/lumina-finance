@@ -16,9 +16,11 @@ import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import { GuardNotice } from "@/components/common/GuardNotice";
 import { DeploymentNotice } from "@/components/common/DeploymentNotice";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isolatedLtv } from "@/lib/borrowMax";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { oldestStamp } from "@/lib/valuation";
-import { collateralPerWholeAsset } from "@/lib/prices";
+import { collateralPerWholeAsset, formatUsd, isolatedCollateralUsd, usdValue } from "@/lib/prices";
+import { formatApy } from "@/lib/format";
+import { aprToApy, formatHealth, formatMaxLtvPercent, isolatedLtvOf } from "@/lib/risk";
 
 type DeployedPair = IsolatedPairInfo & { pair: `0x${string}` };
 type DeployedPosition = UserIsolatedPosition & { pair: `0x${string}` };
@@ -30,6 +32,10 @@ type ModalState = {
 } | null;
 
 const isDeployedPair = (p: IsolatedPairInfo): p is DeployedPair => p.pair !== null;
+
+/** Header and cell classes: tight horizontal padding so every column fits its card at 1024 px. */
+const TH = "text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-2 py-3 align-bottom";
+const TD = "px-2 py-3";
 
 function fmt(value: bigint | undefined, decimals: number, max = 4): string {
   if (value === undefined) return "—";
@@ -50,6 +56,8 @@ export default function IsolatedPage() {
   } = useUserIsolatedPositions();
   // The table combines snapshots, conversions and pair rates: show the oldest of their blocks.
   const tableStamp = oldestStamp([stamp, conversionStamp, pairsStamp]);
+  // USD from AaveOracle prices only (FE-06); "—" when a price or the pair rate is missing.
+  const { priceOf } = useOraclePrices();
   const [modal, setModal] = useState<ModalState>(null);
 
   return (
@@ -101,22 +109,22 @@ export default function IsolatedPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
-                  <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Pair</th>
-                  <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Lent</th>
-                  <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Borrowed</th>
-                  <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Collateral</th>
-                  <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">LTV</th>
-                  <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Actions</th>
+                  <th className={`${TH} text-left`}>Pair</th>
+                  <th className={`${TH} text-right`}>Lent</th>
+                  <th className={`${TH} text-right`}>Borrowed</th>
+                  <th className={`${TH} text-right`}>Collateral</th>
+                  <th className={`${TH} text-right`}>LTV</th>
+                  <th className={`${TH} text-right`}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {positionsLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <td colSpan={6} className="px-2 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
                 ) : positions.length === 0 && unknownPairs.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="h-24 text-center text-muted-foreground text-xs px-6">
+                    <td colSpan={6} className="h-24 text-center text-muted-foreground text-xs px-2">
                       No active positions. Lend or borrow on a pair below to get started.
                     </td>
                   </tr>
@@ -127,43 +135,66 @@ export default function IsolatedPage() {
                     const pairInfo = pairs.find((x) => x.pair?.toLowerCase() === pairAddress);
                     return (
                       <tr key={`unknown-${pairAddress}`} className="border-b border-border/50" data-testid="unknown-position-row">
-                        <td className="px-6 py-4 font-mono text-sm">{pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}</td>
-                        <td colSpan={5} className="px-6 py-4 text-right text-xs text-amber-400">
+                        <td className={`${TD} font-mono text-sm`}>{pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}</td>
+                        <td colSpan={5} className={`${TD} text-right text-xs text-amber-400`}>
                           Position unavailable: the read failed or is still loading
                         </td>
                       </tr>
                     );
                   })}
                   {positions.filter((p): p is DeployedPosition => p.pair !== null).map((p) => {
-                    const ltv =
-                      p.exchangeRate !== undefined && p.borrowedAssets !== undefined
-                        ? isolatedLtv(p.borrowedAssets, p.collateralAmount, p.exchangeRate)
-                        : null;
+                    const price = priceOf(p.asset);
+                    // LTV and its status from lib/risk (debt with no collateral reads ∞, never "—").
+                    const health = formatHealth({
+                      kind: "ltv",
+                      ltv: isolatedLtvOf({ debt: p.borrowedAssets, collateral: p.collateralAmount, maxLTV: p.maxLTV, exchangeRate: p.exchangeRate }),
+                      maxLTV: p.maxLTV,
+                    });
                     return (
                     <tr key={p.pair} className="border-b border-border/50 hover:bg-white/5">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
+                      <td className={TD}>
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <TokenIcon symbol={p.assetSymbol} size={20} />
                           <span className="text-muted-foreground">/</span>
                           <TokenIcon symbol={p.collateralSymbol} size={20} />
-                          <span className="font-mono text-sm ml-2">{p.assetSymbol}/{p.collateralSymbol}</span>
+                          <span className="font-mono text-sm ml-1">{p.assetSymbol}/{p.collateralSymbol}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm text-right">
-                        {p.suppliedShares > 0n ? `${fmt(p.suppliedAssets, p.assetDecimals)} ${p.assetSymbol}` : "—"}
+                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
+                        {p.suppliedShares > 0n ? (
+                          <>
+                            <div>{fmt(p.suppliedAssets, p.assetDecimals)} {p.assetSymbol}</div>
+                            <div className="text-[10px] text-text-dim" data-testid="lent-usd">{formatUsd(usdValue(p.suppliedAssets, p.assetDecimals, price))}</div>
+                          </>
+                        ) : "—"}
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm text-right">
-                        {p.borrowedShares > 0n ? `${fmt(p.borrowedAssets, p.assetDecimals, 6)} ${p.assetSymbol}` : "—"}
+                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
+                        {p.borrowedShares > 0n ? (
+                          <>
+                            <div>{fmt(p.borrowedAssets, p.assetDecimals, 6)} {p.assetSymbol}</div>
+                            <div className="text-[10px] text-text-dim" data-testid="borrowed-usd">{formatUsd(usdValue(p.borrowedAssets, p.assetDecimals, price))}</div>
+                          </>
+                        ) : "—"}
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm text-right">
-                        {p.collateralAmount > 0n ? `${fmt(p.collateralAmount, p.collateralDecimals)} ${p.collateralSymbol}` : "—"}
+                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
+                        {p.collateralAmount > 0n ? (
+                          <>
+                            <div>{fmt(p.collateralAmount, p.collateralDecimals)} {p.collateralSymbol}</div>
+                            <div className="text-[10px] text-text-dim" data-testid="collateral-usd">
+                              {formatUsd(isolatedCollateralUsd(p.collateralAmount, p.exchangeRate, p.assetDecimals, price))}
+                            </div>
+                          </>
+                        ) : "—"}
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm text-right">
-                        {p.borrowedShares > 0n && ltv !== null && p.maxLTV !== undefined
-                          ? `${(Number(ltv) / 1000).toFixed(2)}% / ${(Number(p.maxLTV) / 1000).toFixed(0)}%`
-                          : "—"}
+                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
+                        {p.borrowedShares > 0n ? (
+                          <>
+                            <div>{health.value}{p.maxLTV !== undefined ? ` / ${formatMaxLtvPercent(p.maxLTV)}` : ""}</div>
+                            <div className="text-[10px] text-text-dim">{health.statusLabel}{p.oracleBadData ? " · price data stale" : ""}</div>
+                          </>
+                        ) : "—"}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className={`${TD} text-right`}>
                         <div className="flex gap-1.5 justify-end flex-wrap">
                           {p.suppliedShares > 0n && (
                             <button
@@ -219,22 +250,22 @@ export default function IsolatedPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border/50">
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Pair</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Asset</th>
-                <th className="text-left text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Collateral</th>
-                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Total Supplied</th>
-                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Total Borrowed</th>
-                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Util</th>
-                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Max LTV</th>
-                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Rate</th>
-                <th className="text-right text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-6 py-3">Action</th>
+                <th className={`${TH} text-left`}>Pair</th>
+                <th className={`${TH} text-right`}>Total Supplied</th>
+                <th className={`${TH} text-right`}>Total Borrowed</th>
+                <th className={`${TH} text-right`}>Util</th>
+                <th className={`${TH} text-right`}>Lend APY</th>
+                <th className={`${TH} text-right`}>Borrow APY</th>
+                <th className={`${TH} text-right`}>Max LTV</th>
+                <th className={`${TH} text-right`} title="Pair oracle exchange rate: collateral per 1 asset">Price</th>
+                <th className={`${TH} text-right`}>Action</th>
               </tr>
             </thead>
             <tbody>
               {pairsLoading ? (
                 [0, 1].map((i) => (
                   <tr key={i} className="border-b border-border/50">
-                    <td colSpan={9} className="px-6 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <td colSpan={9} className="px-2 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
                 ))
               ) : pairs.length === 0 ? (
@@ -246,21 +277,26 @@ export default function IsolatedPage() {
               ) : (
                 pairs.map((p) => (
                   <tr key={p.name} className="border-b border-border/50 hover:bg-white/5">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
+                    <td className={TD}>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <TokenIcon symbol={p.assetSymbol} size={20} />
                         <span className="text-muted-foreground">/</span>
                         <TokenIcon symbol={p.collateralSymbol} size={20} />
-                        <span className="font-mono text-sm ml-2">{p.assetSymbol}/{p.collateralSymbol}</span>
+                        <span className="font-mono text-sm ml-1">{p.assetSymbol}/{p.collateralSymbol}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 font-mono text-sm">{p.assetSymbol}</td>
-                    <td className="px-6 py-4 font-mono text-sm">{p.collateralSymbol}</td>
-                    <td className="px-6 py-4 font-mono text-sm text-right">{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
-                    <td className="px-6 py-4 font-mono text-sm text-right">{fmt(p.totalBorrowAmount, p.assetDecimals)}</td>
-                    <td className="px-6 py-4 font-mono text-sm text-right">{p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`}</td>
-                    <td className="px-6 py-4 font-mono text-sm text-right">{p.maxLTV === undefined ? "—" : `${(Number(p.maxLTV) / 1000).toFixed(0)}%`}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-right" title="Pair oracle: collateral per 1 asset">
+                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
+                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{fmt(p.totalBorrowAmount, p.assetDecimals)}</td>
+                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`}</td>
+                    {/* APY = aprToApy(APR from previewAddInterest); 0 while interest is paused (spec §3.1). */}
+                    <td className={`${TD} font-mono text-sm text-right text-emerald-400 whitespace-nowrap`} data-testid="pair-lend-apy">
+                      {formatApy(p.lendApr && aprToApy(p.lendApr))}
+                    </td>
+                    <td className={`${TD} font-mono text-sm text-right text-amber-400 whitespace-nowrap`} data-testid="pair-borrow-apy">
+                      {formatApy(p.borrowApr && aprToApy(p.borrowApr))}
+                    </td>
+                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{p.maxLTV === undefined ? "—" : formatMaxLtvPercent(p.maxLTV)}</td>
+                    <td className={`${TD} font-mono text-xs text-right`} title="Pair oracle: collateral per 1 asset">
                       {p.exchangeRate !== undefined
                         ? `1 ${p.assetSymbol} = ${fmt(
                             collateralPerWholeAsset(p.exchangeRate, p.assetDecimals),
@@ -270,9 +306,9 @@ export default function IsolatedPage() {
                         : "—"}
                       {p.oracleBadData && <div className="text-amber-400">borrows blocked</div>}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className={`${TD} text-right`}>
                       {isDeployedPair(p) ? (
-                        <div className="flex gap-1.5 justify-end">
+                        <div className="flex gap-1.5 justify-end flex-wrap">
                           <button
                             onClick={() => setModal({ type: "lend", pair: p.pair })}
                             className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"

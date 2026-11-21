@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { TokenIcon } from "@/components/common/TokenIcon";
-import { formatPercent } from "@/lib/format";
+import { formatApy } from "@/lib/format";
+import { coreApy } from "@/lib/risk";
 import { formatUsd, usdValue } from "@/lib/prices";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { marketStatus } from "@/lib/marketStatus";
@@ -60,8 +61,8 @@ export function MarketTable({ markets }: MarketTableProps) {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="px-6 py-4 text-emerald-400 font-mono font-medium">{formatPercent(m.supplyRate)}</TableCell>
-                  <TableCell className="px-6 py-4 text-amber-400 font-mono font-medium">{formatPercent(m.borrowRate)}</TableCell>
+                  <TableCell className="px-6 py-4 text-emerald-400 font-mono font-medium">{formatApy(coreApy(m.supplyRate))}</TableCell>
+                  <TableCell className="px-6 py-4 text-amber-400 font-mono font-medium">{formatApy(coreApy(m.borrowRate))}</TableCell>
                   <TableCell className="px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalSupply, m.decimals, price))}</TableCell>
                   <TableCell className="px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalBorrow, m.decimals, price))}</TableCell>
                   <TableCell className="px-6 py-4">

@@ -5,68 +5,69 @@ import { TokenIcon } from "@/components/common/TokenIcon";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
-import { useAccount } from "wagmi";
-import { formatPercent, formatHealthFactor, formatTokenAmount, MAX_HEALTH_FACTOR } from "@/lib/format";
+import { useAccountOverview } from "@/hooks/useAccountOverview";
+import { formatApy, formatTokenAmount } from "@/lib/format";
 import { formatUsd, usdValue } from "@/lib/prices";
-import { coreLegsUsd, oldestStamp } from "@/lib/valuation";
+import { coreApy } from "@/lib/risk";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SupplyModal } from "@/components/actions/SupplyModal";
 import { BorrowModal } from "@/components/actions/BorrowModal";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
 import { EnableCollateralModal } from "@/components/actions/EnableCollateralModal";
-import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { IsolatedLendModal } from "@/components/actions/IsolatedLendModal";
+import { IsolatedWithdrawModal } from "@/components/actions/IsolatedWithdrawModal";
+import { IsolatedBorrowModal } from "@/components/actions/IsolatedBorrowModal";
+import { IsolatedRepayModal } from "@/components/actions/IsolatedRepayModal";
+import { IsolatedAddCollateralModal } from "@/components/actions/IsolatedAddCollateralModal";
+import { IsolatedRemoveCollateralModal } from "@/components/actions/IsolatedRemoveCollateralModal";
 import { GuardNotice } from "@/components/common/GuardNotice";
 import { DeploymentNotice } from "@/components/common/DeploymentNotice";
-import { MARKETS, type MarketConfig } from "@/lib/constants";
+import { AccountSummary } from "@/components/overview/AccountSummary";
+import { RiskCard } from "@/components/overview/RiskCard";
+import { PositionsTable, type PositionAction } from "@/components/overview/PositionsTable";
+import { MARKETS, getMarketByAsset, type MarketConfig } from "@/lib/constants";
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  ArrowDownLeft,
-  TrendingUp,
-  Shield,
-  Search,
-} from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Search } from "lucide-react";
 
 type ModalState =
   | { type: "supply" | "borrow" | "withdraw" | "repay" | "collateral"; market: MarketConfig }
+  | {
+      type: "isoLend" | "isoWithdraw" | "isoBorrow" | "isoRepay" | "isoAddCollateral" | "isoRemoveCollateral";
+      pair: `0x${string}`;
+    }
   | null;
+
+const ISOLATED_MODAL = {
+  lend: "isoLend",
+  withdraw: "isoWithdraw",
+  borrow: "isoBorrow",
+  repay: "isoRepay",
+  addCollateral: "isoAddCollateral",
+  removeCollateral: "isoRemoveCollateral",
+} as const;
 
 export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
-  const { positions, accountData, stamp } = useUserPosition();
-  const healthFactor = accountData?.healthFactor;
-  const { priceOf, stamp: priceStamp } = useOraclePrices();
-  // Valuations combine positions and prices: show the older of the two blocks.
-  const valuationStamp = oldestStamp([stamp, priceStamp]);
-  const { isConnected: walletConnected } = useAccount();
+  const { positions } = useUserPosition();
+  const { priceOf } = useOraclePrices();
+  // Core + isolated: totals from accountTotals(), the position rows and the risk card (spec §3.3).
+  const overview = useAccountOverview();
+  const walletConnected = overview.connected;
   const isCollateralEnabled = (asset: string) =>
     positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.collateralEnabled ?? false;
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<ModalState>(null);
 
-  // USD totals from AaveOracle prices (FE-06); "—" if a needed price is unavailable.
-  const legs = coreLegsUsd(positions, priceOf);
-  const userTotalSupplied = legs.supplied;
-  const userTotalBorrowed = legs.borrowed;
-
-  // HF
-  const isMaxHf = healthFactor === MAX_HEALTH_FACTOR;
-  const hfNum = healthFactor !== undefined ? (isMaxHf ? 99 : Number(healthFactor) / 1e18) : 0;
-  const hfPercent = Math.min((hfNum / 5) * 100, 100);
-  const hfColor = hfNum >= 2 ? "bg-emerald-500" : hfNum >= 1.2 ? "bg-amber-500" : "bg-rose-500";
-  const hfTextColor = hfNum >= 2 ? "text-emerald-400" : hfNum >= 1.2 ? "text-amber-400" : "text-rose-400";
-
-  // Borrow limit (LTV-based, base currency) from on-chain account data
-  const borrowLimit = accountData
-    ? Number(accountData.availableBorrowsBase + accountData.totalDebtBase) / 1e8
-    : undefined;
-
-  // Net worth
-  const netWorth =
-    userTotalSupplied !== undefined && userTotalBorrowed !== undefined
-      ? userTotalSupplied - userTotalBorrowed
-      : undefined;
+  // "Your positions" row actions open the existing modals with their current props.
+  const onAction = (action: PositionAction) => {
+    if (action.venue === "isolated") {
+      setModal({ type: ISOLATED_MODAL[action.type], pair: action.pair });
+      return;
+    }
+    const market = getMarketByAsset(action.asset);
+    if (market) setModal({ type: action.type, market });
+  };
 
   // Filter markets by search
   const filtered = MARKETS.filter(
@@ -83,112 +84,13 @@ export default function Dashboard() {
     <div className="space-y-6">
       <DeploymentNotice />
       <GuardNotice venue="core" />
+      {/* ─── Account: summary, risk, positions (core + isolated) ─── */}
       {walletConnected && (
-        <div className="flex justify-end">
-          <FreshnessStamp stamp={valuationStamp} label="Valuation" />
-        </div>
-      )}
-      {/* ─── Stats Grid ─── */}
-      {walletConnected && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in">
-          {/* Total Supplied */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Total Supplied
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <ArrowUpRight size={14} className="text-accent" />
-              </div>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-36" />
-            ) : (
-              <>
-                <div className="text-2xl font-mono font-bold glow-text">
-                  {formatUsd(userTotalSupplied)}
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1">Earning interest</div>
-              </>
-            )}
-          </div>
-
-          {/* Total Borrowed */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Total Borrowed
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <ArrowDownLeft size={14} className="text-accent" />
-              </div>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-36" />
-            ) : (
-              <>
-                <div className="text-2xl font-mono font-bold glow-text">
-                  {formatUsd(userTotalBorrowed)}
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1">
-                  Limit: {formatUsd(borrowLimit)}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Net Worth */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Net Worth
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <TrendingUp size={14} className="text-accent" />
-              </div>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-36" />
-            ) : (
-              <>
-                <div className={`text-2xl font-mono font-bold glow-text ${netWorth === undefined || netWorth >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {formatUsd(netWorth)}
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1">Supplied - Borrowed</div>
-              </>
-            )}
-          </div>
-
-          {/* Health Factor */}
-          <div className="technical-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
-                Health Factor
-              </span>
-              <div className="p-2 bg-accent/10 rounded-lg">
-                <Shield size={14} className="text-accent" />
-              </div>
-            </div>
-            {healthFactor === undefined ? (
-              <div className="text-2xl font-mono font-bold text-muted-foreground">--</div>
-            ) : (
-              <>
-                <div className={`text-2xl font-mono font-bold glow-text ${hfTextColor}`}>
-                  {formatHealthFactor(healthFactor)}
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2.5">
-                  <div
-                    className={`h-full ${hfColor} rounded-full transition-all duration-500`}
-                    style={{ width: `${hfPercent}%` }}
-                  />
-                </div>
-                <div className="text-[10px] text-text-dim font-mono mt-1.5">
-                  Liquidation at &lt; 1.0
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <>
+          <AccountSummary totals={overview.totals} loading={overview.loading} />
+          <RiskCard risk={overview.risk} />
+          <PositionsTable rows={overview.rows} loading={overview.loading} onAction={onAction} />
+        </>
       )}
 
       {/* ─── Search Bar ─── */}
@@ -282,7 +184,7 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-emerald-400 font-mono text-sm">
-                            {mInfo ? formatPercent(mInfo.supplyRate) : "--"}
+                            {mInfo ? formatApy(coreApy(mInfo.supplyRate)) : "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
@@ -399,7 +301,7 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-amber-400 font-mono text-sm">
-                            {mInfo ? formatPercent(mInfo.borrowRate) : "--"}
+                            {mInfo ? formatApy(coreApy(mInfo.borrowRate)) : "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -471,6 +373,12 @@ export default function Dashboard() {
           onClose={() => setModal(null)}
         />
       )}
+      {modal?.type === "isoLend" && <IsolatedLendModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "isoWithdraw" && <IsolatedWithdrawModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "isoBorrow" && <IsolatedBorrowModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "isoRepay" && <IsolatedRepayModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "isoAddCollateral" && <IsolatedAddCollateralModal pair={modal.pair} onClose={() => setModal(null)} />}
+      {modal?.type === "isoRemoveCollateral" && <IsolatedRemoveCollateralModal pair={modal.pair} onClose={() => setModal(null)} />}
     </div>
   );
 }
