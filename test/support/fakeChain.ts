@@ -34,6 +34,12 @@ interface FakeState {
   multicall: (calls: readonly ContractCall[]) => readonly CallResult[] | undefined;
   multicallSpy: Array<{ calls: readonly ContractCall[]; options: unknown }>;
   receipts: Map<string, "success" | "reverted">;
+  /** Block each mined receipt reports (default 1). */
+  receiptBlocks: Map<string, bigint>;
+  /** Receipt reads that fail (or a reverted receipt, as wagmi reports it), by hash. */
+  receiptErrors: Map<string, Error>;
+  /** The next send is rejected by the wallet with this error (no hash). */
+  rejectNextSend: Error | null;
   sends: SentRequest[];
   nextHash: number;
   /**
@@ -58,6 +64,9 @@ export const fake: FakeState = {
   multicall: () => undefined,
   multicallSpy: [],
   receipts: new Map(),
+  receiptBlocks: new Map(),
+  receiptErrors: new Map(),
+  rejectNextSend: null,
   sends: [],
   nextHash: 1,
   deferHashUpdate: false,
@@ -88,6 +97,9 @@ export function resetFake() {
   fake.multicall = () => undefined;
   fake.multicallSpy = [];
   fake.receipts = new Map();
+  fake.receiptBlocks = new Map();
+  fake.receiptErrors = new Map();
+  fake.rejectNextSend = null;
   fake.sends = [];
   fake.nextHash = 1;
   fake.deferHashUpdate = false;
@@ -105,8 +117,16 @@ export function setRead(address: string, functionName: string, value: unknown) {
   update((f) => f.reads.set(readKey(address, functionName), value));
 }
 
-export function mine(hash: string, status: "success" | "reverted" = "success") {
-  update((f) => f.receipts.set(hash, status));
+export function mine(hash: string, status: "success" | "reverted" = "success", blockNumber = 1n) {
+  update((f) => {
+    f.receipts.set(hash, status);
+    f.receiptBlocks.set(hash, blockNumber);
+  });
+}
+
+/** The receipt read of `hash` fails (wagmi also reports a reverted receipt this way). */
+export function failReceipt(hash: string, error = new Error("receipt unavailable")) {
+  update((f) => f.receiptErrors.set(hash, error));
 }
 
 export function hashOf(n: number) {
@@ -185,7 +205,15 @@ export const chainModule = {
   useLuminaWrite: () => {
     useFakeVersion();
     const [last, setLast] = useState<`0x${string}` | undefined>();
+    const [sendError, setSendError] = useState<Error | null>(null);
     const send = useCallback(async (request: SentRequest) => {
+      setSendError(null);
+      if (fake.rejectNextSend) {
+        const err = fake.rejectNextSend;
+        fake.rejectNextSend = null;
+        setSendError(err);
+        return undefined;
+      }
       fake.sends.push(request);
       const hash = hashOf(fake.nextHash++);
       if (fake.deferHashUpdate) pendingHashUpdates.push(() => setLast(hash));
@@ -193,16 +221,18 @@ export const chainModule = {
       return hash;
     }, []);
     const status = last ? fake.receipts.get(last) : undefined;
+    const receiptError = last ? (fake.receiptErrors.get(last) ?? null) : null;
     return {
       send,
       preview: null,
       isSimulating: false,
       isPending: false,
-      isConfirming: false,
+      isConfirming: !!last && status === undefined && receiptError === null,
       isSuccess: status === "success",
       hash: last,
-      receipt: status && last ? { transactionHash: last, status } : undefined,
-      error: null,
+      receipt: status && last ? { transactionHash: last, status, blockNumber: fake.receiptBlocks.get(last) ?? 1n } : undefined,
+      receiptError,
+      error: sendError ?? receiptError,
       reset: () => setLast(undefined),
     };
   },

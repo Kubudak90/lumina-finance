@@ -228,10 +228,18 @@ export function useLuminaWrite() {
     isConfirming: receipt.isLoading,
     isSuccess: receipt.isSuccess,
     hash: write.data,
-    /** Receipt of the last transaction sent by this hook instance. */
+    /**
+     * Receipt of the last transaction sent by this hook instance, with the block it was mined in:
+     * a success screen reads the after-state at a block at or after it (ui-usability-v1 §3.2).
+     */
     receipt: receipt.data
-      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status }
+      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status, blockNumber: receipt.data.blockNumber }
       : undefined,
+    /**
+     * The receipt of `hash` could not be read, or the transaction reverted (wagmi turns a reverted
+     * receipt into an error): the transaction will not report success.
+     */
+    receiptError: receipt.error ?? null,
     error: simulationError ?? write.error ?? receipt.error,
     reset: write.reset,
   };
