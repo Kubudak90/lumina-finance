@@ -171,7 +171,7 @@ export function IsolatedLiquidateModal({
         const walletShortNow = state.wallet < repayHeadroom(valueNow);
         return stop(
           walletShortNow
-            ? `Your wallet no longer covers these shares (${formatAmount(valueNow, assetDecimals, 6)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
+            ? `Your wallet no longer covers these shares (${formatAmount(valueNow, assetDecimals)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
             : "The shares' value grew past the approved amount; approve again.",
           walletShortNow ? "the wallet no longer covers the shares' value" : "interest pushed the value past the approved headroom",
           !walletShortNow,
@@ -264,7 +264,7 @@ export function IsolatedLiquidateModal({
         <TxForm title="Liquidate Position">
           <div className="technical-border bg-background p-3 space-y-1 text-sm">
             <SummaryRow label="Borrower" before={truncateAddress(borrower)} />
-            <SummaryRow label="Debt" before={formatToken(borrowerDebtAsset, assetDecimals, assetSymbol, 6)} />
+            <SummaryRow label="Debt" before={formatToken(borrowerDebtAsset, assetDecimals, assetSymbol)} />
             <SummaryRow label="Collateral" before={formatToken(borrowerCollateral, collateralDecimals, collateralSymbol)} />
           </div>
           <p className="text-sm text-muted-foreground">
@@ -286,7 +286,7 @@ export function IsolatedLiquidateModal({
           >
             {shareValue !== undefined && (
               <p className="text-xs text-muted-foreground mt-1">
-                Estimate: {sharesToLiquidate.toString()} shares, currently {formatToken(shareValue, assetDecimals, assetSymbol, 6)}; the pair takes
+                Estimate: {sharesToLiquidate.toString()} shares, currently {formatToken(shareValue, assetDecimals, assetSymbol)}; the pair takes
                 their value at execution.
               </p>
             )}

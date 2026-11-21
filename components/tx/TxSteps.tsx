@@ -113,7 +113,7 @@ export function TxSteps({
   const row1 = approvalRow(steps, ctx);
   const row2 = actionRow(steps, action, ctx);
   const rows: { n: number; label: string; row: Row }[] = [
-    { n: 1, label: `Approve ${symbol}${amount === undefined ? "" : ` ${formatAmount(amount, decimals, 6)}`}`, row: row1 },
+    { n: 1, label: `Approve ${symbol}${amount === undefined ? "" : ` ${formatAmount(amount, decimals)}`}`, row: row1 },
     { n: 2, label: actionLabel, row: row2 },
   ];
   return (

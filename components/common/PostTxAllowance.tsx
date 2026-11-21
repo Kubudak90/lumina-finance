@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatUnits } from "viem";
+import { formatTokenAmount } from "@/lib/format";
 
 /** After a confirmed transaction: the allowance that really remains, read from the chain. */
 export function PostTxAllowance({
@@ -35,7 +35,7 @@ export function PostTxAllowance({
         ? "reading…"
         : value === undefined
           ? "unavailable"
-          : `${Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${symbol}`}
+          : `${formatTokenAmount(value, decimals)} ${symbol}`}
     </p>
   );
 }

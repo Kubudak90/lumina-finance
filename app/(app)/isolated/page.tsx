@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { PairIcons } from "@/components/overview/FixedTokenIcon";
 import { useIsolatedPairs, type IsolatedPairInfo } from "@/hooks/useIsolatedPairs";
@@ -19,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { oldestStamp } from "@/lib/valuation";
 import { collateralPerWholeAsset, formatUsd, isolatedCollateralUsd, usdValue } from "@/lib/prices";
-import { formatApy } from "@/lib/format";
+import { formatApy, formatPairPrice, formatTokenAmount } from "@/lib/format";
 import { aprToApy, formatHealth, formatMaxLtvPercent, isolatedLtvOf } from "@/lib/risk";
 
 type DeployedPair = IsolatedPairInfo & { pair: `0x${string}` };
@@ -75,10 +74,9 @@ function PairName({ asset, collateral }: { asset: string; collateral: string }) 
   );
 }
 
-function fmt(value: bigint | undefined, decimals: number, max = 4): string {
-  if (value === undefined) return "—";
-  const n = Number(formatUnits(value, decimals));
-  return n.toLocaleString("en-US", { maximumFractionDigits: max });
+/** A token amount through the app's one amount formatter (lib/format), "—" when unavailable. */
+function fmt(value: bigint | undefined, decimals: number): string {
+  return value === undefined ? "—" : formatTokenAmount(value, decimals);
 }
 
 export default function IsolatedPage() {
@@ -218,7 +216,7 @@ export default function IsolatedPage() {
                           <td className={NUM}>
                             {p.borrowedShares > 0n ? (
                               <>
-                                <div>{fmt(p.borrowedAssets, p.assetDecimals, 6)} {p.assetSymbol}</div>
+                                <div>{fmt(p.borrowedAssets, p.assetDecimals)} {p.assetSymbol}</div>
                                 <div className="text-[10px] text-text-dim" data-testid="borrowed-usd">{formatUsd(usdValue(p.borrowedAssets, p.assetDecimals, price))}</div>
                               </>
                             ) : "—"}
@@ -318,7 +316,7 @@ export default function IsolatedPage() {
                   const util = p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`;
                   const price =
                     p.exchangeRate !== undefined
-                      ? `1 ${p.assetSymbol} = ${fmt(collateralPerWholeAsset(p.exchangeRate, p.assetDecimals), p.collateralDecimals, 6)} ${p.collateralSymbol}`
+                      ? `1 ${p.assetSymbol} = ${formatPairPrice(collateralPerWholeAsset(p.exchangeRate, p.assetDecimals), p.collateralDecimals)} ${p.collateralSymbol}`
                       : "—";
                   return (
                   <tr key={p.name} className="border-b border-border/50 hover:bg-white/5">

@@ -458,7 +458,7 @@ describe("risk card: riskiest-position priority and one overall status", () => {
     });
     render(<Dashboard />);
     expect(isolatedCard().textContent).toMatch(/USDC\/WETH/);
-    expect(isolatedCard().textContent).toMatch(/Liquidatable now/);
+    expect(isolatedCard().textContent).toMatch(/now \(at any ETH price\)/); // one wording with the modals (U4 r1 #6)
     expect(status()).toBe("Overall: Liquidatable");
   });
 
@@ -486,7 +486,7 @@ describe("risk card: riskiest-position priority and one overall status", () => {
       (f.data.core as Core).eMode = undefined;
     });
     render(<Dashboard />);
-    expect(screen.getByTestId("risk-core").textContent).toMatch(/Liquidation price: Unavailable/);
+    expect(screen.getByTestId("risk-core").textContent).toMatch(/Liquidation price: unavailable/); // one wording (U4 r1 #6)
     expect(status()).toBe("Overall: Unavailable");
   });
 });

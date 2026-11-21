@@ -134,7 +134,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
         const walletShortNow = state.wallet < repayHeadroom(valueNow);
         return stop(
           walletShortNow
-            ? `Your wallet (${formatAmount(state.wallet, assetDecimals, 6)} ${assetSymbol}) no longer covers these shares (${formatAmount(valueNow, assetDecimals, 6)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
+            ? `Your wallet (${formatAmount(state.wallet, assetDecimals)} ${assetSymbol}) no longer covers these shares (${formatAmount(valueNow, assetDecimals)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
             : "The shares' value grew past the approved amount; approve again.",
           walletShortNow ? "the wallet no longer covers the shares' value" : "interest pushed the value past the approved headroom",
           !walletShortNow,
@@ -213,7 +213,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
           )}
           <AmountField
             label="Amount"
-            aside={<>Debt: <span className="font-mono">{borrowedAmount === undefined ? "—" : formatToken(borrowedAmount, assetDecimals, assetSymbol, 6)}</span></>}
+            aside={<>Debt: <span className="font-mono">{borrowedAmount === undefined ? "—" : formatToken(borrowedAmount, assetDecimals, assetSymbol)}</span></>}
             value={intent.kind === "shares" ? "" : shownAmount}
             placeholder={intent.kind === "shares" ? `${intent.shares.toString()} shares` : "0.00"}
             decimals={assetDecimals}
@@ -234,7 +234,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
             </p>
             {plan && (
               <p className="text-xs font-mono text-muted-foreground">
-                {plan.shares.toString()} shares ≈ {formatToken(plan.assetValue, assetDecimals, assetSymbol, 6)} now
+                {plan.shares.toString()} shares ≈ {formatToken(plan.assetValue, assetDecimals, assetSymbol)} now
               </p>
             )}
             {overShares && (

@@ -1,9 +1,8 @@
-import { formatUnits } from "viem";
 import { residualAllowance } from "@/lib/approvals";
+import { formatTokenAmount } from "@/lib/format";
 
-function fmt(value: bigint, decimals: number) {
-  return Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: 6 });
-}
+/** The app's one amount formatter (lib/format): the approve amount reads as TxSteps' row 1 does. */
+const fmt = formatTokenAmount;
 
 /**
  * Current allowance, what this action approves, and (for buffered repays) an ESTIMATE of what

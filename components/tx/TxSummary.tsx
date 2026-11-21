@@ -17,7 +17,8 @@ import {
 import { HealthFactorBar } from "@/components/common/HealthFactorBar";
 import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import type { BlockStamp } from "@/hooks/useBlockStamp";
-import { UNAVAILABLE, formatBorrowLimit, formatLiquidationPrice, formatRate, formatToken } from "./format";
+import { formatLiquidationPrice } from "@/lib/format";
+import { UNAVAILABLE, formatBorrowLimit, formatRate, formatToken } from "./format";
 import type { AfterReadStatus } from "./reads";
 
 /**
@@ -120,7 +121,7 @@ function RiskWarning({ status, venue }: { status: HealthStatus; venue: "core" | 
 const coreHf = (r: CoreRisk | Unavailable) => (r.available ? r.healthFactor : undefined);
 const coreHfText = (r: CoreRisk | Unavailable) => (r.available ? formatHealth({ kind: "hf", healthFactor: r.healthFactor }).value : UNAVAILABLE);
 const coreLimitText = (r: CoreRisk | Unavailable) => (r.available ? formatBorrowLimit(r.borrowLimitUsed) : UNAVAILABLE);
-const coreLiqText = (r: CoreRisk | Unavailable) => (r.available ? formatLiquidationPrice(r.liquidationPrice, "usd") : UNAVAILABLE);
+const coreLiqText = (r: CoreRisk | Unavailable) => (r.available ? formatLiquidationPrice(r.liquidationPrice, "USD") : UNAVAILABLE);
 
 export function CoreRiskSummary({
   preview,
@@ -187,8 +188,8 @@ export function IsolatedRiskSummary({
       {after.stale && <p className="text-xs text-amber-400" data-testid="price-stale">Price data stale: the pair oracle flags its price as bad.</p>}
       <SummaryRow
         label="Liquidation price"
-        before={formatLiquidationPrice(before.liquidationPrice, "usdc")}
-        after={formatLiquidationPrice(after.liquidationPrice, "usdc")}
+        before={formatLiquidationPrice(before.liquidationPrice, "USDC")}
+        after={formatLiquidationPrice(after.liquidationPrice, "USDC")}
       />
       <SummaryRow
         label="Collateral"
@@ -324,7 +325,7 @@ export function isolatedAfterRows(r: IsolatedRisk, sides: IsolatedMarketSides): 
   const max = r.maxLTV === undefined ? UNAVAILABLE : formatMaxLtvPercent(r.maxLTV);
   return [
     { label: `LTV (max ${max})`, value: ltvText(r) },
-    { label: "Liquidation price", value: formatLiquidationPrice(r.liquidationPrice, "usdc") },
+    { label: "Liquidation price", value: formatLiquidationPrice(r.liquidationPrice, "USDC") },
     { label: "Collateral", value: formatToken(r.collateral, sides.collateralDecimals, sides.collateralSymbol) },
     { label: "Debt", value: formatToken(r.debt, sides.assetDecimals, sides.assetSymbol) },
   ];
