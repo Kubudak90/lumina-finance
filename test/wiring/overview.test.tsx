@@ -722,6 +722,11 @@ describe("layout at 1024 px (coordinator #6): no clipped actions, no overlapping
     const pairIcons = [...document.querySelectorAll("table img")];
     expect(pairIcons.length).toBeGreaterThan(0);
     for (const img of pairIcons) expect(img.parentElement!.style.width).toBe(`${img.getAttribute("width")}px`);
+    cleanup();
+    render(<MarketsPage />);
+    const marketIcons = [...document.querySelectorAll("table img")];
+    expect(marketIcons).toHaveLength(2);
+    for (const img of marketIcons) expect(img.parentElement!.style.width).toBe(`${img.getAttribute("width")}px`);
   });
 
   it("isolated Your Positions: actions on their own line under each position", () => {
