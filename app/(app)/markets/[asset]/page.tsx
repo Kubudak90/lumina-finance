@@ -91,7 +91,7 @@ export default function MarketDetailPage() {
   return (
     <div className="space-y-6">
       {/* Back link */}
-      <Link href="/markets" className="text-accent hover:text-white text-xs font-mono uppercase tracking-wider transition-colors inline-flex items-center gap-2">
+      <Link href="/markets" className="text-accent hover:text-foreground text-xs font-mono uppercase tracking-wider transition-colors inline-flex items-center gap-2">
         &larr; Back to Markets
       </Link>
 
@@ -127,7 +127,9 @@ export default function MarketDetailPage() {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left column: more stats + rate curve */}
         <div className="space-y-4 animate-in-delay-2">
-          <div className="grid grid-cols-2 gap-4">
+          {/* Side by side only where a card is wide enough for a dollar total: from sm while the page is
+              one column, again from xl beside the actions card (at 1024 px each would be ~118 px). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-4">
             <StatCard label="Total Supplied" value={formatUsd(usdValue(totalSupply, market.decimals, price))} />
             <StatCard label="Total Borrowed" value={formatUsd(usdValue(totalBorrow, market.decimals, price))} />
           </div>
@@ -145,31 +147,31 @@ export default function MarketDetailPage() {
             <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-accent mb-6">Actions</h2>
             <div className="grid grid-cols-2 gap-3">
               <button
-                className="h-12 bg-accent text-background font-bold uppercase tracking-[0.2em] text-xs hover:bg-white shadow-[0_0_20px_rgba(176,196,255,0.2)] transition-colors"
+                className="h-12 bg-accent text-accent-foreground font-bold uppercase tracking-[0.2em] text-xs hover:bg-accent-hover shadow-cta transition-colors"
                 onClick={() => setModal("supply")}
               >
                 Supply
               </button>
               <button
-                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-colors"
+                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-colors"
                 onClick={() => setModal("borrow")}
               >
                 Borrow
               </button>
               <button
-                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-colors"
+                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-colors"
                 onClick={() => setModal("withdraw")}
               >
                 Withdraw
               </button>
               <button
-                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-colors"
+                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-colors"
                 onClick={() => setModal("repay")}
               >
                 Repay
               </button>
               <button
-                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background col-span-2 transition-colors"
+                className="h-12 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground col-span-2 transition-colors"
                 onClick={() => setModal("collateral")}
               >
                 {isCollateralEnabled(market.asset) ? "Disable Collateral" : "Enable as Collateral"}

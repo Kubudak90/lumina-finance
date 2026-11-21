@@ -15,7 +15,7 @@ export function FreshnessStamp({ stamp, label }: { stamp: BlockStamp | undefined
   const status = chainFreshness(stamp.timestamp, now, STALE_AFTER_SECONDS);
   return (
     <span
-      className={`text-[10px] font-mono ${status === "stale" ? "text-amber-400" : "text-text-dim"}`}
+      className={`text-[10px] font-mono ${status === "stale" ? "text-warning-strong" : "text-text-dim"}`}
       title={status === "stale" ? "Data is older than expected; the RPC may be lagging." : undefined}
     >
       {label ? `${label}: ` : ""}as of block {stamp.number.toString()}

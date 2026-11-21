@@ -3,11 +3,13 @@
 import type { ReactNode } from "react";
 import { WagmiProvider, custom, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RainbowKitProvider, darkTheme, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { RainbowKitProvider, darkTheme, getDefaultConfig, lightTheme } from "@rainbow-me/rainbowkit";
 import { injectedWallet, rainbowWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets";
 import { luminaChain, rpcUrlFor } from "@/lib/chains";
 import { chainCheckedTransport } from "@/lib/rpcGuard";
 import { defaultQueryClientOptions } from "@/lib/queryPolicy";
+import { RAINBOW_ACCENTS } from "@/lib/theme/theme";
+import { useTheme } from "@/providers/ThemeProvider";
 import "@rainbow-me/rainbowkit/styles.css";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
@@ -63,14 +65,14 @@ const queryClient = new QueryClient({
   defaultOptions: defaultQueryClientOptions(),
 });
 
-const rainbowTheme = darkTheme({
-  accentColor: "#B0C4FF",
-  accentColorForeground: "#09090b",
-  borderRadius: "none",
-  overlayBlur: "small",
-});
+const rainbowDark = darkTheme({ ...RAINBOW_ACCENTS.dark, borderRadius: "none", overlayBlur: "small" });
+const rainbowLight = lightTheme({ ...RAINBOW_ACCENTS.light, borderRadius: "none", overlayBlur: "small" });
 
 export function Web3Provider({ children }: { children: ReactNode }) {
+  // Dark until hydrated (the server's markup), then the resolved theme. ConnectButton renders only
+  // after mount and the modal opens only on a click, so neither shows the pre-hydration theme (§3.3).
+  const { resolved, mounted } = useTheme();
+  const rainbowTheme = mounted && resolved === "light" ? rainbowLight : rainbowDark;
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>

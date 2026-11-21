@@ -70,7 +70,7 @@ export function Sidebar() {
                 ${
                   active
                     ? "bg-accent/10 text-accent"
-                    : "text-text-dim hover:bg-white/5 hover:text-foreground"
+                    : "text-text-dim hover:bg-overlay hover:text-foreground"
                 }
               `}
             >
@@ -108,7 +108,7 @@ export function Sidebar() {
       {/* Mobile overlay */}
       {isMobileOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-50 bg-scrim backdrop-blur-sm lg:hidden"
           onClick={closeMobile}
         />
       )}

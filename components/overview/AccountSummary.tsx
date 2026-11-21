@@ -29,7 +29,7 @@ export function AccountSummary({ totals, loading }: { totals: AccountTotals; loa
       value: formatUsd8(totals.netWorth),
       sub: "Deposits − debt (wallets excluded)",
       icon: TrendingUp,
-      tone: negative ? "text-rose-400" : "text-emerald-400",
+      tone: negative ? "text-destructive-strong" : "text-success-strong",
     },
     {
       id: "deposits",
@@ -46,7 +46,7 @@ export function AccountSummary({ totals, loading }: { totals: AccountTotals; loa
     <section aria-label="Account summary" className="space-y-3 animate-in">
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
         {!loading && totals.incomplete && (
-          <span className="text-[10px] font-mono text-amber-400" data-testid="totals-incomplete">
+          <span className="text-[10px] font-mono text-warning-strong" data-testid="totals-incomplete">
             Isolated positions unavailable: a pair read failed, so the totals are not shown
           </span>
         )}

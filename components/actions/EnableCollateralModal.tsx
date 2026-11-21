@@ -82,8 +82,8 @@ export function EnableCollateralModal({ asset, symbol, currentlyEnabled, onClose
           </p>
 
           {blockedNoSupply && (
-            <div className="technical-border bg-amber-500/10 border-amber-500/30 p-3 space-y-2">
-              <p className="text-sm text-amber-400 font-medium">You have no {symbol} supplied</p>
+            <div className="technical-border bg-warning-surface-subtle border-warning-border p-3 space-y-2">
+              <p className="text-sm text-warning-strong font-medium">You have no {symbol} supplied</p>
               <p className="text-xs text-muted-foreground">
                 Aave V3 requires an aToken balance before an asset can be used as collateral. Supply {symbol} first, after which it
                 will be enabled as collateral automatically.

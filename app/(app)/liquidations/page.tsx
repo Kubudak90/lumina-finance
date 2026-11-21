@@ -227,12 +227,12 @@ export default function LiquidationsPage() {
     if (hf !== undefined && hf !== null) {
       const hfBigInt = hf as bigint;
       if (hfBigInt === MAX_HEALTH_FACTOR) {
-        return <p className="text-xs font-mono text-green-500">Health Factor: Infinite (no debt)</p>;
+        return <p className="text-xs font-mono text-success-strong">Health Factor: Infinite (no debt)</p>;
       }
       const hfNum = Number(formatUnits(hfBigInt, 18));
       const isLiquidatable = hfBigInt < HEALTH_FACTOR_LIQUIDATION_THRESHOLD;
       return (
-        <p className={`text-xs font-mono font-medium ${isLiquidatable ? "text-destructive" : "text-green-500"}`}>
+        <p className={`text-xs font-mono font-medium ${isLiquidatable ? "text-destructive" : "text-success-strong"}`}>
           Health Factor: {hfNum.toFixed(4)} {isLiquidatable ? " -- LIQUIDATABLE" : " -- Healthy"}
         </p>
       );
@@ -256,10 +256,10 @@ export default function LiquidationsPage() {
             value={searchAddress}
             onChange={(e) => setSearchAddress(e.target.value)}
             placeholder="0x... borrower address"
-            className="h-12 text-sm font-mono flex-1 bg-background border border-border px-4 text-foreground placeholder:text-muted-foreground focus:border-accent/50 focus:outline-none transition-colors"
+            className="h-12 text-sm font-mono flex-1 bg-background border border-border px-4 text-foreground placeholder:text-muted-foreground focus:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent transition-colors"
           />
           <button
-            className="h-12 px-6 bg-accent text-background font-bold uppercase tracking-[0.2em] text-[10px] hover:bg-white shadow-[0_0_20px_rgba(176,196,255,0.2)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="h-12 px-6 bg-accent text-accent-foreground font-bold uppercase tracking-[0.2em] text-[10px] hover:bg-accent-hover shadow-cta transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={handleCheck}
             disabled={!isValidAddress(searchAddress)}
           >
@@ -292,7 +292,7 @@ export default function LiquidationsPage() {
               </tr>
             ) : (
               opportunities.map((o, i) => (
-                <tr key={`${o.borrower}-${o.debtAsset}-${o.collateralAsset}-${i}`} className="border-b border-border/50 hover:bg-white/5 transition-colors">
+                <tr key={`${o.borrower}-${o.debtAsset}-${o.collateralAsset}-${i}`} className="border-b border-border/50 hover:bg-overlay transition-colors">
                   <td className="px-6 py-4 font-mono text-sm">{truncateAddress(o.borrower)}</td>
                   <td className="px-6 py-4 font-mono text-sm">{o.debt}</td>
                   <td className="px-6 py-4 font-mono text-sm">{o.collateral}</td>
@@ -344,7 +344,7 @@ export default function LiquidationsPage() {
               <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-xs">No isolated debt for this address.</td></tr>
             ) : (
               isolatedOpportunities.map((o) => (
-                <tr key={o.pair.pair} className="border-b border-border/50 hover:bg-white/5">
+                <tr key={o.pair.pair} className="border-b border-border/50 hover:bg-overlay">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <TokenIcon symbol={o.pair.assetSymbol} size={20} />

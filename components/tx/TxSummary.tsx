@@ -63,10 +63,10 @@ export function SummaryRow({ label, before, after, tone }: { label: string; befo
 }
 
 const STATUS_TONE: Record<HealthStatus, string> = {
-  safe: "text-emerald-400",
-  warning: "text-amber-400",
-  danger: "text-orange-400",
-  liquidatable: "text-red-400",
+  safe: "text-success-strong",
+  warning: "text-warning-strong",
+  danger: "text-danger-strong",
+  liquidatable: "text-destructive-strong",
   unavailable: "text-muted-foreground",
 };
 
@@ -90,7 +90,7 @@ function InvalidNote({ text, clamped }: { text: string | null | undefined; clamp
 function RiskWarning({ status, venue }: { status: HealthStatus; venue: "core" | "isolated" }) {
   if (status === "liquidatable") {
     return (
-      <p className="text-xs text-red-500 font-medium">
+      <p className="text-xs text-destructive font-medium">
         {venue === "core"
           ? "After this the health factor is below 1.0: the position can be liquidated."
           : "After this the LTV is above the pair's max LTV: the position can be liquidated."}
@@ -99,14 +99,14 @@ function RiskWarning({ status, venue }: { status: HealthStatus; venue: "core" | 
   }
   if (status === "danger") {
     return (
-      <p className="text-xs text-orange-400 font-medium">
+      <p className="text-xs text-danger-strong font-medium">
         {venue === "core" ? "Health factor below 1.2 after this: high liquidation risk." : "LTV at 90% or more of the max after this: high liquidation risk."}
       </p>
     );
   }
   if (status === "warning") {
     return (
-      <p className="text-xs text-amber-400 font-medium">
+      <p className="text-xs text-warning-strong font-medium">
         {venue === "core" ? "Health factor below 1.5 after this: watch the position." : "LTV at 80% or more of the max after this: watch the position."}
       </p>
     );
@@ -185,7 +185,7 @@ export function IsolatedRiskSummary({
     <Frame profile="isolated" title="Before → after">
       <SummaryRow label={`LTV (max ${max})`} before={ltvText(before)} after={ltvText(after)} tone={STATUS_TONE[afterHealth.status]} />
       <HealthFactorBar variant="ltv" ltv={after.ltv} maxLTV={after.maxLTV} />
-      {after.stale && <p className="text-xs text-amber-400" data-testid="price-stale">Price data stale: the pair oracle flags its price as bad.</p>}
+      {after.stale && <p className="text-xs text-warning-strong" data-testid="price-stale">Price data stale: the pair oracle flags its price as bad.</p>}
       <SummaryRow
         label="Liquidation price"
         before={formatLiquidationPrice(before.liquidationPrice, "USDC")}

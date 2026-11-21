@@ -102,7 +102,7 @@ export default function Dashboard() {
             placeholder="Search assets..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-card border border-border pl-9 pr-3 py-2 text-xs font-mono text-foreground placeholder:text-text-dim focus:outline-none focus:border-accent/50 transition-colors"
+            className="w-full bg-card border border-border pl-9 pr-3 py-2 text-xs font-mono text-foreground placeholder:text-text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent focus:border-accent transition-colors"
           />
         </div>
       </div>
@@ -162,7 +162,7 @@ export default function Dashboard() {
                     return (
                       <tr
                         key={m.symbol}
-                        className="border-b border-border/50 hover:bg-white/5 transition-colors"
+                        className="border-b border-border/50 hover:bg-overlay transition-colors"
                       >
                         <td className="px-4 py-3">
                           <Link href={`/markets/${m.symbol.toLowerCase()}`} className="flex items-center gap-2.5">
@@ -184,7 +184,7 @@ export default function Dashboard() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-emerald-400 font-mono text-sm">
+                          <span className="text-success-strong font-mono text-sm">
                             {mInfo ? formatApy(coreApy(mInfo.supplyRate)) : "—"}
                           </span>
                         </td>
@@ -192,13 +192,13 @@ export default function Dashboard() {
                           <button
                             onClick={() => setModal({ type: "collateral", market: m })}
                             className={`
-                              relative inline-flex h-5 w-9 items-center rounded-full transition-colors
-                              ${hasCollateral ? "bg-accent" : "bg-muted-foreground/30"}
+                              toggle-track relative inline-flex h-5 w-9 items-center rounded-full transition-colors
+                              ${hasCollateral ? "bg-accent" : "bg-switch-track"}
                             `}
                           >
                             <span
                               className={`
-                                inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform
+                                toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-switch-thumb shadow transition-transform
                                 ${hasCollateral ? "translate-x-[18px]" : "translate-x-[3px]"}
                               `}
                             />
@@ -208,14 +208,14 @@ export default function Dashboard() {
                           <div className="flex gap-1.5 justify-end flex-wrap">
                             <button
                               onClick={() => setModal({ type: "supply", market: m })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono"
                             >
                               Supply
                             </button>
                             {supplied !== undefined && supplied > 0n && (
                               <button
                                 onClick={() => setModal({ type: "withdraw", market: m })}
-                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono"
                               >
                                 Withdraw
                               </button>
@@ -279,7 +279,7 @@ export default function Dashboard() {
                     return (
                       <tr
                         key={m.symbol}
-                        className="border-b border-border/50 hover:bg-white/5 transition-colors"
+                        className="border-b border-border/50 hover:bg-overlay transition-colors"
                       >
                         <td className="px-4 py-3">
                           <Link href={`/markets/${m.symbol.toLowerCase()}`} className="flex items-center gap-2.5">
@@ -301,7 +301,7 @@ export default function Dashboard() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-amber-400 font-mono text-sm">
+                          <span className="text-warning-strong font-mono text-sm">
                             {mInfo ? formatApy(coreApy(mInfo.borrowRate)) : "—"}
                           </span>
                         </td>
@@ -309,14 +309,14 @@ export default function Dashboard() {
                           <div className="flex gap-1.5 justify-end flex-wrap">
                             <button
                               onClick={() => setModal({ type: "borrow", market: m })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono"
                             >
                               Borrow
                             </button>
                             {borrowed !== undefined && borrowed > 0n && (
                               <button
                                 onClick={() => setModal({ type: "repay", market: m })}
-                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+                                className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono"
                               >
                                 Repay
                               </button>

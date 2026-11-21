@@ -7,7 +7,7 @@ export function DeploymentNotice() {
   const rpc = rpcUrlFor(LUMINA_CHAIN_ID);
   if (deployed && rpc) return null;
   return (
-    <div className="technical-border bg-amber-500/10 border-amber-500/30 p-4 text-sm text-amber-300 space-y-1">
+    <div className="technical-border bg-warning-surface-subtle border-warning-border p-4 text-sm text-warning-fg space-y-1">
       {!deployed && (
         <p>
           Lumina is not deployed on {NETWORK_NAME} (chain {LUMINA_CHAIN_ID}) yet: the deployment manifest is still a

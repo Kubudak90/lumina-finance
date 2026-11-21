@@ -171,7 +171,7 @@ export default function PortfolioPage() {
           </div>
           <button
             disabled
-            className="h-10 px-6 bg-accent text-background font-bold uppercase tracking-[0.2em] text-[10px] shadow-[0_0_20px_rgba(176,196,255,0.2)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="h-10 px-6 bg-accent text-accent-foreground font-bold uppercase tracking-[0.2em] text-[10px] shadow-cta disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Claim Rewards
           </button>
@@ -219,7 +219,7 @@ export default function PortfolioPage() {
           {isolatedLoading ? (
             <p className="text-sm text-muted-foreground">Loading isolated pairs…</p>
           ) : isolatedIncomplete ? (
-            <p className="text-sm text-amber-400" data-testid="isolated-unavailable">
+            <p className="text-sm text-warning-strong" data-testid="isolated-unavailable">
               Isolated positions unavailable: a position read failed, so totals are not shown.
             </p>
           ) : (

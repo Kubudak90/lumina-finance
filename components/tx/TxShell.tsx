@@ -162,7 +162,7 @@ export function AmountField({
 /** A small amber note (re-check aborts, blocked actions). */
 export function TxNotice({ children, testId }: { children: ReactNode; testId?: string }) {
   return (
-    <p className="text-xs text-amber-400 mt-1" data-testid={testId}>
+    <p className="text-xs text-warning-strong mt-1" data-testid={testId}>
       {children}
     </p>
   );

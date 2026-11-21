@@ -102,7 +102,7 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
             {withdrawAll && <p className="text-xs text-accent mt-1">Withdraw all: the whole balance at execution, interest included.</p>}
             {overSupplied && <p className="text-xs text-destructive mt-1">Amount exceeds supplied balance</p>}
             {liquidity !== undefined && effectiveAmount > liquidity && (
-              <p className="text-xs text-amber-500 mt-1">Exceeds the reserve&apos;s available liquidity</p>
+              <p className="text-xs text-warning mt-1">Exceeds the reserve&apos;s available liquidity</p>
             )}
             {!preview && (
               <div className="mt-1">

@@ -213,7 +213,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
           >
             {shortForPartial && <p className="text-xs text-destructive mt-1">Insufficient wallet balance</p>}
             {funding && !funding.fundable && (
-              <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="partial-offer">
+              <div className="text-xs text-warning-strong mt-1 space-y-1" data-testid="partial-offer">
                 <p>Your wallet does not cover the full debt plus the accrual margin (0.05%).</p>
                 <button type="button" className="underline" onClick={() => offerPartial(funding.partial)}>
                   Repay {formatAmount(funding.partial, decimals)} {symbol} (wallet balance) instead

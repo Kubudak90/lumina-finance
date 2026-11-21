@@ -10,18 +10,18 @@ type HealthFactorBarProps =
   | { variant: "ltv"; ltv: IsolatedLtvResult | undefined; maxLTV: bigint | undefined };
 
 const BAR: Record<HealthStatus, string> = {
-  safe: "bg-emerald-500",
-  warning: "bg-amber-500",
-  danger: "bg-orange-500",
-  liquidatable: "bg-red-500",
+  safe: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  liquidatable: "bg-destructive",
   unavailable: "bg-muted-foreground",
 };
 
 const TEXT: Record<HealthStatus, string> = {
-  safe: "text-emerald-400",
-  warning: "text-amber-400",
-  danger: "text-orange-400",
-  liquidatable: "text-red-400",
+  safe: "text-success-strong",
+  warning: "text-warning-strong",
+  danger: "text-danger-strong",
+  liquidatable: "text-destructive-strong",
   unavailable: "text-muted-foreground",
 };
 
@@ -44,7 +44,7 @@ export function HealthFactorBar(props: HealthFactorBarProps) {
         <span className={`text-2xl font-bold font-mono glow-text ${TEXT[health.status]}`}>{health.value}</span>
       </div>
       <div
-        className="h-2.5 bg-border overflow-hidden"
+        className="meter-track h-2.5 bg-gauge-track overflow-hidden"
         role="meter"
         aria-label={title}
         aria-valuemin={0}
@@ -52,7 +52,7 @@ export function HealthFactorBar(props: HealthFactorBarProps) {
         aria-valuenow={health.gauge}
         aria-valuetext={`${health.value}, ${health.statusLabel}`}
       >
-        <div className={`h-full ${BAR[health.status]} transition-all duration-500`} style={{ width: `${health.gauge}%` }} />
+        <div className={`meter-bar h-full ${BAR[health.status]} transition-all duration-500`} style={{ width: `${health.gauge}%` }} />
       </div>
       <div className="text-[10px] text-muted-foreground font-mono mt-1.5">
         {footer} · {health.statusLabel}
