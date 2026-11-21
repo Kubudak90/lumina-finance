@@ -500,7 +500,11 @@ function afterShareRepay(tb: VaultTotals, borrowedShares: bigint, shares: bigint
 
 /** LTV in 1e5 units, ∞ for debt without collateral or maxLTV, or unavailable. */
 export type IsolatedLtvResult =
-  | { kind: "value"; ltv: bigint }
+  /**
+   * `dust`: there IS debt, but its LTV floors to 0 in 1e5 units. Kept apart from "no debt" so an
+   * unreadable maxLTV still makes it unavailable (FE-07); only debt = 0 is Safe without maxLTV.
+   */
+  | { kind: "value"; ltv: bigint; dust?: true }
   | { kind: "infinite" }
   | { kind: "unavailable"; reason: UnavailableReason };
 
@@ -513,7 +517,8 @@ export function isolatedLtvOf(p: Pick<IsolatedState, "debt" | "collateral" | "ma
   if (p.debt === 0n) return { kind: "value", ltv: 0n };
   if (p.collateral === 0n || p.maxLTV === 0n) return { kind: "infinite" };
   if (p.exchangeRate === undefined || p.exchangeRate <= 0n) return { kind: "unavailable", reason: "missing-input" };
-  return { kind: "value", ltv: isolatedLtv(p.debt, p.collateral, p.exchangeRate)! };
+  const ltv = isolatedLtv(p.debt, p.collateral, p.exchangeRate)!;
+  return ltv === 0n ? { kind: "value", ltv, dust: true } : { kind: "value", ltv };
 }
 
 /**
@@ -685,8 +690,10 @@ export function formatHealth(input: HealthInput): HealthDisplay {
   const { ltv, maxLTV } = input;
   if (ltv === undefined || ltv.kind === "unavailable") return display("unavailable", "—", 0);
   if (ltv.kind === "infinite") return display("liquidatable", "∞", 100);
+  // No debt is Safe whatever maxLTV is, even an unreadable one (spec §3.1 boundary: debt = 0 → Safe).
+  // Dust debt (LTV floors to 0) is still debt: it needs maxLTV like any other.
+  if (ltv.ltv === 0n && !ltv.dust) return display("safe", formatLtvPercent(0n), 0);
   if (maxLTV === undefined) return display("unavailable", formatLtvPercent(ltv.ltv), 0);
-  if (ltv.ltv === 0n) return display("safe", formatLtvPercent(0n), 0);
   if (maxLTV === 0n) return display("liquidatable", formatLtvPercent(ltv.ltv), 100);
   return display(ltvStatus(ltv.ltv, maxLTV), formatLtvPercent(ltv.ltv), gaugePercent((ltv.ltv * GAUGE_FULL_BPS) / maxLTV));
 }

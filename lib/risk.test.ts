@@ -616,6 +616,33 @@ describe("formatHealth: thresholds, status, gauges", () => {
     expect(formatHealth({ kind: "ltv", ltv: { kind: "unavailable", reason: "missing-input" }, maxLTV: 75_000n }).status).toBe("unavailable");
     expect(formatHealth({ kind: "ltv", ltv: { kind: "value", ltv: 10n }, maxLTV: undefined }).status).toBe("unavailable");
   });
+
+  it("debt 0 (LTV 0%) is Safe even when maxLTV is unreadable (spec §3.1 boundary table)", () => {
+    // A collateral-only position whose pair maxLTV() read failed: no debt, so no liquidation risk.
+    const zero = isolatedLtvOf(iso({ debt: 0n, maxLTV: undefined }));
+    expect(zero).toEqual({ kind: "value", ltv: 0n });
+    expect(formatHealth({ kind: "ltv", ltv: zero, maxLTV: undefined })).toEqual({ status: "safe", statusLabel: "Safe", value: "0.00%", gauge: 0 });
+    // Debt with an unreadable maxLTV stays unavailable.
+    expect(formatHealth({ kind: "ltv", ltv: { kind: "value", ltv: 1n }, maxLTV: undefined }).status).toBe("unavailable");
+  });
+
+  it("dust debt (LTV floors to 0) is still debt: unavailable without maxLTV, liquidatable at maxLTV 0, Safe below a known max", () => {
+    // 1 USDC of debt against 100 WETH at R = 5e26: (1e6 × 5e26 / 1e18) × 1e5 / 1e20 floors to 0.
+    const dust = { debt: 1_000_000n, collateral: 100n * E18, exchangeRate: 5n * 10n ** 26n };
+    const unknownMax = isolatedLtvOf(iso({ ...dust, maxLTV: undefined }));
+    expect(unknownMax).toEqual({ kind: "value", ltv: 0n, dust: true });
+    expect(formatHealth({ kind: "ltv", ltv: unknownMax, maxLTV: undefined }).status).toBe("unavailable");
+    // maxLTV 0 with debt: ∞, liquidatable (isolatedLtvOf), and formatHealth on a dust value too.
+    expect(isolatedLtvOf(iso({ ...dust, maxLTV: 0n }))).toEqual({ kind: "infinite" });
+    expect(formatHealth({ kind: "ltv", ltv: unknownMax, maxLTV: 0n }).status).toBe("liquidatable");
+    // A known max > 0: Safe at 0.00%.
+    expect(formatHealth({ kind: "ltv", ltv: isolatedLtvOf(iso({ ...dust, maxLTV: 75_000n })), maxLTV: 75_000n })).toMatchObject({
+      status: "safe",
+      value: "0.00%",
+    });
+    // No debt at all, maxLTV unreadable: Safe (spec §3.1 boundary).
+    expect(formatHealth({ kind: "ltv", ltv: isolatedLtvOf(iso({ ...dust, debt: 0n, maxLTV: undefined })), maxLTV: undefined }).status).toBe("safe");
+  });
 });
 
 // =============================================================================================
