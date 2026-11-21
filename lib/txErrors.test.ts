@@ -3,6 +3,7 @@ import {
   ExecutionRevertedError,
   InternalRpcError,
   InvalidInputRpcError,
+  NonceMaxValueError,
   NonceTooHighError,
   NonceTooLowError,
   RawContractError,
@@ -410,12 +411,53 @@ describe("viem's real wrapping of node and wallet errors (Gemini r2)", () => {
       expect(describeTxError(err, ctx({ action: "supply" })), message).toBe(NONCE_MESSAGE);
     }
   });
+
+  /** A real send: viem's TransactionExecutionError lists the request arguments, incl. the nonce. */
+  const viaSendWithNonce = (rpcError: BaseError, venue: "core" | "isolated") =>
+    getContractError(
+      getTransactionError(rpcError, {
+        account: { address: "0x000000000000000000000000000000000000A11c", type: "json-rpc" },
+        nonce: 7,
+        to: venue === "core" ? POOL : PAIR,
+        data: "0x1234",
+      } as never),
+      {
+        abi: (venue === "core" ? POOL_ABI : ISOLATED_PAIR_ABI) as unknown as Abi,
+        address: venue === "core" ? POOL : PAIR,
+        functionName: venue === "core" ? "borrow" : "borrowAsset",
+        args: [],
+      },
+    );
+
+  it("a revert whose request arguments list 'nonce: 7' still decodes: '59' → the guard message, Insolvent → its text (U4 r2 #3)", () => {
+    const guard = viaSendWithNonce(nodeError("execution reverted: 59"), "core");
+    expect(guard.message).toMatch(/Request Arguments:[\s\S]*nonce:\s+7/);
+    expect(describeTxError(guard, ctx({ guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+
+    const insolvent = viaSendWithNonce(nodeError("execution reverted: custom error 0xed27783c"), "isolated");
+    expect(insolvent.message).toMatch(/nonce:\s+7/);
+    expect(describeTxError(insolvent, ctx({ venue: "isolated" }))).toBe(
+      "This borrow would put the position above the pair's max LTV; borrow less or add collateral.",
+    );
+
+    // Nothing decodable: the raw text, still not the nonce message.
+    const bare = viaSendWithNonce(nodeError("execution reverted"), "core");
+    expect(bare.message).toMatch(/nonce:\s+7/);
+    expect(describeTxError(bare, ctx())).not.toBe(NONCE_MESSAGE);
+  });
+
+  it("a real stale nonce on the same send path (NonceTooLowError in the chain, args listing a nonce) → the nonce message", () => {
+    const err = viaSendWithNonce(nodeError("nonce too low"), "core");
+    expect(err.walk((e) => e instanceof NonceTooLowError)).toBeInstanceOf(NonceTooLowError);
+    expect(describeTxError(err, ctx())).toBe(NONCE_MESSAGE);
+  });
 });
 
 describe("restored wallet-level messages of the removed error map (U4 r1 #5)", () => {
-  it("viem's NonceTooLowError / NonceTooHighError, bare or as a cause, by class or by name", () => {
+  it("viem's NonceTooLowError / NonceTooHighError / NonceMaxValueError, bare or as a cause, by class or by name", () => {
     expect(describeTxError(new NonceTooLowError({ nonce: 3 }), ctx())).toBe(NONCE_MESSAGE);
     expect(describeTxError(new NonceTooHighError({ nonce: 9 }), ctx())).toBe(NONCE_MESSAGE);
+    expect(describeTxError(new NonceMaxValueError({ nonce: 2 ** 64 }), ctx())).toBe(NONCE_MESSAGE);
     const wrapped = Object.assign(new Error("Transaction failed"), { cause: Object.assign(new Error("x"), { name: "NonceTooLowError" }) });
     expect(describeTxError(wrapped, ctx())).toBe(NONCE_MESSAGE);
     expect(NONCE_MESSAGE).toBe("Nonce error — try resetting your wallet activity");
