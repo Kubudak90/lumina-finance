@@ -235,7 +235,7 @@ export function LiquidateModal({
             <p className="text-sm text-muted-foreground">Max repayable: unavailable</p>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Max repayable: {formatAmount(maxDebt, debtDecimals, 6)} {debtSymbol} (
+              Max repayable: {formatAmount(maxDebt, debtDecimals)} {debtSymbol} (
               {closeFactorBps === 10_000n ? "100% close factor, HF ≤ 0.95" : "50% close factor"}
               {collateralLimited ? ", limited by the collateral at the liquidation bonus" : ""})
             </p>

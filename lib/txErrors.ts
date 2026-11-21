@@ -450,6 +450,14 @@ function shortRaw(err: unknown): string {
   return message ? message.slice(0, MAX_RAW) : "Unknown error";
 }
 
+/** A stale wallet nonce (e.g. after a local chain reset): the wallet's own activity must be reset. */
+export const NONCE_MESSAGE = "Nonce error — try resetting your wallet activity";
+/** The old error map's wording for a transfer over the balance (restored, U4 review r1 #5). */
+export const EXCEEDS_BALANCE_MESSAGE = "Amount exceeds your balance";
+
+/** viem's own stale-nonce errors (getNodeError): unambiguous, checked before any revert decoding. */
+const NONCE_ERROR_NAMES: ReadonlySet<unknown> = new Set(["NonceTooLowError", "NonceTooHighError", "NonceMaxValueError"]);
+
 function walletMessage(err: unknown): string | null {
   for (const e of causeChain(err)) {
     const text = `${typeof e.message === "string" ? e.message : ""} ${typeof e.shortMessage === "string" ? e.shortMessage : ""}`;
@@ -457,8 +465,25 @@ function walletMessage(err: unknown): string | null {
       return "Transaction rejected by user";
     }
     if (/insufficient funds/i.test(text)) return "Insufficient funds for transaction";
+    if (/exceeds balance/i.test(text)) return EXCEEDS_BALANCE_MESSAGE;
+    if (NONCE_ERROR_NAMES.has(e.name)) return NONCE_MESSAGE;
   }
   return null;
+}
+
+/**
+ * A wallet's own nonce wording ("nonce too low", "invalid nonce"), for an error nothing else
+ * explained (U4 review r2 #3). Only the error's short message and details are read: viem's full
+ * `message` also lists the request arguments ("nonce: 7"), which every sent transaction has. An
+ * error without a short message (not viem-formatted, so no argument dump) is read by its first line.
+ */
+function nonceWording(err: unknown): boolean {
+  return causeChain(err).some((e) => {
+    const short =
+      typeof e.shortMessage === "string" ? e.shortMessage : typeof e.message === "string" ? (e.message.split("\n")[0] ?? "") : "";
+    const details = typeof e.details === "string" ? e.details : "";
+    return /\bnonce\b/i.test(`${short} ${details}`);
+  });
 }
 
 /** One line for the user, from any error a send can produce. */
@@ -467,7 +492,7 @@ export function describeTxError(err: unknown, ctx: TxErrorContext): string {
   const wallet = walletMessage(err);
   if (wallet) return wallet;
   const d = decodeRevert(err, ctx.venue);
-  if (!d) return shortRaw(err);
+  if (!d) return nonceWording(err) ? NONCE_MESSAGE : shortRaw(err);
   switch (d.kind) {
     case "aave":
       return describeAave(d, ctx);

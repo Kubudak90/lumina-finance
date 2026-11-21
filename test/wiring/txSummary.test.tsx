@@ -112,7 +112,8 @@ describe("profile (a), core: HF / borrow limit / liquidation price / APY, gauge 
     expect(gauge()).toBe("3.20, Safe");
     expect(row("Borrow limit used")).toContain("66.66% → 33.33%");
     expect(row("Liquidation price")).toContain("ETH below $1,250.00 → ETH below $625.00");
-    expect(row("Supply APY")).toMatch(/3\.04%/);
+    // 3% APR → APY 3.0454…%: the one APY formatter (lib/format formatApy) rounds half-up (U4 r1 #1).
+    expect(row("Supply APY")).toMatch(/3\.05%/);
   });
 
   it("Withdraw: 0.5 WETH → HF 0.80, the gauge reads Liquidatable", () => {
@@ -136,7 +137,8 @@ describe("profile (a), core: HF / borrow limit / liquidation price / APY, gauge 
     type("Amount", "200");
     expect(row("Health factor")).toContain("1.60 → 1.33");
     expect(gauge()).toBe("1.33, Warning");
-    expect(row("Borrow APY")).toMatch(/5\.12%/);
+    // 5% APR → APY 5.1271…% → "5.13%", as on every page (U4 r1 #1).
+    expect(row("Borrow APY")).toMatch(/5\.13%/);
   });
 
   it("Repay: 500 USDC → HF 3.20", () => {

@@ -112,7 +112,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
       const f = coreFullRepayFunding(walletNow, debtNow);
       if (!f.fundable) {
         return stop(
-          `Your wallet (${formatAmount(walletNow, decimals, 6)} ${symbol}) does not cover the full debt plus the accrual margin. Repay ${formatAmount(f.partial, decimals, 6)} ${symbol} instead.`,
+          `Your wallet (${formatAmount(walletNow, decimals)} ${symbol}) does not cover the full debt plus the accrual margin. Repay ${formatAmount(f.partial, decimals)} ${symbol} instead.`,
           "the wallet no longer covers the full debt",
         );
       }
@@ -192,8 +192,8 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
       ) : (
         <TxForm title={`Repay ${symbol}`}>
           <div className="technical-border bg-background p-3 space-y-1">
-            <SummaryRow label={`${symbol} Debt`} before={debt === undefined ? "—" : formatToken(debt, decimals, symbol, 6)} />
-            <SummaryRow label="Wallet" before={walletValue === undefined ? "—" : formatToken(walletValue, decimals, symbol, 6)} />
+            <SummaryRow label={`${symbol} Debt`} before={debt === undefined ? "—" : formatToken(debt, decimals, symbol)} />
+            <SummaryRow label="Wallet" before={walletValue === undefined ? "—" : formatToken(walletValue, decimals, symbol)} />
           </div>
 
           <AmountField
@@ -216,7 +216,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
               <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="partial-offer">
                 <p>Your wallet does not cover the full debt plus the accrual margin (0.05%).</p>
                 <button type="button" className="underline" onClick={() => offerPartial(funding.partial)}>
-                  Repay {formatAmount(funding.partial, decimals, 6)} {symbol} (wallet balance) instead
+                  Repay {formatAmount(funding.partial, decimals)} {symbol} (wallet balance) instead
                 </button>
               </div>
             )}

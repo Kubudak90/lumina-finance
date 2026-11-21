@@ -2,7 +2,7 @@
 
 import { describeTxError, type TxErrorContext } from "@/lib/txErrors";
 import type { ApprovalSteps } from "@/hooks/useApprovalFlow";
-import { formatAmount } from "./format";
+import { formatExactTokenAmount } from "@/lib/format";
 
 /**
  * Two-step approve → action progress (ui-usability-v1 §3.2).
@@ -113,7 +113,8 @@ export function TxSteps({
   const row1 = approvalRow(steps, ctx);
   const row2 = actionRow(steps, action, ctx);
   const rows: { n: number; label: string; row: Row }[] = [
-    { n: 1, label: `Approve ${symbol}${amount === undefined ? "" : ` ${formatAmount(amount, decimals, 6)}`}`, row: row1 },
+    // The approve call's amount exactly (never rounded: U4 review r2 #1).
+    { n: 1, label: `Approve ${symbol}${amount === undefined ? "" : ` ${formatExactTokenAmount(amount, decimals)}`}`, row: row1 },
     { n: 2, label: actionLabel, row: row2 },
   ];
   return (

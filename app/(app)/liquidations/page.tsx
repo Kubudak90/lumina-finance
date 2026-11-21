@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { formatUnits } from "viem";
-import { truncateAddress, MAX_HEALTH_FACTOR } from "@/lib/format";
+import { truncateAddress, MAX_HEALTH_FACTOR, formatTokenAmount } from "@/lib/format";
 import { useLuminaReadContract, useLuminaReadContracts } from "@/hooks/chain";
 import { QUERY } from "@/lib/queryPolicy";
 import { LiquidateModal } from "@/components/actions/LiquidateModal";
@@ -131,8 +131,8 @@ export default function LiquidationsPage() {
           opportunities.push({
             key: `${debtMarket.asset}-${collateralMarket.asset}`,
             borrower: checkAddress,
-            debt: `${Number(formatUnits(debt, debtMarket.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })} ${debtMarket.symbol}`,
-            collateral: `${Number(formatUnits(collateral, collateralMarket.decimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })} ${collateralMarket.symbol}`,
+            debt: `${formatTokenAmount(debt, debtMarket.decimals)} ${debtMarket.symbol}`,
+            collateral: `${formatTokenAmount(collateral, collateralMarket.decimals)} ${collateralMarket.symbol}`,
             healthFactor: hfFormatted,
             debtAsset: debtMarket.asset,
             collateralAsset: collateralMarket.asset,
@@ -354,10 +354,10 @@ export default function LiquidationsPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 font-mono text-sm text-right">
-                    {o.borrowedAmount === undefined ? "unavailable" : `${Number(formatUnits(o.borrowedAmount, o.pair.assetDecimals)).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${o.pair.assetSymbol}`}
+                    {o.borrowedAmount === undefined ? "unavailable" : `${formatTokenAmount(o.borrowedAmount, o.pair.assetDecimals)} ${o.pair.assetSymbol}`}
                   </td>
                   <td className="px-6 py-4 font-mono text-sm text-right">
-                    {Number(formatUnits(o.collateral, o.pair.collateralDecimals)).toLocaleString("en-US", { maximumFractionDigits: 4 })} {o.pair.collateralSymbol}
+                    {formatTokenAmount(o.collateral, o.pair.collateralDecimals)} {o.pair.collateralSymbol}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <button

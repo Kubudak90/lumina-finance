@@ -31,6 +31,7 @@ import { NETWORK_NAME, rpcUrlFor } from "@/lib/chains";
 import { executePinnedWrite, pinChainId, pinContracts, type WriteRequest } from "@/lib/chainPin";
 import { parseChainId } from "@/lib/rpcGuard";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
+import { useMountedRef } from "@/hooks/useMountedRef";
 
 export { LUMINA_CHAIN_ID };
 
@@ -163,9 +164,19 @@ export function useActionGate(): ActionGate {
 // Pinned writes and receipts
 // ---------------------------------------------------------------------------------------------
 
+/** The component that started a send unmounted (its dialog closed) before the wallet prompt. */
+class UnmountedBeforeWalletError extends Error {
+  constructor() {
+    super("the dialog was closed before the wallet prompt; nothing was sent");
+    this.name = "UnmountedBeforeWalletError";
+  }
+}
+
 /**
  * Validate → simulate on the Lumina chain → send with `chainId` → await the receipt on the Lumina
  * chain → invalidate reads. `send` resolves to the transaction hash (undefined on failure).
+ * A send whose component unmounted while it simulated opens no wallet prompt and resolves to
+ * undefined (U4 review r1 #4): closing a dialog during "Simulating…" sends nothing.
  */
 export function useLuminaWrite() {
   const { address, chainId: walletChainId } = useAccount();
@@ -182,6 +193,9 @@ export function useLuminaWrite() {
   const [preview, setPreview] = useState<TxPreview | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [simulationError, setSimulationError] = useState<Error | null>(null);
+  // Flips at the unmounting commit (layout effect), so the check below sees a closed dialog even
+  // when the simulation resolves before the passive effects run.
+  const mountedRef = useMountedRef();
 
   useEffect(() => {
     if (!receipt.isSuccess) return;
@@ -216,16 +230,21 @@ export function useLuminaWrite() {
               setSimulating(false);
             }
           },
-          write: (params) => write.writeContractAsync(params as never),
+          // Right before the wallet prompt (after the simulation's await): still mounted?
+          write: (params) => {
+            if (!mountedRef.current) throw new UnmountedBeforeWalletError();
+            return write.writeContractAsync(params as never);
+          },
         });
       } catch (err) {
+        if (err instanceof UnmountedBeforeWalletError) return undefined; // nothing to report: no dialog
         setSimulationError(err instanceof Error ? err : new Error(String(err)));
         return undefined;
       } finally {
         setSimulating(false);
       }
     },
-    [address, walletChainId, config, write, rpc.rpcChainId],
+    [address, walletChainId, config, write, rpc.rpcChainId, mountedRef],
   );
 
   return {

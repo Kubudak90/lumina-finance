@@ -3,7 +3,6 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useAccount } from "wagmi";
-import { formatUnits } from "viem";
 import { HealthFactorBar } from "@/components/common/HealthFactorBar";
 import { SupplyTable } from "@/components/portfolio/SupplyTable";
 import { BorrowTable } from "@/components/portfolio/BorrowTable";
@@ -16,7 +15,7 @@ import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useAccountOverview } from "@/hooks/useAccountOverview";
 import { getMarketBySymbol, type MarketConfig } from "@/lib/constants";
-import { formatApy } from "@/lib/format";
+import { formatApy, formatTokenAmount } from "@/lib/format";
 import { base8ToUsd, formatUsd, usdValue } from "@/lib/prices";
 import { coreApy } from "@/lib/risk";
 import { oldestStamp } from "@/lib/valuation";
@@ -109,7 +108,7 @@ export default function PortfolioPage() {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
         symbol: p.symbol,
-        balance: formatUnits(p.supplied, p.decimals),
+        balance: formatTokenAmount(p.supplied, p.decimals),
         value: formatUsd(usdValue(p.supplied, p.decimals, priceOf(p.asset))),
         apy: formatApy(coreApy(mInfo?.supplyRate)),
       };
@@ -121,7 +120,7 @@ export default function PortfolioPage() {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
         symbol: p.symbol,
-        debt: formatUnits(p.borrowed, p.decimals),
+        debt: formatTokenAmount(p.borrowed, p.decimals),
         value: formatUsd(usdValue(p.borrowed, p.decimals, priceOf(p.asset))),
         apy: formatApy(coreApy(mInfo?.borrowRate)),
       };
@@ -133,7 +132,7 @@ export default function PortfolioPage() {
       const cfg = markets.find((m) => m.asset.toLowerCase() === p.asset.toLowerCase())?.config;
       return {
         symbol: p.symbol,
-        amount: formatUnits(p.collateral, p.decimals),
+        amount: formatTokenAmount(p.collateral, p.decimals),
         value: formatUsd(usdValue(p.collateral, p.decimals, priceOf(p.asset))),
         ltv: cfg ? `${(cfg.ltv / 100).toFixed(0)}%` : "—",
       };
