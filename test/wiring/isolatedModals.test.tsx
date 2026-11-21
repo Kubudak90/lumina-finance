@@ -166,6 +166,10 @@ describe("IsolatedBorrowModal (Codex #8, Gemini r2 M3/M4)", () => {
 
   it("an unknown position (snapshot failed or loading) makes MAX unavailable and Borrow disabled", () => {
     fake.data.positionState = { status: "unknown", position: undefined };
+    // The modal's own position read fails too (U4 r1 #3: the form reads it, not the poll cache).
+    const scripted = fake.multicall;
+    fake.multicall = (calls) =>
+      scripted(calls)?.map((r, i) => (calls[i].functionName === "getUserSnapshot" ? { status: "failure" as const, error: new Error("snapshot failed") } : r));
     render(<IsolatedBorrowModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
     fireEvent.change(screen.getByLabelText("Collateral"), { target: { value: "0.5" } });
     fireEvent.change(screen.getByLabelText("Borrow"), { target: { value: "100" } });
@@ -232,6 +236,9 @@ describe("IsolatedRepayModal (Codex #8, Gemini r2 M1/M2/M3)", () => {
       f.data.pair = { ...pairInfo, totalBorrowAmount: totals.amount, totalBorrowShares: totals.shares };
       f.data.positionState = { status: "known", position: position(100_000_000n, 100_000_000n) };
     });
+    // The modal's own read must agree with that poll (U4 r1 #3: the form reads the chain).
+    chain.accounting = [1_000_000_000_000n, 1_000_000_000_000n, totals.amount, totals.shares, 0n];
+    chain.snapshots[ALICE.toLowerCase()] = [0n, 100_000_000n, 10n ** 18n];
     setRead(USDC, "balanceOf", 100_000_000n); // exactly the value: no accrual margin
     render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
     fireEvent.click(button("MAX"));
@@ -300,6 +307,9 @@ describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3)", () => {
   beforeEach(() => {
     chain.snapshots[BORROWER.toLowerCase()] = [0n, 100n, 10n ** 17n];
     setRead(PAIR_USDC_WETH, "toBorrowAmount", 100_000_000n);
+    // The modal re-checks the borrower's solvency on-chain before sending (U2 r1 #3): 70–100 USDC
+    // of debt against 0.1 WETH ($200) is 35–50% LTV, so the scripted pair's max LTV must be below it.
+    chain.maxLtv = 30_000n;
   });
 
   it("wallet equal to the share value is not enough: the headroom is required", () => {

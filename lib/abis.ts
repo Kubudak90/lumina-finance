@@ -155,6 +155,13 @@ export const POOL_ABI = [
     inputs: [{ name: "asset", type: "address" }],
     outputs: [{ name: "", type: "uint128" }],
   },
+  {
+    name: "getUserEMode",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -411,6 +418,114 @@ export const ISOLATED_PAIR_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    // Interest accrued up to this block, without writing it: the live rate and the previewed totals.
+    name: "previewAddInterest",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "_interestEarned", type: "uint256" },
+      { name: "_feesAmount", type: "uint256" },
+      { name: "_feesShare", type: "uint256" },
+      {
+        name: "_newCurrentRateInfo",
+        type: "tuple",
+        components: [
+          { name: "lastBlock", type: "uint32" },
+          { name: "feeToProtocolRate", type: "uint32" },
+          { name: "lastTimestamp", type: "uint64" },
+          { name: "ratePerSec", type: "uint64" },
+          { name: "fullUtilizationRate", type: "uint64" },
+        ],
+      },
+      {
+        name: "_totalAsset",
+        type: "tuple",
+        components: [
+          { name: "amount", type: "uint128" },
+          { name: "shares", type: "uint128" },
+        ],
+      },
+      {
+        name: "_totalBorrow",
+        type: "tuple",
+        components: [
+          { name: "amount", type: "uint128" },
+          { name: "shares", type: "uint128" },
+        ],
+      },
+    ],
+  },
+  { name: "isInterestPaused", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "bool" }] },
+  // --- Custom errors (lumina-isolated LightlendPairConstants.sol + LightlendPairAccessControlErrors.sol) ---
+  // Every error both files declare, so a revert from any pair entry point decodes by name.
+  {
+    name: "Insolvent",
+    type: "error",
+    inputs: [
+      { name: "_borrow", type: "uint256" },
+      { name: "_collateral", type: "uint256" },
+      { name: "_exchangeRate", type: "uint256" },
+    ],
+  },
+  { name: "BorrowerSolvent", type: "error", inputs: [] },
+  {
+    name: "InsufficientAssetsInContract",
+    type: "error",
+    inputs: [
+      { name: "_assets", type: "uint256" },
+      { name: "_request", type: "uint256" },
+    ],
+  },
+  {
+    name: "SlippageTooHigh",
+    type: "error",
+    inputs: [
+      { name: "_minOut", type: "uint256" },
+      { name: "_actual", type: "uint256" },
+    ],
+  },
+  { name: "BadSwapper", type: "error", inputs: [] },
+  {
+    name: "InvalidPath",
+    type: "error",
+    inputs: [
+      { name: "_expected", type: "address" },
+      { name: "_actual", type: "address" },
+    ],
+  },
+  { name: "BadProtocolFee", type: "error", inputs: [] },
+  {
+    name: "PastDeadline",
+    type: "error",
+    inputs: [
+      { name: "_blockTimestamp", type: "uint256" },
+      { name: "_deadline", type: "uint256" },
+    ],
+  },
+  { name: "SetterRevoked", type: "error", inputs: [] },
+  { name: "ExceedsMaxOracleDeviation", type: "error", inputs: [] },
+  { name: "InvalidReceiver", type: "error", inputs: [] },
+  { name: "ZeroAddress", type: "error", inputs: [] },
+  { name: "AssetEqualsCollateral", type: "error", inputs: [] },
+  { name: "InvalidOracleDeviation", type: "error", inputs: [] },
+  { name: "InvalidUtilizationRate", type: "error", inputs: [] },
+  { name: "InvalidLTV", type: "error", inputs: [] },
+  { name: "InvalidLiquidationFee", type: "error", inputs: [] },
+  { name: "InvalidProtocolFee", type: "error", inputs: [] },
+  { name: "InvalidSeedAmount", type: "error", inputs: [] },
+  { name: "InsufficientLiquidatorBonus", type: "error", inputs: [] },
+  { name: "MaxLTVTooHighForLiquidationFee", type: "error", inputs: [] },
+  { name: "OnlyProtocolOrOwner", type: "error", inputs: [] },
+  { name: "OnlyTimelockOrOwner", type: "error", inputs: [] },
+  { name: "ExceedsBorrowLimit", type: "error", inputs: [] },
+  { name: "AccessControlRevoked", type: "error", inputs: [] },
+  { name: "RepayPaused", type: "error", inputs: [] },
+  { name: "ExceedsDepositLimit", type: "error", inputs: [] },
+  { name: "WithdrawPaused", type: "error", inputs: [] },
+  { name: "LiquidatePaused", type: "error", inputs: [] },
+  { name: "InterestPaused", type: "error", inputs: [] },
   // --- Mutative ---
   {
     name: "withdraw",

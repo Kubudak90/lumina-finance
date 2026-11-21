@@ -1,10 +1,9 @@
-import { formatUnits } from "viem";
 import type { UserIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
+import { formatTokenAmount } from "@/lib/format";
 
+/** A token amount through the app's one amount formatter (lib/format), "unavailable" when missing. */
 function fmt(value: bigint | undefined, decimals: number): string {
-  if (value === undefined) return "unavailable";
-  const n = Number(formatUnits(value, decimals));
-  return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  return value === undefined ? "unavailable" : formatTokenAmount(value, decimals);
 }
 
 export function IsolatedPositionsTable({ positions }: { positions: UserIsolatedPosition[] }) {

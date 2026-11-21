@@ -1,9 +1,11 @@
-import { formatUnits } from "viem";
 import { residualAllowance } from "@/lib/approvals";
+import { formatExactTokenAmount } from "@/lib/format";
 
-function fmt(value: bigint, decimals: number) {
-  return Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: 6 });
-}
+/**
+ * Allowance figures exactly, never rounded (lib/format, U4 review r2 #1): "Approves (exact)" is the
+ * approve call's amount, as TxSteps' row 1 shows it, and an allowance short of it never reads equal.
+ */
+const fmt = formatExactTokenAmount;
 
 /**
  * Current allowance, what this action approves, and (for buffered repays) an ESTIMATE of what

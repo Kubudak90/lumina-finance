@@ -31,6 +31,7 @@ import { NETWORK_NAME, rpcUrlFor } from "@/lib/chains";
 import { executePinnedWrite, pinChainId, pinContracts, type WriteRequest } from "@/lib/chainPin";
 import { parseChainId } from "@/lib/rpcGuard";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
+import { useMountedRef } from "@/hooks/useMountedRef";
 
 export { LUMINA_CHAIN_ID };
 
@@ -163,9 +164,19 @@ export function useActionGate(): ActionGate {
 // Pinned writes and receipts
 // ---------------------------------------------------------------------------------------------
 
+/** The component that started a send unmounted (its dialog closed) before the wallet prompt. */
+class UnmountedBeforeWalletError extends Error {
+  constructor() {
+    super("the dialog was closed before the wallet prompt; nothing was sent");
+    this.name = "UnmountedBeforeWalletError";
+  }
+}
+
 /**
  * Validate → simulate on the Lumina chain → send with `chainId` → await the receipt on the Lumina
  * chain → invalidate reads. `send` resolves to the transaction hash (undefined on failure).
+ * A send whose component unmounted while it simulated opens no wallet prompt and resolves to
+ * undefined (U4 review r1 #4): closing a dialog during "Simulating…" sends nothing.
  */
 export function useLuminaWrite() {
   const { address, chainId: walletChainId } = useAccount();
@@ -182,6 +193,9 @@ export function useLuminaWrite() {
   const [preview, setPreview] = useState<TxPreview | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [simulationError, setSimulationError] = useState<Error | null>(null);
+  // Flips at the unmounting commit (layout effect), so the check below sees a closed dialog even
+  // when the simulation resolves before the passive effects run.
+  const mountedRef = useMountedRef();
 
   useEffect(() => {
     if (!receipt.isSuccess) return;
@@ -207,17 +221,30 @@ export function useLuminaWrite() {
           walletChainId,
           simulatorChainId,
           rpcChainId: rpc.rpcChainId,
-          simulate: (params) => simulateContract(config, params as never) as Promise<{ request: object }>,
-          write: (params) => write.writeContractAsync(params as never),
+          // `simulating` ends when the simulation does: during the wallet prompt only `isPending`
+          // is set, so the flags are exclusive (simulating → confirm in wallet → confirming).
+          simulate: async (params) => {
+            try {
+              return (await simulateContract(config, params as never)) as { request: object };
+            } finally {
+              setSimulating(false);
+            }
+          },
+          // Right before the wallet prompt (after the simulation's await): still mounted?
+          write: (params) => {
+            if (!mountedRef.current) throw new UnmountedBeforeWalletError();
+            return write.writeContractAsync(params as never);
+          },
         });
       } catch (err) {
+        if (err instanceof UnmountedBeforeWalletError) return undefined; // nothing to report: no dialog
         setSimulationError(err instanceof Error ? err : new Error(String(err)));
         return undefined;
       } finally {
         setSimulating(false);
       }
     },
-    [address, walletChainId, config, write, rpc.rpcChainId],
+    [address, walletChainId, config, write, rpc.rpcChainId, mountedRef],
   );
 
   return {
@@ -228,10 +255,18 @@ export function useLuminaWrite() {
     isConfirming: receipt.isLoading,
     isSuccess: receipt.isSuccess,
     hash: write.data,
-    /** Receipt of the last transaction sent by this hook instance. */
+    /**
+     * Receipt of the last transaction sent by this hook instance, with the block it was mined in:
+     * a success screen reads the after-state at a block at or after it (ui-usability-v1 §3.2).
+     */
     receipt: receipt.data
-      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status }
+      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status, blockNumber: receipt.data.blockNumber }
       : undefined,
+    /**
+     * The receipt of `hash` could not be read, or the transaction reverted (wagmi turns a reverted
+     * receipt into an error): the transaction will not report success.
+     */
+    receiptError: receipt.error ?? null,
     error: simulationError ?? write.error ?? receipt.error,
     reset: write.reset,
   };

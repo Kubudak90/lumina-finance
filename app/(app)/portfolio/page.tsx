@@ -3,7 +3,6 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useAccount } from "wagmi";
-import { formatUnits } from "viem";
 import { HealthFactorBar } from "@/components/common/HealthFactorBar";
 import { SupplyTable } from "@/components/portfolio/SupplyTable";
 import { BorrowTable } from "@/components/portfolio/BorrowTable";
@@ -14,15 +13,18 @@ import { useUserPosition } from "@/hooks/useUserPosition";
 import { useUserIsolatedPositions } from "@/hooks/useUserIsolatedPositions";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
+import { useAccountOverview } from "@/hooks/useAccountOverview";
 import { getMarketBySymbol, type MarketConfig } from "@/lib/constants";
-import { formatPercent } from "@/lib/format";
-import { formatUsd, usdValue } from "@/lib/prices";
-import { coreLegsUsd, isolatedLegsUsd, oldestStamp } from "@/lib/valuation";
-import { chainFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
+import { formatApy, formatTokenAmount } from "@/lib/format";
+import { base8ToUsd, formatUsd, usdValue } from "@/lib/prices";
+import { coreApy } from "@/lib/risk";
+import { oldestStamp } from "@/lib/valuation";
+import { chainFreshness, type AccountLegs, type LuminaLegs } from "@/lib/portfolio/combine";
 import { useFreshnessNow } from "@/lib/portfolio/clock";
 import { STALE_AFTER_SECONDS } from "@/lib/queryPolicy";
 import { NETWORK_NAME } from "@/lib/chains";
-import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { AccountSummary } from "@/components/overview/AccountSummary";
+import { LighterToggle } from "@/components/portfolio/LighterToggle";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
 
@@ -33,6 +35,27 @@ const LighterPortfolioEmbed = dynamic(
     loading: () => <p className="text-sm text-text-dim">Loading Lighter…</p>,
   }
 );
+
+/** The Lighter embed's Lumina legs (USD numbers), only when every leg is available. */
+function luminaLegs(legs: AccountLegs): LuminaLegs | null {
+  const { coreSupplied, coreDebt, isolatedLent, isolatedDebt, isolatedCollateral } = legs;
+  if (
+    coreSupplied === undefined ||
+    coreDebt === undefined ||
+    isolatedLent === undefined ||
+    isolatedDebt === undefined ||
+    isolatedCollateral === undefined
+  ) {
+    return null;
+  }
+  return {
+    poolSupplyUsd: base8ToUsd(coreSupplied),
+    poolDebtUsd: base8ToUsd(coreDebt),
+    isolatedSupplyUsd: base8ToUsd(isolatedLent),
+    isolatedDebtUsd: base8ToUsd(isolatedDebt),
+    isolatedCollateralUsd: base8ToUsd(isolatedCollateral),
+  };
+}
 
 export default function PortfolioPage() {
   const { isConnected } = useAccount();
@@ -48,6 +71,8 @@ export default function PortfolioPage() {
   const healthFactor = accountData?.healthFactor;
   const { priceOf, stamp: priceStamp } = useOraclePrices();
   const { markets } = useAllMarkets();
+  // The same accountTotals() as the dashboard (spec §3.3): one definition of every total.
+  const { totals, loading: totalsLoading } = useAccountOverview();
   const now = useFreshnessNow();
   const [modal, setModal] = useState<{ type: "withdraw" | "repay"; market: MarketConfig } | null>(null);
 
@@ -69,35 +94,11 @@ export default function PortfolioPage() {
     );
   }
 
-  // FE-06: core legs priced by AaveOracle.getAssetPrice (keyed by asset address); isolated
-  // collateral converted through the pair oracle's exchange rate in one division. A failed read
-  // makes the affected total unavailable (Codex #9).
-  const core = coreLegsUsd(positions, priceOf);
-  // Loading or a failed snapshot read = isolated legs unavailable, never $0 (Gemini r2 M4).
-  const iso = isolatedLegsUsd(isolatedPositions, priceOf, isolatedIncomplete || isolatedLoading);
-  const totalSuppliedUsd = core.supplied;
-  const totalBorrowedUsd = core.borrowed;
-  const isolatedSupplyUsd = iso.supply;
-  const isolatedDebtUsd = iso.debt;
-  const isolatedCollateralTotal = iso.collateral;
-  // Each valuation is as old as the oldest read it combines.
+  // Freshness per source; the totals carry the combined stamp of every read they use.
   const poolValuationStamp = oldestStamp([stamp, priceStamp]);
   const isolatedValuationStamp = oldestStamp([isolatedStamp, conversionStamp, pairsStamp, priceStamp]);
-
-  const legs = [totalSuppliedUsd, totalBorrowedUsd, isolatedSupplyUsd, isolatedDebtUsd, isolatedCollateralTotal];
   // The unified Lighter view needs every leg; it gets nothing rather than a silently wrong total.
-  const lumina: LuminaLegs | null = legs.every((v) => v !== undefined)
-    ? {
-        poolSupplyUsd: totalSuppliedUsd!,
-        poolDebtUsd: totalBorrowedUsd!,
-        isolatedSupplyUsd: isolatedSupplyUsd!,
-        isolatedDebtUsd: isolatedDebtUsd!,
-        isolatedCollateralUsd: isolatedCollateralTotal!,
-      }
-    : null;
-
-  const netWorth =
-    totalSuppliedUsd !== undefined && totalBorrowedUsd !== undefined ? totalSuppliedUsd - totalBorrowedUsd : undefined;
+  const lumina = luminaLegs(totals.legs);
   const luminaStatus = chainFreshness(poolValuationStamp?.timestamp, now, STALE_AFTER_SECONDS);
   const isolatedStatus = chainFreshness(isolatedValuationStamp?.timestamp, now, STALE_AFTER_SECONDS);
 
@@ -107,9 +108,9 @@ export default function PortfolioPage() {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
         symbol: p.symbol,
-        balance: formatUnits(p.supplied, p.decimals),
+        balance: formatTokenAmount(p.supplied, p.decimals),
         value: formatUsd(usdValue(p.supplied, p.decimals, priceOf(p.asset))),
-        apy: mInfo ? formatPercent(mInfo.supplyRate) : "—",
+        apy: formatApy(coreApy(mInfo?.supplyRate)),
       };
     });
 
@@ -119,9 +120,9 @@ export default function PortfolioPage() {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
         symbol: p.symbol,
-        debt: formatUnits(p.borrowed, p.decimals),
+        debt: formatTokenAmount(p.borrowed, p.decimals),
         value: formatUsd(usdValue(p.borrowed, p.decimals, priceOf(p.asset))),
-        apy: mInfo ? formatPercent(mInfo.borrowRate) : "—",
+        apy: formatApy(coreApy(mInfo?.borrowRate)),
       };
     });
 
@@ -131,7 +132,7 @@ export default function PortfolioPage() {
       const cfg = markets.find((m) => m.asset.toLowerCase() === p.asset.toLowerCase())?.config;
       return {
         symbol: p.symbol,
-        amount: formatUnits(p.collateral, p.decimals),
+        amount: formatTokenAmount(p.collateral, p.decimals),
         value: formatUsd(usdValue(p.collateral, p.decimals, priceOf(p.asset))),
         ltv: cfg ? `${(cfg.ltv / 100).toFixed(0)}%` : "—",
       };
@@ -152,37 +153,15 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4">
-        <FreshnessStamp stamp={poolValuationStamp} label="Pool valuation" />
-        <FreshnessStamp stamp={isolatedValuationStamp} label="Isolated valuation" />
-      </div>
+      <AccountSummary totals={totals} loading={totalsLoading} />
 
-      {lumina ? (
-        <LighterPortfolioEmbed lumina={lumina} />
-      ) : (
-        <p className="text-sm text-text-dim">Unified view unavailable until every on-chain price has loaded.</p>
-      )}
-
-      <div className="grid md:grid-cols-3 gap-4 animate-in">
-        <div className="technical-border bg-card p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Total Supplied</div>
-          <div className="text-2xl font-bold font-mono tracking-tight text-foreground">
-            {formatUsd(totalSuppliedUsd)}
-          </div>
-        </div>
-        <div className="technical-border bg-card p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Total Borrowed</div>
-          <div className="text-2xl font-bold font-mono tracking-tight text-foreground">
-            {formatUsd(totalBorrowedUsd)}
-          </div>
-        </div>
-        <div className="technical-border bg-card p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Pool net</div>
-          <div className={`text-2xl font-bold font-mono tracking-tight ${netWorth === undefined || netWorth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {formatUsd(netWorth)}
-          </div>
-        </div>
-      </div>
+      <LighterToggle>
+        {lumina ? (
+          <LighterPortfolioEmbed lumina={lumina} />
+        ) : (
+          <p className="text-sm text-text-dim">Unified view unavailable until every on-chain price has loaded.</p>
+        )}
+      </LighterToggle>
 
       <div className="technical-border bg-card p-4 animate-in">
         <div className="flex items-center justify-between">

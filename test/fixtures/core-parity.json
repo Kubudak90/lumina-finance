@@ -1,0 +1,154 @@
+{
+  "chain": "lumina-monorepo harness (anvil, chain id 19529), private instance",
+  "capturedAt": "2026-11-21T07:23:57.521Z",
+  "cases": [
+    {
+      "name": "single collateral, no debt",
+      "block": "509",
+      "eMode": "0",
+      "accountData": {
+        "totalCollateralBase": "3000000000000",
+        "totalDebtBase": "0",
+        "availableBorrowsBase": "2250000000000",
+        "currentLiquidationThreshold": "8000",
+        "ltv": "7500",
+        "healthFactor": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+      },
+      "reserves": [
+        {
+          "symbol": "WETH",
+          "asset": "0x660000000000000000000000000000000000000c",
+          "decimals": 18,
+          "ltv": "7500",
+          "liquidationThreshold": "8000",
+          "price": "300000000000",
+          "supplied": "10000000000000000000",
+          "borrowed": "0",
+          "collateralEnabled": true
+        },
+        {
+          "symbol": "USDC",
+          "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+          "decimals": 6,
+          "ltv": "7500",
+          "liquidationThreshold": "7800",
+          "price": "100000000",
+          "supplied": "0",
+          "borrowed": "0",
+          "collateralEnabled": false
+        }
+      ]
+    },
+    {
+      "name": "single collateral, USDC debt",
+      "block": "515",
+      "eMode": "0",
+      "accountData": {
+        "totalCollateralBase": "3000010000000",
+        "totalDebtBase": "600018489100",
+        "availableBorrowsBase": "1649989010900",
+        "currentLiquidationThreshold": "8000",
+        "ltv": "7500",
+        "healthFactor": "3999890076053991384"
+      },
+      "reserves": [
+        {
+          "symbol": "WETH",
+          "asset": "0x660000000000000000000000000000000000000c",
+          "decimals": 18,
+          "ltv": "7500",
+          "liquidationThreshold": "8000",
+          "price": "300001000000",
+          "supplied": "10000000000000000000",
+          "borrowed": "0",
+          "collateralEnabled": true
+        },
+        {
+          "symbol": "USDC",
+          "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+          "decimals": 6,
+          "ltv": "7500",
+          "liquidationThreshold": "7800",
+          "price": "100000000",
+          "supplied": "0",
+          "borrowed": "6000184891",
+          "collateralEnabled": false
+        }
+      ]
+    },
+    {
+      "name": "two collaterals, USDC and WETH debt",
+      "block": "523",
+      "eMode": "0",
+      "accountData": {
+        "totalCollateralBase": "3800007259083",
+        "totalDebtBase": "1050074729418",
+        "availableBorrowsBase": "1799930714894",
+        "currentLiquidationThreshold": "7957",
+        "ltv": "7500",
+        "healthFactor": "2879476756599842634"
+      },
+      "reserves": [
+        {
+          "symbol": "WETH",
+          "asset": "0x660000000000000000000000000000000000000c",
+          "decimals": 18,
+          "ltv": "7500",
+          "liquidationThreshold": "8000",
+          "price": "300000000000",
+          "supplied": "10000015303612838338",
+          "borrowed": "1500054031728550218",
+          "collateralEnabled": true
+        },
+        {
+          "symbol": "USDC",
+          "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+          "decimals": 6,
+          "ltv": "7500",
+          "liquidationThreshold": "7800",
+          "price": "100000000",
+          "supplied": "8000026680",
+          "borrowed": "6000585199",
+          "collateralEnabled": true
+        }
+      ]
+    },
+    {
+      "name": "USDC collateral disabled, with debt",
+      "block": "529",
+      "eMode": "0",
+      "accountData": {
+        "totalCollateralBase": "3000015246251",
+        "totalDebtBase": "1050084255236",
+        "availableBorrowsBase": "1199927179452",
+        "currentLiquidationThreshold": "8000",
+        "ltv": "7500",
+        "healthFactor": "2285542502931454742"
+      },
+      "reserves": [
+        {
+          "symbol": "WETH",
+          "asset": "0x660000000000000000000000000000000000000c",
+          "decimals": 18,
+          "ltv": "7500",
+          "liquidationThreshold": "8000",
+          "price": "300001000000",
+          "supplied": "10000017487447920437",
+          "borrowed": "1500061742248540543",
+          "collateralEnabled": true
+        },
+        {
+          "symbol": "USDC",
+          "asset": "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+          "decimals": 6,
+          "ltv": "7500",
+          "liquidationThreshold": "7800",
+          "price": "100000000",
+          "supplied": "8000030487",
+          "borrowed": "6000642325",
+          "collateralEnabled": false
+        }
+      ]
+    }
+  ]
+}
