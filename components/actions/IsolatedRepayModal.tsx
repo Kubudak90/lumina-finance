@@ -211,7 +211,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
         <TxForm title={`Repay ${assetSymbol}`}>
           <p className="text-sm text-muted-foreground">Pay back {assetSymbol} to settle your debt in this isolated pair.</p>
           {!positionKnown && (
-            <p className="text-xs text-amber-400" data-testid="position-unknown">
+            <p className="text-xs text-warning-strong" data-testid="position-unknown">
               {read.settled
                 ? "Your position could not be read; repaying is disabled until it loads."
                 : "Reading your position; repaying is disabled until it loads."}
@@ -249,7 +249,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
               </p>
             )}
             {walletShort && (
-              <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="wallet-offer">
+              <div className="text-xs text-warning-strong mt-1 space-y-1" data-testid="wallet-offer">
                 <p>Your wallet does not cover these shares plus the accrual margin.</p>
                 {offerShares > 0n && (
                   <button type="button" className="underline" onClick={() => setIntent({ kind: "shares", shares: offerShares })}>

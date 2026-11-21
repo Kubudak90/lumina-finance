@@ -8,12 +8,12 @@ import { HEALTH_STATUS_LABEL } from "@/lib/risk";
 import type { OverallStatus, RiskSummary } from "@/lib/overview";
 
 const STATUS_TONE: Record<OverallStatus, string> = {
-  safe: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  warning: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  danger: "bg-orange-500/15 text-orange-300 border-orange-500/30",
-  liquidatable: "bg-red-500/15 text-red-300 border-red-500/30",
-  unavailable: "bg-white/5 text-amber-300 border-amber-500/30",
-  loading: "bg-white/5 text-text-dim border-border",
+  safe: "bg-success-surface text-success-fg border-success-border",
+  warning: "bg-warning-surface text-warning-fg border-warning-border",
+  danger: "bg-danger-surface text-danger-fg border-danger-border",
+  liquidatable: "bg-destructive-surface text-destructive-fg border-destructive-border",
+  unavailable: "bg-overlay text-warning-fg border-warning-border",
+  loading: "bg-overlay text-text-dim border-border",
 };
 
 export function overallStatusLabel(status: OverallStatus): string {
@@ -63,7 +63,7 @@ export function RiskCard({ risk }: { risk: RiskSummary }) {
           ) : isolated.kind === "none" ? (
             <p className="text-xs text-muted-foreground">No isolated borrow or collateral positions.</p>
           ) : isolated.kind === "unknown" ? (
-            <p className="text-xs text-amber-400" data-testid="risk-isolated-unknown">
+            <p className="text-xs text-warning-strong" data-testid="risk-isolated-unknown">
               {isolated.label}: position unavailable (the read failed), so its risk is unknown.
             </p>
           ) : (
@@ -73,7 +73,7 @@ export function RiskCard({ risk }: { risk: RiskSummary }) {
                 Liquidation price:{" "}
                 <span className="text-foreground">{formatLiquidationPrice(isolated.row.liquidationPrice, "USDC")}</span>
               </div>
-              {isolated.row.stale && <div className="text-[10px] font-mono text-amber-400">Price data stale (borrows blocked)</div>}
+              {isolated.row.stale && <div className="text-[10px] font-mono text-warning-strong">Price data stale (borrows blocked)</div>}
             </>
           )}
         </div>

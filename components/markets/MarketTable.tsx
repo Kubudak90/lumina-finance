@@ -71,14 +71,14 @@ export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
               // opens the market on click. No <a> around the <tr> (valid HTML).
               <TableRow
                 key={m.symbol}
-                className={`border-b border-border/50 hover:bg-white/5 ${onOpenMarket ? "cursor-pointer" : ""}`}
+                className={`border-b border-border/50 hover:bg-overlay ${onOpenMarket ? "cursor-pointer" : ""}`}
                 onClick={rowClick(href, onOpenMarket)}
                 data-testid="market-row"
               >
                   <TableCell className="px-2.5 xl:px-6 py-4 whitespace-normal">
                     <Link
                       href={href}
-                      className="inline-flex items-center gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="inline-flex items-center gap-3 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       {/* Fixed-size box: a bare <img> counts as 0 px when the column is sized (overlap). */}
                       <FixedTokenIcon symbol={m.symbol} size={32} />
@@ -88,15 +88,15 @@ export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
                       </div>
                     </Link>
                   </TableCell>
-                  <TableCell className="px-2.5 xl:px-6 py-4 text-emerald-400 font-mono font-medium">{formatApy(coreApy(m.supplyRate))}</TableCell>
-                  <TableCell className="px-2.5 xl:px-6 py-4 text-amber-400 font-mono font-medium">{formatApy(coreApy(m.borrowRate))}</TableCell>
+                  <TableCell className="px-2.5 xl:px-6 py-4 text-success-strong font-mono font-medium">{formatApy(coreApy(m.supplyRate))}</TableCell>
+                  <TableCell className="px-2.5 xl:px-6 py-4 text-warning-strong font-mono font-medium">{formatApy(coreApy(m.borrowRate))}</TableCell>
                   <TableCell className="px-2.5 xl:px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalSupply, m.decimals, price))}</TableCell>
                   <TableCell className="px-2.5 xl:px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalBorrow, m.decimals, price))}</TableCell>
                   <TableCell className="px-2.5 xl:px-6 py-4">
                     <div className="flex items-center gap-2">
                       {/* Decorative bar from xl; the percentage next to it shows at every width. */}
-                      <div className="hidden xl:block w-16 h-1.5 bg-border overflow-hidden">
-                        <div className="h-full bg-accent" style={{ width: `${util ?? 0}%` }} />
+                      <div className="meter-track hidden xl:block w-16 h-1.5 bg-gauge-track overflow-hidden">
+                        <div className="meter-bar h-full bg-accent" style={{ width: `${util ?? 0}%` }} />
                       </div>
                       <span className="text-sm text-muted-foreground font-mono">{util === undefined ? "—" : `${util.toFixed(0)}%`}</span>
                     </div>
@@ -109,11 +109,11 @@ export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
                       // From the reserve config, not assumed.
                       const label = marketStatus(m);
                       const tone = {
-                        Unknown: { dot: "bg-white/30", text: "text-text-dim" },
-                        Paused: { dot: "bg-red-500", text: "text-red-400" },
-                        Frozen: { dot: "bg-amber-500", text: "text-amber-400" },
-                        Active: { dot: "bg-emerald-500", text: "text-emerald-400" },
-                        Inactive: { dot: "bg-white/30", text: "text-text-dim" },
+                        Unknown: { dot: "bg-status-dot-neutral", text: "text-text-dim" },
+                        Paused: { dot: "bg-destructive", text: "text-destructive-strong" },
+                        Frozen: { dot: "bg-warning", text: "text-warning-strong" },
+                        Active: { dot: "bg-success", text: "text-success-strong" },
+                        Inactive: { dot: "bg-status-dot-neutral", text: "text-text-dim" },
                       }[label];
                       const status = { label, ...tone };
                       return (

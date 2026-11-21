@@ -11,7 +11,7 @@ export function GuardNotice({ venue, always = false }: { venue: "core" | "isolat
   return (
     <div
       className={`technical-border p-3 text-xs space-y-1 ${
-        guard.borrowAllowed ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-300" : "bg-amber-500/10 border-amber-500/30 text-amber-300"
+        guard.borrowAllowed ? "bg-success-surface-subtle border-success/20 text-success-fg" : "bg-warning-surface-subtle border-warning-border text-warning-fg"
       }`}
     >
       <p className="font-mono uppercase tracking-wider text-[10px]">Borrow status: {guard.key}</p>

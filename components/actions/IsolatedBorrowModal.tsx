@@ -195,7 +195,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
           <GuardNotice venue="isolated" />
           {/* The guard is OK but the pair oracle blocks: GuardNotice says nothing, so say why (r1 #7). */}
           {guard.borrowAllowed && (oracle === "bad" || oracle === "unreadable") && (
-            <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
+            <p className="text-xs text-warning-strong" data-testid="oracle-block-notice">
               {oracle === "unreadable"
                 ? "The pair oracle cannot be read right now; borrowing is disabled until it can."
                 : "The pair oracle flags its price as bad data; borrowing is disabled until it recovers."}{" "}
@@ -215,7 +215,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
             ariaLabel="Collateral"
           >
             {!known && (
-              <p className="text-xs text-amber-400 mt-1" data-testid="position-unknown">
+              <p className="text-xs text-warning-strong mt-1" data-testid="position-unknown">
                 {read.settled
                   ? "Your position in this pair could not be read; MAX and borrowing are unavailable until it loads."
                   : "Reading your position in this pair; MAX and borrowing are unavailable until it loads."}

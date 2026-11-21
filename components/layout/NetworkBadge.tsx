@@ -19,13 +19,13 @@ export function NetworkBadge() {
         ${
           isCorrect
             ? "bg-accent/10 text-accent border-accent/30"
-            : "bg-red-500/10 text-red-400 border-red-500/20"
+            : "bg-destructive/10 text-destructive-strong border-destructive/20"
         }
       `}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
-          isCorrect ? "bg-accent" : "bg-red-500 animate-pulse"
+          isCorrect ? "bg-accent" : "bg-destructive animate-pulse"
         }`}
       />
       {isCorrect ? NETWORK_NAME : `Wrong chain (${chainId ?? "?"})`}

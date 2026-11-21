@@ -61,7 +61,7 @@ function FullRow({ className, children }: { className: string; children: React.R
   );
 }
 const BTN =
-  "px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono whitespace-nowrap";
+  "px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono whitespace-nowrap";
 
 function PairName({ asset, collateral }: { asset: string; collateral: string }) {
   return (
@@ -183,7 +183,7 @@ export default function IsolatedPage() {
                           <td className={`${TD} font-mono text-sm whitespace-nowrap`}>
                             {pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}
                           </td>
-                          <td colSpan={4} className={`${TD} text-right text-xs text-amber-400`}>
+                          <td colSpan={4} className={`${TD} text-right text-xs text-warning-strong`}>
                             Position unavailable: the read failed or is still loading
                           </td>
                         </tr>
@@ -200,7 +200,7 @@ export default function IsolatedPage() {
                       maxLTV: p.maxLTV,
                     });
                     return (
-                      <tbody key={p.pair} className="border-b border-border/50 hover:bg-white/5">
+                      <tbody key={p.pair} className="border-b border-border/50 hover:bg-overlay">
                         <tr>
                           <td className={TD}>
                             <PairName asset={p.assetSymbol} collateral={p.collateralSymbol} />
@@ -319,14 +319,14 @@ export default function IsolatedPage() {
                       ? `1 ${p.assetSymbol} = ${formatPairPrice(collateralPerWholeAsset(p.exchangeRate, p.assetDecimals), p.collateralDecimals)} ${p.collateralSymbol}`
                       : "—";
                   return (
-                  <tr key={p.name} className="border-b border-border/50 hover:bg-white/5">
+                  <tr key={p.name} className="border-b border-border/50 hover:bg-overlay">
                     <td className={TD}>
                       <PairName asset={p.assetSymbol} collateral={p.collateralSymbol} />
                       <div className={`${BELOW_XL} text-[10px] font-mono text-text-dim mt-1 whitespace-nowrap`} data-testid="pair-price-inline" title="Pair oracle: collateral per 1 asset">
                         Price: {price}
                       </div>
                       {/* Under the name, so it shows at every width. */}
-                      {p.oracleBadData && <div className="text-[10px] font-mono text-amber-400 mt-1">borrows blocked</div>}
+                      {p.oracleBadData && <div className="text-[10px] font-mono text-warning-strong mt-1">borrows blocked</div>}
                     </td>
                     <td className={NUM}>{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
                     <td className={NUM}>
@@ -337,10 +337,10 @@ export default function IsolatedPage() {
                     </td>
                     <td className={`${NUM} ${XL}`} data-testid="pair-util">{util}</td>
                     {/* APY = aprToApy(APR from previewAddInterest); 0 while interest is paused (spec §3.1). */}
-                    <td className={`${NUM} text-emerald-400`} data-testid="pair-lend-apy">
+                    <td className={`${NUM} text-success-strong`} data-testid="pair-lend-apy">
                       {formatApy(p.lendApr && aprToApy(p.lendApr))}
                     </td>
-                    <td className={`${NUM} text-amber-400`} data-testid="pair-borrow-apy">
+                    <td className={`${NUM} text-warning-strong`} data-testid="pair-borrow-apy">
                       {formatApy(p.borrowApr && aprToApy(p.borrowApr))}
                     </td>
                     <td className={NUM}>{p.maxLTV === undefined ? "—" : formatMaxLtvPercent(p.maxLTV)}</td>

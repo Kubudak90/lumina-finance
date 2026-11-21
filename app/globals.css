@@ -3,11 +3,176 @@
 @tailwind utilities;
 
 
+/*
+ * Theme tokens (spec ui-light-theme §3.1).
+ *
+ * - Light values live on :root. Dark values are declared twice, with identical bodies (a test checks
+ *   this): under the OS dark preference unless the user chose Light, and under an explicit Dark.
+ * - Opaque tokens hold an HSL triplet and are used as hsl(var(--x) / <alpha-value>).
+ * - Alpha tokens (overlays, scrims, status surfaces and borders, the switch track, the neutral status
+ *   dot, the selection) hold a full colour value and are used as plain var(--x).
+ * - Effect tokens hold a text-shadow, box-shadow or gradient colour.
+ * - Every dark value equals the colour the app used before the light theme existed.
+ * - Colour literals belong here only, inside custom-property declarations (colour-literal guard test).
+ */
 @layer base {
   * {
     @apply border-border;
   }
   :root {
+    color-scheme: light;
+    --radius: 0rem;
+
+    --background: 225 25% 97%;
+    --foreground: 240 10% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 8%;
+    --primary: 224.28 76.33% 48.04%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 225 20% 92%;
+    --secondary-foreground: 240 10% 8%;
+    --muted: 225 18% 93%;
+    --muted-foreground: 225 10% 38%;
+    --accent: 224.28 76.33% 48.04%;
+    --accent-foreground: 0 0% 100%;
+    --accent-strong: 225.93 70.73% 40.2%;
+    --accent-hover: 225.93 70.73% 40.2%;
+    --accent-dim: 224 70% 92%;
+    --destructive: 0 72% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 225 9% 55%;
+    --input: 225 9% 50%;
+    --ring: 224.28 76.33% 48.04%;
+    --text-dim: 222 8% 40%;
+
+    --success: 163 94% 22%;
+    --success-strong: 163 94% 22%;
+    --success-fg: 163 88% 20%;
+    --success-surface: hsl(160 84% 39% / 0.12);
+    --success-surface-subtle: hsl(160 84% 39% / 0.08);
+    --success-border: hsl(160 84% 30% / 0.45);
+    --warning: 32 95% 30%;
+    --warning-strong: 32 95% 30%;
+    --warning-fg: 22 78% 26%;
+    --warning-surface: hsl(38 92% 50% / 0.16);
+    --warning-surface-subtle: hsl(38 92% 50% / 0.12);
+    --warning-border: hsl(32 95% 35% / 0.45);
+    --danger: 17 88% 35%;
+    --danger-strong: 17 88% 35%;
+    --danger-fg: 15 75% 28%;
+    --danger-surface: hsl(25 95% 53% / 0.14);
+    --danger-border: hsl(17 88% 40% / 0.45);
+    --destructive-strong: 0 72% 42%;
+    --destructive-fg: 0 63% 31%;
+    --destructive-surface: hsl(0 84% 60% / 0.12);
+    --destructive-border: hsl(0 72% 42% / 0.4);
+    --info: 201 96% 32%;
+    --info-strong: 201 96% 32%;
+    --info-fg: 201 90% 27%;
+    --info-surface: hsl(199 89% 48% / 0.12);
+    --info-border: hsl(201 96% 32% / 0.4);
+    --alert: 0 74% 38%;
+    --alert-foreground: 0 0% 100%;
+
+    --switch-thumb: 0 0% 100%;
+    --switch-track: hsl(220 9% 46%);
+    --gauge-track: 225 16% 88%;
+    --status-dot-neutral: hsl(225 9% 55%);
+    --chart-axis: 225 9% 55%;
+    --selection: hsl(224 76% 48% / 0.2);
+
+    --text-glow: none;
+    --cta-shadow: 0 1px 3px hsl(225 40% 20% / 0.2);
+    --cta-shadow-lg: 0 6px 20px hsl(224 76% 40% / 0.25);
+    --grid-line: hsl(225 30% 20% / 0.04);
+    --glow: hsl(224 76% 48% / 0.07);
+
+    --overlay: hsl(225 30% 15% / 0.05);
+    --overlay-subtle: hsl(225 30% 15% / 0.03);
+    --scrim: hsl(225 30% 8% / 0.45);
+    --dialog-scrim: hsl(225 30% 8% / 0.4);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+
+      --background: 240 6% 4%;
+      --foreground: 0 0% 100%;
+      --card: 240 5% 7%;
+      --card-foreground: 0 0% 100%;
+      --popover: 240 5% 7%;
+      --popover-foreground: 0 0% 100%;
+      --primary: 222 100% 85%;
+      --primary-foreground: 240 6% 4%;
+      --secondary: 230 20% 20%;
+      --secondary-foreground: 0 0% 100%;
+      --muted: 240 5% 13%;
+      --muted-foreground: 225 5% 57%;
+      --accent: 222 100% 85%;
+      --accent-foreground: 240 6% 4%;
+      --accent-strong: 224.81 100% 84.51%;
+      --accent-hover: 0 0% 100%;
+      --accent-dim: 231.43 20% 20.59%;
+      --destructive: 0 84% 60%;
+      --destructive-foreground: 0 0% 98%;
+      --border: 240 6% 13%;
+      --input: 240 6% 16%;
+      --ring: 222 100% 85%;
+      --text-dim: 218.18 5.12% 57.84%;
+
+      --success: 160.12 84.08% 39.41%;
+      --success-strong: 158.11 64.37% 51.57%;
+      --success-fg: 156.2 71.6% 66.86%;
+      --success-surface: hsl(160.12 84.08% 39.41% / 0.15);
+      --success-surface-subtle: hsl(160.12 84.08% 39.41% / 0.05);
+      --success-border: hsl(160.12 84.08% 39.41% / 0.3);
+      --warning: 37.69 92.13% 50.2%;
+      --warning-strong: 43.26 96.41% 56.27%;
+      --warning-fg: 45.94 96.69% 64.51%;
+      --warning-surface: hsl(37.69 92.13% 50.2% / 0.15);
+      --warning-surface-subtle: hsl(37.69 92.13% 50.2% / 0.1);
+      --warning-border: hsl(37.69 92.13% 50.2% / 0.3);
+      --danger: 24.58 94.98% 53.14%;
+      --danger-strong: 27.02 95.98% 60.98%;
+      --danger-fg: 30.66 97.16% 72.35%;
+      --danger-surface: hsl(24.58 94.98% 53.14% / 0.15);
+      --danger-border: hsl(24.58 94.98% 53.14% / 0.3);
+      --destructive-strong: 0 90.6% 70.78%;
+      --destructive-fg: 0 93.55% 81.76%;
+      --destructive-surface: hsl(0 84.24% 60.2% / 0.15);
+      --destructive-border: hsl(0 84.24% 60.2% / 0.3);
+      --info: 198.63 88.66% 48.43%;
+      --info-strong: 198.44 93.2% 59.61%;
+      --info-fg: 199.37 95.49% 73.92%;
+      --info-surface: hsl(198.63 88.66% 48.43% / 0.15);
+      --info-border: hsl(198.63 88.66% 48.43% / 0.3);
+      --alert: 0 72.22% 50.59%;
+      --alert-foreground: 0 0% 100%;
+
+      --switch-thumb: 0 0% 100%;
+      --switch-track: hsl(225 5% 57% / 0.3);
+      --gauge-track: 240 6% 13%;
+      --status-dot-neutral: hsl(0 0% 100% / 0.3);
+      --chart-axis: 0 0% 40%;
+      --selection: hsl(222 100% 85% / 0.3);
+
+      --text-glow: 0 0 10px rgba(176, 196, 255, 0.3);
+      --cta-shadow: 0 0 20px rgba(176, 196, 255, 0.2);
+      --cta-shadow-lg: 0 0 30px rgba(176, 196, 255, 0.25);
+      --grid-line: rgba(255, 255, 255, 0.02);
+      --glow: rgba(176, 196, 255, 0.05);
+
+      --overlay: hsl(0 0% 100% / 0.05);
+      --overlay-subtle: hsl(0 0% 100% / 0.02);
+      --scrim: hsl(0 0% 0% / 0.6);
+      --dialog-scrim: hsl(240 6% 4% / 0.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
     --background: 240 6% 4%;
     --foreground: 0 0% 100%;
     --card: 240 5% 7%;
@@ -22,12 +187,62 @@
     --muted-foreground: 225 5% 57%;
     --accent: 222 100% 85%;
     --accent-foreground: 240 6% 4%;
+    --accent-strong: 224.81 100% 84.51%;
+    --accent-hover: 0 0% 100%;
+    --accent-dim: 231.43 20% 20.59%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 6% 13%;
     --input: 240 6% 16%;
     --ring: 222 100% 85%;
-    --radius: 0rem;
+    --text-dim: 218.18 5.12% 57.84%;
+
+    --success: 160.12 84.08% 39.41%;
+    --success-strong: 158.11 64.37% 51.57%;
+    --success-fg: 156.2 71.6% 66.86%;
+    --success-surface: hsl(160.12 84.08% 39.41% / 0.15);
+    --success-surface-subtle: hsl(160.12 84.08% 39.41% / 0.05);
+    --success-border: hsl(160.12 84.08% 39.41% / 0.3);
+    --warning: 37.69 92.13% 50.2%;
+    --warning-strong: 43.26 96.41% 56.27%;
+    --warning-fg: 45.94 96.69% 64.51%;
+    --warning-surface: hsl(37.69 92.13% 50.2% / 0.15);
+    --warning-surface-subtle: hsl(37.69 92.13% 50.2% / 0.1);
+    --warning-border: hsl(37.69 92.13% 50.2% / 0.3);
+    --danger: 24.58 94.98% 53.14%;
+    --danger-strong: 27.02 95.98% 60.98%;
+    --danger-fg: 30.66 97.16% 72.35%;
+    --danger-surface: hsl(24.58 94.98% 53.14% / 0.15);
+    --danger-border: hsl(24.58 94.98% 53.14% / 0.3);
+    --destructive-strong: 0 90.6% 70.78%;
+    --destructive-fg: 0 93.55% 81.76%;
+    --destructive-surface: hsl(0 84.24% 60.2% / 0.15);
+    --destructive-border: hsl(0 84.24% 60.2% / 0.3);
+    --info: 198.63 88.66% 48.43%;
+    --info-strong: 198.44 93.2% 59.61%;
+    --info-fg: 199.37 95.49% 73.92%;
+    --info-surface: hsl(198.63 88.66% 48.43% / 0.15);
+    --info-border: hsl(198.63 88.66% 48.43% / 0.3);
+    --alert: 0 72.22% 50.59%;
+    --alert-foreground: 0 0% 100%;
+
+    --switch-thumb: 0 0% 100%;
+    --switch-track: hsl(225 5% 57% / 0.3);
+    --gauge-track: 240 6% 13%;
+    --status-dot-neutral: hsl(0 0% 100% / 0.3);
+    --chart-axis: 0 0% 40%;
+    --selection: hsl(222 100% 85% / 0.3);
+
+    --text-glow: 0 0 10px rgba(176, 196, 255, 0.3);
+    --cta-shadow: 0 0 20px rgba(176, 196, 255, 0.2);
+    --cta-shadow-lg: 0 0 30px rgba(176, 196, 255, 0.25);
+    --grid-line: rgba(255, 255, 255, 0.02);
+    --glow: rgba(176, 196, 255, 0.05);
+
+    --overlay: hsl(0 0% 100% / 0.05);
+    --overlay-subtle: hsl(0 0% 100% / 0.02);
+    --scrim: hsl(0 0% 0% / 0.6);
+    --dialog-scrim: hsl(240 6% 4% / 0.8);
   }
   body {
     @apply bg-background text-foreground;
@@ -35,15 +250,14 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background-image:
-      radial-gradient(circle at 50% 0%, rgba(176, 196, 255, 0.05) 0%, transparent 50%),
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      radial-gradient(circle at 50% 0%, var(--glow) 0%, transparent 50%),
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 100% 100%, 40px 40px, 40px 40px;
     background-attachment: fixed;
   }
   html {
     font-family: var(--font-sans), system-ui, sans-serif;
-    color-scheme: dark;
   }
 }
 
@@ -74,7 +288,7 @@
     opacity: 0.5;
   }
   .glow-text {
-    text-shadow: 0 0 10px rgba(176, 196, 255, 0.3);
+    text-shadow: var(--text-glow);
   }
 }
 
@@ -97,4 +311,31 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 
-::selection { background: hsl(222 100% 85% / 0.3); }
+::selection { background: var(--selection); }
+
+/*
+ * Forced colours (Windows High Contrast and similar, spec §3.1): browsers drop backgrounds and box
+ * shadows there, so meter and switch tracks get a border, and their bars and thumbs keep a system
+ * colour. Focus stays visible through the focus-scoped transparent outlines (they render in
+ * CanvasText/Highlight in this mode).
+ */
+@media (forced-colors: active) {
+  .meter-track,
+  .toggle-track {
+    border: 1px solid CanvasText;
+  }
+  .meter-bar {
+    forced-color-adjust: none;
+    background-color: Highlight;
+  }
+  .toggle-thumb {
+    forced-color-adjust: none;
+    background-color: CanvasText;
+  }
+}
+
+@media print {
+  body {
+    background-image: none;
+  }
+}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { WalletButton } from "@/components/common/WalletButton";
+import { ThemeSelector } from "@/components/theme/ThemeSelector";
 import { NETWORK_NAME } from "@/lib/chains";
 import {
   Zap,
@@ -47,20 +48,21 @@ export default function LandingPage() {
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex items-center justify-center w-8 h-8 rounded-md bg-accent/10">
               <Zap className="w-4 h-4 text-accent" />
             </div>
             <span className="text-sm font-bold tracking-widest glow-text">LUMINA</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Link
               href="/dashboard"
               className="hidden sm:inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-text-dim hover:text-foreground transition-colors"
             >
               App <ChevronRight className="w-3 h-3" />
             </Link>
+            <ThemeSelector />
             <WalletButton />
           </div>
         </div>
@@ -89,7 +91,7 @@ export default function LandingPage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
                 href="/dashboard"
-                className="group flex items-center gap-2 h-12 px-8 bg-accent text-background font-bold uppercase tracking-[0.2em] text-xs hover:bg-white shadow-[0_0_30px_rgba(176,196,255,0.25)] transition-all"
+                className="group flex items-center gap-2 h-12 px-8 bg-accent text-accent-foreground font-bold uppercase tracking-[0.2em] text-xs hover:bg-accent-hover shadow-cta-lg transition-all"
               >
                 Launch App
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
@@ -135,7 +137,7 @@ export default function LandingPage() {
               return (
                 <div
                   key={feature.title}
-                  className="technical-border bg-card p-6 hover:bg-white/[0.02] transition-colors"
+                  className="technical-border bg-card p-6 hover:bg-overlay-subtle transition-colors"
                 >
                   <div className="flex items-start gap-4">
                     <div className="p-2.5 bg-accent/10 rounded-lg shrink-0">
@@ -168,7 +170,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/dashboard"
-            className="inline-flex items-center gap-2 h-12 px-8 bg-accent text-background font-bold uppercase tracking-[0.2em] text-xs hover:bg-white shadow-[0_0_30px_rgba(176,196,255,0.25)] transition-all"
+            className="inline-flex items-center gap-2 h-12 px-8 bg-accent text-accent-foreground font-bold uppercase tracking-[0.2em] text-xs hover:bg-accent-hover shadow-cta-lg transition-all"
           >
             Launch App
             <ArrowRight className="w-4 h-4" />

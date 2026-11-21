@@ -8,10 +8,10 @@ const LABEL: Record<FreshnessStatus, string> = {
 };
 
 const TONE: Record<FreshnessStatus, string> = {
-  fresh: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  stale: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  offline: "bg-red-500/15 text-red-300 border-red-500/30",
-  unknown: "bg-white/5 text-text-dim border-border",
+  fresh: "bg-success-surface text-success-fg border-success-border",
+  stale: "bg-warning-surface text-warning-fg border-warning-border",
+  offline: "bg-destructive-surface text-destructive-fg border-destructive-border",
+  unknown: "bg-overlay text-text-dim border-border",
 };
 
 export function FreshnessBadge({
@@ -29,7 +29,7 @@ export function FreshnessBadge({
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
-          status === "fresh" ? "bg-emerald-400" : status === "stale" ? "bg-amber-400" : "bg-red-400"
+          status === "fresh" ? "bg-success-strong" : status === "stale" ? "bg-warning-strong" : "bg-destructive-strong"
         }`}
       />
       {source}

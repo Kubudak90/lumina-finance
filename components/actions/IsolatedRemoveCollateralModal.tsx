@@ -96,7 +96,7 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
         <TxForm title={`Remove ${collateralSymbol} Collateral`}>
           {hasDebt && <GuardNotice venue="isolated" />}
           {oracleOnlyBlock && (
-            <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
+            <p className="text-xs text-warning-strong" data-testid="oracle-block-notice">
               {oracle === "unreadable"
                 ? "The pair oracle cannot be read right now; removing collateral while in debt is disabled until it can."
                 : "The pair oracle flags its price as bad data; removing collateral while in debt is disabled until it recovers."}{" "}
@@ -104,7 +104,7 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
             </p>
           )}
           {!positionKnown && (
-            <p className="text-xs text-amber-400" data-testid="position-unknown">
+            <p className="text-xs text-warning-strong" data-testid="position-unknown">
               {read.settled
                 ? "Your position in this pair could not be read; removing collateral is disabled until it loads."
                 : "Reading your position in this pair; removing collateral is disabled until it loads."}

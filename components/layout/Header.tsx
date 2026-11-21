@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { WalletButton } from "@/components/common/WalletButton";
+import { ThemeSelector } from "@/components/theme/ThemeSelector";
 import { Menu } from "lucide-react";
 import { useSidebar } from "@/providers/SidebarProvider";
 
@@ -25,8 +26,8 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 h-16 border-b border-border bg-background/50 backdrop-blur-md">
-      <div className="flex items-center justify-between h-full px-6">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between h-full px-4 sm:px-6">
+        <div className="flex items-center gap-3 sm:gap-4">
           <button
             onClick={openMobile}
             className="lg:hidden text-text-dim hover:text-foreground transition-colors"
@@ -34,12 +35,14 @@ export function Header() {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-text-dim">Lumina Finance</span>
-            <span className="text-text-dim">/</span>
+            {/* Below sm the prefix makes room for the theme selector. */}
+            <span className="hidden sm:inline text-text-dim">Lumina Finance</span>
+            <span className="hidden sm:inline text-text-dim">/</span>
             <span className="text-foreground font-medium">{currentLabel}</span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeSelector />
           <WalletButton />
         </div>
       </div>

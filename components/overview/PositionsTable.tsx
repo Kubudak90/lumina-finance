@@ -15,10 +15,10 @@ export type PositionAction =
   | { venue: "isolated"; type: "lend" | "withdraw" | "borrow" | "repay" | "addCollateral" | "removeCollateral"; pair: Address };
 
 const STATUS_TEXT: Record<HealthStatus, string> = {
-  safe: "text-emerald-400",
-  warning: "text-amber-400",
-  danger: "text-orange-400",
-  liquidatable: "text-red-400",
+  safe: "text-success-strong",
+  warning: "text-warning-strong",
+  danger: "text-danger-strong",
+  liquidatable: "text-destructive-strong",
   unavailable: "text-muted-foreground",
 };
 
@@ -28,7 +28,7 @@ const TH = "text-[10px] text-text-dim uppercase font-mono tracking-wider px-3 py
 const TD = "px-3 pt-3 pb-2 align-top";
 const NUM = `${TD} font-mono text-xs whitespace-nowrap`;
 const BTN =
-  "px-2 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-accent";
+  "px-2 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-accent";
 
 const amountText = (amount: bigint | undefined, decimals: number, symbol: string) =>
   amount === undefined ? "unavailable" : `${formatTokenAmount(amount, decimals)} ${symbol}`;
@@ -81,13 +81,13 @@ function isolatedBorrowParts(row: IsolatedBorrowRow, onAction: (a: PositionActio
           <div>{row.hasDebt ? formatUsd8(row.debt.usd) : "—"}</div>
           <div className="text-text-dim">{formatUsd8(row.collateral.usd)}</div>
         </td>
-        <td className={`${NUM} text-amber-400`}>{row.hasDebt ? formatApy(row.debt.apy) : "—"}</td>
+        <td className={`${NUM} text-warning-strong`}>{row.hasDebt ? formatApy(row.debt.apy) : "—"}</td>
         <td className={`${TD} font-mono text-xs`}>
           <div className={STATUS_TEXT[row.health.status]}>
             LTV {ltvText} · {row.health.statusLabel}
           </div>
           <div className="text-text-dim">Liq.: {formatLiquidationPrice(row.liquidationPrice, "USDC")}</div>
-          {row.stale && <div className="text-amber-400">Price data stale</div>}
+          {row.stale && <div className="text-warning-strong">Price data stale</div>}
         </td>
       </>
     ),
@@ -114,12 +114,12 @@ function rowParts(row: PositionRow, onAction: (a: PositionAction) => void): RowP
             </td>
             <td className={`${TD} font-mono text-xs whitespace-nowrap`}>{amountText(row.amount, row.decimals, row.symbol)}</td>
             <td className={NUM}>{formatUsd8(row.usd)}</td>
-            <td className={`${NUM} text-emerald-400`}>{formatApy(row.apy)}</td>
+            <td className={`${NUM} text-success-strong`}>{formatApy(row.apy)}</td>
             <td className={`${TD} font-mono text-xs`}>
               {row.collateralEnabled === undefined ? (
                 <span className="text-muted-foreground">Collateral: unavailable</span>
               ) : row.collateralEnabled ? (
-                <span className="text-emerald-400">Collateral: on</span>
+                <span className="text-success-strong">Collateral: on</span>
               ) : (
                 <span className="text-text-dim">Collateral: off</span>
               )}
@@ -149,7 +149,7 @@ function rowParts(row: PositionRow, onAction: (a: PositionAction) => void): RowP
             </td>
             <td className={`${TD} font-mono text-xs whitespace-nowrap`}>{amountText(row.amount, row.decimals, row.symbol)}</td>
             <td className={NUM}>{formatUsd8(row.usd)}</td>
-            <td className={`${NUM} text-amber-400`}>{formatApy(row.apy)}</td>
+            <td className={`${NUM} text-warning-strong`}>{formatApy(row.apy)}</td>
             <td className={`${TD} font-mono text-xs`}>
               <span className={STATUS_TEXT[row.health.status]} title="Shared by every core position">
                 HF {row.health.value} · {row.health.statusLabel}
@@ -175,7 +175,7 @@ function rowParts(row: PositionRow, onAction: (a: PositionAction) => void): RowP
             </td>
             <td className={`${TD} font-mono text-xs whitespace-nowrap`}>{amountText(row.amount, row.assetDecimals, row.assetSymbol)}</td>
             <td className={NUM}>{formatUsd8(row.usd)}</td>
-            <td className={`${NUM} text-emerald-400`}>{formatApy(row.apy)}</td>
+            <td className={`${NUM} text-success-strong`}>{formatApy(row.apy)}</td>
             <td className={`${TD} font-mono text-xs text-text-dim`}>No liquidation risk</td>
           </>
         ),
@@ -196,7 +196,7 @@ function rowParts(row: PositionRow, onAction: (a: PositionAction) => void): RowP
             <td className={TD}>
               <Position icon={null} title={row.label} sub={row.venue === "core" ? "Core" : "Isolated"} />
             </td>
-            <td colSpan={COLUMNS - 1} className={`${TD} text-xs text-amber-400`}>
+            <td colSpan={COLUMNS - 1} className={`${TD} text-xs text-warning-strong`}>
               Position unavailable: the read failed
             </td>
           </>
@@ -245,7 +245,7 @@ export function PositionsTable({
             return (
               <tbody
                 key={row.key}
-                className="border-b border-border/50 hover:bg-white/5 transition-colors"
+                className="border-b border-border/50 hover:bg-overlay transition-colors"
                 data-testid="position-row"
                 data-kind={row.kind}
               >

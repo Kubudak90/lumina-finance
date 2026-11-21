@@ -1,49 +1,96 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
+/** An opaque token: an HSL triplet in the variable, so Tailwind's opacity modifiers work. */
+const opaque = (name: string) => `hsl(var(--${name}) / <alpha-value>)`;
+/** An alpha token: the variable holds a full colour (alpha included), so no <alpha-value>. */
+const alpha = (name: string) => `var(--${name})`;
+/** A status family (spec ui-light-theme §3.1): base, text, text-on-surface, surface, border. */
+const status = (name: string) => ({
+  DEFAULT: opaque(name),
+  strong: opaque(`${name}-strong`),
+  fg: opaque(`${name}-fg`),
+  surface: alpha(`${name}-surface`),
+  border: alpha(`${name}-border`),
+});
+
 const config: Config = {
-  content: ["./app/**/*.{js,ts,jsx,tsx}", "./components/**/*.{js,ts,jsx,tsx}"],
+  content: [
+    "./app/**/*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}",
+    "./lib/**/*.{js,ts,jsx,tsx}",
+    "./providers/**/*.{js,ts,jsx,tsx}",
+  ],
+  // `dark:` follows the app theme: the OS dark preference unless Light is chosen, or an explicit Dark.
+  darkMode: [
+    "variant",
+    ['@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) & }', '[data-theme="dark"] &'],
+  ],
   theme: {
     extend: {
       colors: {
-        border: "hsl(var(--border) / <alpha-value>)",
-        input: "hsl(var(--input) / <alpha-value>)",
-        ring: "hsl(var(--ring) / <alpha-value>)",
-        background: "hsl(var(--background) / <alpha-value>)",
-        foreground: "hsl(var(--foreground) / <alpha-value>)",
+        border: opaque("border"),
+        input: opaque("input"),
+        ring: opaque("ring"),
+        background: opaque("background"),
+        foreground: opaque("foreground"),
         primary: {
-          DEFAULT: "hsl(var(--primary) / <alpha-value>)",
-          foreground: "hsl(var(--primary-foreground) / <alpha-value>)",
+          DEFAULT: opaque("primary"),
+          foreground: opaque("primary-foreground"),
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
-          foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
+          DEFAULT: opaque("secondary"),
+          foreground: opaque("secondary-foreground"),
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive) / <alpha-value>)",
-          foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
+          ...status("destructive"),
+          foreground: opaque("destructive-foreground"),
         },
         muted: {
-          DEFAULT: "hsl(var(--muted) / <alpha-value>)",
-          foreground: "hsl(var(--muted-foreground) / <alpha-value>)",
+          DEFAULT: opaque("muted"),
+          foreground: opaque("muted-foreground"),
         },
         accent: {
-          DEFAULT: "hsl(var(--accent) / <alpha-value>)",
-          foreground: "hsl(var(--accent-foreground) / <alpha-value>)",
+          DEFAULT: opaque("accent"),
+          foreground: opaque("accent-foreground"),
+          strong: opaque("accent-strong"),
+          hover: opaque("accent-hover"),
+          dim: opaque("accent-dim"),
         },
         popover: {
-          DEFAULT: "hsl(var(--popover) / <alpha-value>)",
-          foreground: "hsl(var(--popover-foreground) / <alpha-value>)",
+          DEFAULT: opaque("popover"),
+          foreground: opaque("popover-foreground"),
         },
         card: {
-          DEFAULT: "hsl(var(--card) / <alpha-value>)",
-          foreground: "hsl(var(--card-foreground) / <alpha-value>)",
+          DEFAULT: opaque("card"),
+          foreground: opaque("card-foreground"),
         },
-        "text-dim": "#8E9299",
-        "accent-dim": "#2A2D3F",
-        success: "#10B981",
-        danger: "#F43F5E",
-        warning: "#F59E0B",
+        "text-dim": opaque("text-dim"),
+        // Lighter banner tints (today's 5% / 10% in dark): GuardNotice, DeploymentNotice, EnableCollateral.
+        success: { ...status("success"), "surface-subtle": alpha("success-surface-subtle") },
+        warning: { ...status("warning"), "surface-subtle": alpha("warning-surface-subtle") },
+        danger: status("danger"),
+        info: status("info"),
+        alert: {
+          DEFAULT: opaque("alert"),
+          foreground: opaque("alert-foreground"),
+        },
+        switch: {
+          thumb: opaque("switch-thumb"),
+          track: alpha("switch-track"),
+        },
+        "gauge-track": opaque("gauge-track"),
+        "status-dot-neutral": alpha("status-dot-neutral"),
+        overlay: {
+          DEFAULT: alpha("overlay"),
+          subtle: alpha("overlay-subtle"),
+        },
+        scrim: alpha("scrim"),
+        "dialog-scrim": alpha("dialog-scrim"),
+      },
+      boxShadow: {
+        cta: "var(--cta-shadow)",
+        "cta-lg": "var(--cta-shadow-lg)",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],

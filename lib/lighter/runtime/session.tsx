@@ -306,7 +306,7 @@ function LogoutButton() {
     <button
       type="button"
       onClick={handleLogout}
-      className="text-xs font-semibold border border-border px-3 py-1.5 hover:bg-white/5"
+      className="text-xs font-semibold border border-border px-3 py-1.5 hover:bg-overlay"
     >
       Clear Lighter keys and session
     </button>
@@ -358,7 +358,7 @@ function LighterPortfolioEmbedInner({ lumina }: { lumina: LuminaLegs }) {
               status={status}
               detail={snapshot.existence === "ReadOnly" ? "read-only" : snapshot.existence}
             />
-            <Link href="/lighter" className="text-[10px] font-mono uppercase tracking-wider text-accent hover:text-white">
+            <Link href="/lighter" className="text-[10px] font-mono uppercase tracking-wider text-accent hover:text-foreground">
               Full Lighter view
             </Link>
           </div>

@@ -31,6 +31,7 @@ vi.mock("@rainbow-me/rainbowkit", () => ({
   getDefaultConfig: spies.getDefaultConfig,
   RainbowKitProvider: ({ children }: { children: unknown }) => children,
   darkTheme: () => ({}),
+  lightTheme: () => ({}),
 }));
 vi.mock("@rainbow-me/rainbowkit/wallets", () => ({
   injectedWallet: "injectedWallet",

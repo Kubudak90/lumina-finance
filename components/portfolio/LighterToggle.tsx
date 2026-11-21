@@ -64,7 +64,7 @@ export function LighterToggle({ children }: { children: ReactNode }) {
           aria-expanded={show}
           aria-controls="lighter-section"
           onClick={() => setShow(!show)}
-          className="px-3 py-1.5 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
+          className="px-3 py-1.5 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-accent-foreground transition-all font-mono"
         >
           {show ? "Hide Lighter" : "Show Lighter"}
         </button>

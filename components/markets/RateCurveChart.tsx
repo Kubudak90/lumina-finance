@@ -12,6 +12,14 @@ import {
 } from "recharts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
+/**
+ * Colours are CSS variables, resolved by the browser at paint time (spec ui-light-theme §3.2), so a
+ * theme change restyles the SVG without a re-render. Through `--chart-axis` the axes keep today's grey
+ * in dark (Recharts' default axis colour) and use the border grey in light.
+ */
+const AXIS = "hsl(var(--chart-axis))";
+const TICK = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
+
 interface RateCurveChartProps {
   baseRate: number;
   slope1: number;
@@ -60,16 +68,19 @@ export function RateCurveChart({
             />
             <XAxis
               dataKey="utilization"
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+              stroke={AXIS}
+              tick={TICK}
               tickFormatter={(v) => `${v}%`}
             />
             <YAxis
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+              stroke={AXIS}
+              tick={TICK}
               tickFormatter={(v) => `${v.toFixed(0)}%`}
             />
             <Tooltip
               contentStyle={{
-                background: "hsl(var(--card))",
+                backgroundColor: "hsl(var(--card))",
+                color: "hsl(var(--card-foreground))",
                 border: "1px solid hsl(var(--border))",
                 borderRadius: 0,
               }}
@@ -79,7 +90,7 @@ export function RateCurveChart({
             <Line
               type="monotone"
               dataKey="borrowRate"
-              stroke="#B0C4FF"
+              stroke="hsl(var(--accent-strong))"
               strokeWidth={2}
               dot={false}
               name="Borrow Rate"
@@ -87,7 +98,7 @@ export function RateCurveChart({
             <Line
               type="monotone"
               dataKey="supplyRate"
-              stroke="#10B981"
+              stroke="hsl(var(--success))"
               strokeWidth={2}
               dot={false}
               name="Supply Rate"

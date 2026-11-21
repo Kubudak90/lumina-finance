@@ -46,10 +46,10 @@ const TONE: Record<StepRowState, string> = {
   simulating: "text-accent",
   "confirm in wallet": "text-accent",
   confirming: "text-accent",
-  done: "text-emerald-400",
-  failed: "text-red-400",
-  cancelled: "text-amber-400",
-  aborted: "text-amber-400",
+  done: "text-success-strong",
+  failed: "text-destructive-strong",
+  cancelled: "text-warning-strong",
+  aborted: "text-warning-strong",
 };
 
 /** Row 1 from the flow's step-1 state. */
