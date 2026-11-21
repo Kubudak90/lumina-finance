@@ -108,7 +108,8 @@ export default function Dashboard() {
       </div>
 
       {/* ─── Supply & Borrow Tables ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Side by side only from 2xl: at 1280 px each half is too narrow for its actions. */}
+      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
         {/* Supply Markets */}
         <div className="animate-in-delay-1">
           <div className="flex items-center gap-2 mb-4">
@@ -204,7 +205,7 @@ export default function Dashboard() {
                           </button>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex gap-1.5 justify-end">
+                          <div className="flex gap-1.5 justify-end flex-wrap">
                             <button
                               onClick={() => setModal({ type: "supply", market: m })}
                               className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
@@ -305,7 +306,7 @@ export default function Dashboard() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex gap-1.5 justify-end">
+                          <div className="flex gap-1.5 justify-end flex-wrap">
                             <button
                               onClick={() => setModal({ type: "borrow", market: m })}
                               className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"

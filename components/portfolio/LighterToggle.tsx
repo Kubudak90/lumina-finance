@@ -6,23 +6,29 @@ import { useSyncExternalStore, type ReactNode } from "react";
 export const SHOW_LIGHTER_KEY = "lumina.portfolio.showLighter";
 
 const listeners = new Set<() => void>();
-/** This session's choice, used only when storage is unavailable (private mode, blocked site data). */
-let fallback = false;
+/**
+ * This session's choice while storage cannot be written (private mode, blocked site data, a full
+ * quota): `null` while storage works. It wins over a readable-but-stale stored value, so the toggle
+ * still opens and closes when only `setItem` throws (Gemini r1 #2).
+ */
+let unsaved: boolean | null = null;
 
 function read(): boolean {
+  if (unsaved !== null) return unsaved;
   try {
     return window.localStorage.getItem(SHOW_LIGHTER_KEY) === "1";
   } catch {
-    return fallback;
+    return false;
   }
 }
 
 function write(value: boolean) {
-  fallback = value;
   try {
     window.localStorage.setItem(SHOW_LIGHTER_KEY, value ? "1" : "0");
+    unsaved = null;
   } catch {
-    // Storage unavailable: the choice lasts for this session only.
+    // Storage not writable: the choice lasts for this session only.
+    unsaved = value;
   }
   for (const listener of [...listeners]) listener();
 }

@@ -50,16 +50,20 @@ export function MarketTable({ markets }: MarketTableProps) {
                   : 0;
             const price = priceOf(m.asset);
             return (
-              <Link key={m.symbol} href={`/markets/${m.symbol.toLowerCase()}`} className="contents">
-                <TableRow className="cursor-pointer border-b border-border/50 hover:bg-white/5">
+              // The whole row is clickable through a "stretched" link in the asset cell (its ::after
+              // covers the row): valid HTML (no <a> around a <tr>) and keyboard-focusable.
+              <TableRow key={m.symbol} className="relative cursor-pointer border-b border-border/50 hover:bg-white/5">
                   <TableCell className="px-6 py-4">
-                    <div className="flex items-center gap-3">
+                    <Link
+                      href={`/markets/${m.symbol.toLowerCase()}`}
+                      className="flex items-center gap-3 after:absolute after:inset-0 after:content-['']"
+                    >
                       <TokenIcon symbol={m.symbol} />
                       <div>
                         <div className="font-semibold text-foreground">{m.symbol}</div>
                         <div className="text-xs text-muted-foreground">{m.name}</div>
                       </div>
-                    </div>
+                    </Link>
                   </TableCell>
                   <TableCell className="px-6 py-4 text-emerald-400 font-mono font-medium">{formatApy(coreApy(m.supplyRate))}</TableCell>
                   <TableCell className="px-6 py-4 text-amber-400 font-mono font-medium">{formatApy(coreApy(m.borrowRate))}</TableCell>
@@ -96,8 +100,7 @@ export function MarketTable({ markets }: MarketTableProps) {
                       );
                     })()}
                   </TableCell>
-                </TableRow>
-              </Link>
+              </TableRow>
             );
           })}
         </TableBody>

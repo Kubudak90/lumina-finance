@@ -321,6 +321,8 @@ describe("totals: the dashboard and the portfolio both show accountTotals(), equ
     expect(dashboard["net-worth"]).toBe("$13,500.00");
     expect(dashboard.deposits).toBe("$16,000.00");
     expect(dashboard.debt).toBe("$2,500.00");
+    // (10,000 × APY 5% + 1,000 × APY 3% − 2,000 × APY 4% − 500 × APY 6%) / 13,500 = 3.1898…%
+    expect(dashboard["net-apy"]).toBe("3.19%");
     // The old core-only "Earning interest" subtitle is gone; deposits include isolated collateral.
     expect(screen.queryByText("Earning interest")).toBeNull();
     expect(screen.getByText("Core + isolated deposits and collateral")).toBeTruthy();
@@ -513,19 +515,74 @@ describe("portfolio: no 'Pool net', Lighter behind a remembered toggle", () => {
   });
 
   it("storage that throws (private mode, blocked site data) → collapsed, and the toggle still works", async () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
+    const storage = stubStorage({ getThrows: true, setThrows: true });
     render(<PortfolioPage />);
     expect(screen.queryByTestId("lighter-embed")).toBeNull();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Show Lighter" })));
     expect(await screen.findByTestId("lighter-embed")).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Hide Lighter" })));
+    expect(screen.queryByTestId("lighter-embed")).toBeNull();
+    expect(storage.calls).toEqual({ get: storage.calls.get, set: 2 });
+    expect(storage.calls.get).toBeGreaterThan(0);
+    await clearSessionChoice();
+  });
+
+  it("storage readable but not writable (QuotaExceededError on setItem only) → the toggle still opens and closes (Gemini r1 #2)", async () => {
+    const storage = stubStorage({ setThrows: true, initial: { [SHOW_LIGHTER_KEY]: "0" } });
+    render(<PortfolioPage />);
+    expect(screen.queryByTestId("lighter-embed")).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Show Lighter" })));
+    expect(await screen.findByTestId("lighter-embed")).toBeTruthy();
+    // The stored value is still "0": the session choice wins while storage cannot be written.
+    expect(storage.map.get(SHOW_LIGHTER_KEY)).toBe("0");
+    expect(storage.calls.set).toBe(1);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Hide Lighter" })));
+    expect(screen.queryByTestId("lighter-embed")).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Show Lighter" })));
+    expect(await screen.findByTestId("lighter-embed")).toBeTruthy();
+    await clearSessionChoice();
   });
 });
+
+/**
+ * Replace window.localStorage with a Map-backed fake whose reads and/or writes throw. (happy-dom's
+ * localStorage is a Proxy with its own bound methods, so a Storage.prototype spy would not reach it.)
+ */
+function stubStorage(opts: { getThrows?: boolean; setThrows?: boolean; initial?: Record<string, string> }) {
+  const map = new Map(Object.entries(opts.initial ?? {}));
+  const calls = { get: 0, set: 0 };
+  const fake = {
+    getItem: (k: string) => {
+      calls.get += 1;
+      if (opts.getThrows) throw new DOMException("denied", "SecurityError");
+      return map.get(k) ?? null;
+    },
+    setItem: (k: string, v: string) => {
+      calls.set += 1;
+      if (opts.setThrows) throw new DOMException("quota", "QuotaExceededError");
+      map.set(k, v);
+    },
+    removeItem: (k: string) => void map.delete(k),
+    clear: () => map.clear(),
+    key: () => null,
+    get length() {
+      return map.size;
+    },
+  };
+  vi.spyOn(window, "localStorage", "get").mockReturnValue(fake as unknown as Storage);
+  return { map, calls };
+}
+
+/** Writable storage again: one successful write clears the toggle's session-only choice. */
+async function clearSessionChoice() {
+  vi.restoreAllMocks();
+  cleanup();
+  render(<PortfolioPage />);
+  const button = screen.getByRole("button", { name: /Lighter/ });
+  await act(async () => fireEvent.click(button));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: /Lighter/ })));
+  cleanup();
+}
 
 describe("APY cells use aprToApy on every page (never the raw APR)", () => {
   const expectApys = (apys: string[]) => {
@@ -554,6 +611,24 @@ describe("APY cells use aprToApy on every page (never the raw APR)", () => {
     expectApys([RATES.usdcSupply.apy, RATES.usdcBorrow.apy]);
   });
 
+  it("a paused pair (interest paused → APRs 0) reads 0.00%, not — (spec §3.1, r2 #1)", () => {
+    const paused = { lendApr: new Decimal(0), borrowApr: new Decimal(0), interestPaused: true };
+    update((f) => {
+      f.data.pairs = [pairInfo("P1"), { ...pairInfo("P2"), ...paused }];
+      (f.data.iso as Iso).positions = [{ ...p1Position(), ...paused }, p2CollateralOnly()];
+    });
+    render(<IsolatedPage />);
+    expect(screen.getAllByTestId("pair-lend-apy").map((c) => c.textContent)).toEqual([RATES.p1Lend.apy, "0.00%"]);
+    expect(screen.getAllByTestId("pair-borrow-apy").map((c) => c.textContent)).toEqual([RATES.p1Borrow.apy, "0.00%"]);
+    cleanup();
+    render(<Dashboard />);
+    expect(rowOf("isolatedLend", /USDC\/WETH/).textContent).toMatch(/0\.00%/);
+    expect(rowOf("isolatedBorrow", /USDC\/WETH/).textContent).toMatch(/0\.00%/);
+    expect(rowOf("isolatedBorrow", /USDC\/WETH/).textContent).not.toMatch(/—/);
+    // A paused pair still has a net APY (its 0% is known), not "—".
+    expect(screen.getByTestId("summary-net-apy").textContent).not.toBe("—");
+  });
+
   it("isolated page: Lend APY and Borrow APY per pair", () => {
     render(<IsolatedPage />);
     expect(screen.getAllByTestId("pair-lend-apy").map((c) => c.textContent)).toEqual([RATES.p1Lend.apy, RATES.p2Lend.apy]);
@@ -569,6 +644,12 @@ describe("isolated page: columns and USD (spec §3.3, r1 #17)", () => {
     const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Pair", "Total Supplied", "Total Borrowed", "Util", "Lend APY", "Borrow APY", "Max LTV", "Price", "Action"]);
     expect(within(table).getAllByRole("row")[1].textContent).toMatch(/1 USDC = 0\.0005 WETH/);
+  });
+
+  it("the Your Positions stamp includes the oracle price block once rows show USD (Gemini r1 #3, FE-07)", () => {
+    // snapshots 1010, conversions 1005, pairs 995, prices 990 → the oldest is the price read.
+    render(<IsolatedPage />);
+    expect(screen.getByText(/as of block 990/)).toBeTruthy();
   });
 
   it("position rows carry USD values (oracle prices; collateral through the pair rate)", () => {
@@ -589,5 +670,76 @@ describe("layout: the content column can shrink below its content (spec §3.3, r
     );
     const column = screen.getByRole("main").parentElement!;
     expect(column.className.split(/\s+/)).toEqual(expect.arrayContaining(["flex-1", "min-w-0"]));
+  });
+});
+
+describe("initial isolated load: skeletons, not a flash of 'unavailable' (Gemini r1 #4)", () => {
+  it("while the isolated reads load: no unavailable rows, the risk pick is a skeleton, the status reads Loading", () => {
+    update((f) => {
+      const i = f.data.iso as Iso & { isLoading: boolean };
+      i.isLoading = true;
+      i.positions = [];
+      i.unknownPairs = [PAIR_USDC_WETH.toLowerCase(), PAIR_WETH_USDC.toLowerCase()];
+      i.incomplete = true;
+    });
+    render(<Dashboard />);
+    expect(rows().map((r) => r.getAttribute("data-kind"))).toEqual(["coreSupply", "coreBorrow"]);
+    expect(screen.queryByText(/Position unavailable/)).toBeNull();
+    expect(screen.getByTestId("risk-isolated-loading")).toBeTruthy();
+    expect(screen.queryByTestId("risk-isolated-unknown")).toBeNull();
+    expect(screen.getByTestId("overall-status").textContent).toBe("Overall: Loading…");
+  });
+});
+
+describe("layout at 1024 px (coordinator #6): no clipped actions, no overlapping text", () => {
+  it("each position's actions sit on their own full-width line; there is no Actions column", () => {
+    render(<Dashboard />);
+    const table = rows()[0].closest("table")!;
+    expect(within(table.querySelector("thead")!).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Position",
+      "Amount",
+      "Value",
+      "APY",
+      "Risk",
+    ]);
+    for (const row of rows()) {
+      const [data, actions] = within(row).getAllByRole("row");
+      expect(within(data).queryAllByRole("button")).toHaveLength(0);
+      const line = actions.querySelector("td")!;
+      expect(line.getAttribute("colspan")).toBe("5");
+      expect(within(line).getAllByRole("button").length).toBeGreaterThan(0);
+    }
+  });
+
+  it("token icons sit in fixed-size boxes, so a table column never sizes them as 0 px", () => {
+    render(<Dashboard />);
+    const icons = rows().flatMap((r) => [...r.querySelectorAll("img")]);
+    expect(icons.length).toBeGreaterThan(0);
+    for (const img of icons) expect(img.parentElement!.style.width).toBe(`${img.getAttribute("width")}px`);
+    cleanup();
+    render(<IsolatedPage />);
+    const pairIcons = [...document.querySelectorAll("table img")];
+    expect(pairIcons.length).toBeGreaterThan(0);
+    for (const img of pairIcons) expect(img.parentElement!.style.width).toBe(`${img.getAttribute("width")}px`);
+  });
+
+  it("isolated Your Positions: actions on their own line under each position", () => {
+    render(<IsolatedPage />);
+    const buttons = screen.getAllByRole("button").filter((b) => /Withdraw|Repay|Add collateral|Remove/.test(b.textContent ?? ""));
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const b of buttons) expect(b.closest("td")!.getAttribute("colspan")).toBe("5");
+  });
+});
+
+describe("MarketTable: valid HTML (coordinator #8)", () => {
+  it("no <a> around a <tr>: the row link is a stretched link inside the asset cell", () => {
+    const { container } = render(<MarketsPage />);
+    expect(container.querySelectorAll("tbody > a, a > tr")).toHaveLength(0);
+    const links = screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/markets/"));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/markets/weth", "/markets/usdc"]);
+    for (const a of links) {
+      expect(a.closest("td")).not.toBeNull();
+      expect(a.closest("tr")!.className.split(/\s+/)).toContain("relative");
+    }
   });
 });

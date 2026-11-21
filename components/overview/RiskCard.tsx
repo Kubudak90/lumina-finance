@@ -58,15 +58,13 @@ export function RiskCard({ risk }: { risk: RiskSummary }) {
             Riskiest isolated position
             {isolated.kind === "position" && <span className="text-foreground normal-case tracking-normal"> · {isolated.row.label}</span>}
           </div>
-          {isolated.kind === "none" ? (
-            status === "loading" ? (
-              <Skeleton className="h-12 w-full" />
-            ) : (
-              <p className="text-xs text-muted-foreground">No isolated borrow or collateral positions.</p>
-            )
+          {isolated.kind === "loading" ? (
+            <Skeleton className="h-12 w-full" data-testid="risk-isolated-loading" />
+          ) : isolated.kind === "none" ? (
+            <p className="text-xs text-muted-foreground">No isolated borrow or collateral positions.</p>
           ) : isolated.kind === "unknown" ? (
             <p className="text-xs text-amber-400" data-testid="risk-isolated-unknown">
-              {isolated.label}: position unavailable (the read failed or is still loading), so its risk is unknown.
+              {isolated.label}: position unavailable (the read failed), so its risk is unknown.
             </p>
           ) : (
             <>

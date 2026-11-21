@@ -270,6 +270,9 @@ export function positionRows(input: Pick<OverviewInput, "core" | "markets" | "pr
     }
   }
 
+  // During the initial isolated load every pair is still "unknown" and conversions are missing:
+  // show a loading row (the table's skeleton), not a flash of "unavailable" rows.
+  if (isolated.loading) return rows;
   for (const p of isolated.positions) {
     if (p.pair === null) continue;
     const label = pairLabel(p.pair.toLowerCase());
@@ -323,23 +326,28 @@ export interface CoreRiskSummary {
 
 export type IsolatedRiskPick =
   | { kind: "none" }
-  /** A pair whose snapshot failed (or is loading): whether it has debt is unknown. */
+  /** The isolated reads are still on their initial load (never "Safe" meanwhile). */
+  | { kind: "loading" }
+  /** A pair whose snapshot failed: whether it has debt is unknown. */
   | { kind: "unknown"; pair: string; label: string }
   | { kind: "position"; row: IsolatedBorrowRow; priority: "liquidatable" | "unavailable" | "highest" };
 
 /**
  * The riskiest isolated position, in priority order: (1) any liquidatable position (debt with zero
- * collateral or maxLTV, or LTV > max); (2) any position whose data is unavailable, a pair in
- * `unknownPairs` first; (3) the highest ltv/maxLTV, compared by bigint cross-multiplication.
+ * collateral or maxLTV, or LTV > max); (2) any position whose data is unavailable: still loading,
+ * a pair in `unknownPairs`, then an unreadable position; (3) the highest ltv/maxLTV, compared by
+ * bigint cross-multiplication.
  */
 export function riskiestIsolated(
   rows: readonly PositionRow[],
   unknownPairs: readonly string[],
   pairLabel: (pair: string) => string,
+  loading = false,
 ): IsolatedRiskPick {
   const candidates = rows.filter((r): r is IsolatedBorrowRow => r.kind === "isolatedBorrow");
   const liquidatable = candidates.find((r) => r.health.status === "liquidatable");
   if (liquidatable) return { kind: "position", row: liquidatable, priority: "liquidatable" };
+  if (loading) return { kind: "loading" };
   if (unknownPairs.length > 0) return { kind: "unknown", pair: unknownPairs[0], label: pairLabel(unknownPairs[0]) };
   const unavailable = candidates.find((r) => r.health.status === "unavailable");
   if (unavailable) return { kind: "position", row: unavailable, priority: "unavailable" };
@@ -350,10 +358,14 @@ export function riskiestIsolated(
       best = r;
       continue;
     }
-    // Every remaining candidate has a value LTV and a known maxLTV (else it was picked above).
+    // Every remaining candidate has a value LTV (else it was picked above). A zero LTV is a zero
+    // ratio whatever its maxLTV, which can be unreadable or 0 for a collateral-only position, so
+    // it never wins and always loses; two non-zero LTVs have maxLTV > 0 (else liquidatable) and
+    // compare as a/maxA > b/maxB ⇔ a·maxB > b·maxA.
     const a = r.ltv.kind === "value" ? r.ltv.ltv : 0n;
     const b = best.ltv.kind === "value" ? best.ltv.ltv : 0n;
-    if (a * (best.maxLTV ?? 0n) > b * (r.maxLTV ?? 0n)) best = r;
+    if (a === 0n) continue;
+    if (b === 0n || a * (best.maxLTV ?? 0n) > b * (r.maxLTV ?? 0n)) best = r;
   }
   return best ? { kind: "position", row: best, priority: "highest" } : { kind: "none" };
 }
@@ -385,9 +397,9 @@ export function coreRiskSummary(input: Pick<OverviewInput, "core" | "markets" | 
 
 export function riskSummary(input: OverviewInput, rows: readonly PositionRow[]): RiskSummary {
   const core = coreRiskSummary(input);
-  const isolated = riskiestIsolated(rows, input.isolated.unknownPairs, input.pairLabel);
+  const isolated = riskiestIsolated(rows, input.isolated.unknownPairs, input.pairLabel, input.isolated.loading);
   const isolatedStatus: HealthStatus =
-    isolated.kind === "none" ? "safe" : isolated.kind === "unknown" ? "unavailable" : isolated.row.health.status;
+    isolated.kind === "none" ? "safe" : isolated.kind === "position" ? isolated.row.health.status : "unavailable";
   const status = worstStatus([core.status, isolatedStatus]);
   return { status: input.loading && status !== "liquidatable" ? "loading" : status, core, isolated };
 }

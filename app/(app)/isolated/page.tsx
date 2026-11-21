@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-import { TokenIcon } from "@/components/common/TokenIcon";
+import { PairIcons } from "@/components/overview/FixedTokenIcon";
 import { useIsolatedPairs, type IsolatedPairInfo } from "@/hooks/useIsolatedPairs";
 import { useUserIsolatedPositions, type UserIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { IsolatedLendModal } from "@/components/actions/IsolatedLendModal";
@@ -33,9 +33,26 @@ type ModalState = {
 
 const isDeployedPair = (p: IsolatedPairInfo): p is DeployedPair => p.pair !== null;
 
-/** Header and cell classes: tight horizontal padding so every column fits its card at 1024 px. */
-const TH = "text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-2 py-3 align-bottom";
-const TD = "px-2 py-3";
+/** Header and cell classes: tight padding so every column fits its card at 1024 px. */
+const TH = "text-[10px] text-muted-foreground uppercase font-mono tracking-wider px-3 py-3 align-bottom";
+const TD = "px-3 py-3 align-top";
+/** Numbers: one line each, a size down below xl (1280 px). */
+const NUM = `${TD} font-mono text-xs xl:text-sm text-right whitespace-nowrap`;
+/** Secondary columns, shown from xl (1280 px): at 1024 px the table fits without them. */
+const XL = "hidden xl:table-cell";
+const BTN =
+  "px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono whitespace-nowrap";
+
+function PairName({ asset, collateral }: { asset: string; collateral: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <PairIcons asset={asset} collateral={collateral} size={20} />
+      <span className="font-mono text-sm whitespace-nowrap">
+        {asset}/{collateral}
+      </span>
+    </div>
+  );
+}
 
 function fmt(value: bigint | undefined, decimals: number, max = 4): string {
   if (value === undefined) return "—";
@@ -54,10 +71,14 @@ export default function IsolatedPage() {
     pairsStamp,
     isLoading: positionsLoading,
   } = useUserIsolatedPositions();
-  // The table combines snapshots, conversions and pair rates: show the oldest of their blocks.
-  const tableStamp = oldestStamp([stamp, conversionStamp, pairsStamp]);
   // USD from AaveOracle prices only (FE-06); "—" when a price or the pair rate is missing.
-  const { priceOf } = useOraclePrices();
+  const { priceOf, stamp: priceStamp } = useOraclePrices();
+  const deployedPositions = positions.filter((p): p is DeployedPosition => p.pair !== null);
+  // The table combines snapshots, conversions and pair rates, and its position rows show USD at
+  // oracle prices: show the oldest of the blocks the visible rows use (FE-07).
+  const tableStamp = oldestStamp(
+    deployedPositions.length > 0 ? [stamp, conversionStamp, pairsStamp, priceStamp] : [stamp, conversionStamp, pairsStamp],
+  );
   const [modal, setModal] = useState<ModalState>(null);
 
   return (
@@ -105,7 +126,7 @@ export default function IsolatedPage() {
             <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Your Positions</span>
             <span className="ml-auto"><FreshnessStamp stamp={tableStamp} /></span>
           </div>
-          <div className="technical-border bg-card overflow-x-auto">
+          <div className="technical-border bg-card">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
@@ -114,35 +135,42 @@ export default function IsolatedPage() {
                   <th className={`${TH} text-right`}>Borrowed</th>
                   <th className={`${TH} text-right`}>Collateral</th>
                   <th className={`${TH} text-right`}>LTV</th>
-                  <th className={`${TH} text-right`}>Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {positionsLoading ? (
+              {positionsLoading ? (
+                <tbody>
                   <tr>
-                    <td colSpan={6} className="px-2 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <td colSpan={5} className="px-3 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
-                ) : positions.length === 0 && unknownPairs.length === 0 ? (
+                </tbody>
+              ) : positions.length === 0 && unknownPairs.length === 0 ? (
+                <tbody>
                   <tr>
-                    <td colSpan={6} className="h-24 text-center text-muted-foreground text-xs px-2">
+                    <td colSpan={5} className="h-24 text-center text-muted-foreground text-xs px-3">
                       No active positions. Lend or borrow on a pair below to get started.
                     </td>
                   </tr>
-                ) : (
-                  <>
+                </tbody>
+              ) : (
+                <>
                   {/* A pair whose snapshot failed is flagged, not dropped (Gemini r2 m2). */}
                   {unknownPairs.map((pairAddress) => {
                     const pairInfo = pairs.find((x) => x.pair?.toLowerCase() === pairAddress);
                     return (
-                      <tr key={`unknown-${pairAddress}`} className="border-b border-border/50" data-testid="unknown-position-row">
-                        <td className={`${TD} font-mono text-sm`}>{pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}</td>
-                        <td colSpan={5} className={`${TD} text-right text-xs text-amber-400`}>
-                          Position unavailable: the read failed or is still loading
-                        </td>
-                      </tr>
+                      <tbody key={`unknown-${pairAddress}`} className="border-b border-border/50">
+                        <tr data-testid="unknown-position-row">
+                          <td className={`${TD} font-mono text-sm whitespace-nowrap`}>
+                            {pairInfo ? `${pairInfo.assetSymbol}/${pairInfo.collateralSymbol}` : pairAddress}
+                          </td>
+                          <td colSpan={4} className={`${TD} text-right text-xs text-amber-400`}>
+                            Position unavailable: the read failed or is still loading
+                          </td>
+                        </tr>
+                      </tbody>
                     );
                   })}
-                  {positions.filter((p): p is DeployedPosition => p.pair !== null).map((p) => {
+                  {/* One <tbody> per position: its data row, then its actions on a full-width line. */}
+                  {deployedPositions.map((p) => {
                     const price = priceOf(p.asset);
                     // LTV and its status from lib/risk (debt with no collateral reads ∞, never "—").
                     const health = formatHealth({
@@ -151,91 +179,77 @@ export default function IsolatedPage() {
                       maxLTV: p.maxLTV,
                     });
                     return (
-                    <tr key={p.pair} className="border-b border-border/50 hover:bg-white/5">
-                      <td className={TD}>
-                        <div className="flex items-center gap-2 whitespace-nowrap">
-                          <TokenIcon symbol={p.assetSymbol} size={20} />
-                          <span className="text-muted-foreground">/</span>
-                          <TokenIcon symbol={p.collateralSymbol} size={20} />
-                          <span className="font-mono text-sm ml-1">{p.assetSymbol}/{p.collateralSymbol}</span>
-                        </div>
-                      </td>
-                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
-                        {p.suppliedShares > 0n ? (
-                          <>
-                            <div>{fmt(p.suppliedAssets, p.assetDecimals)} {p.assetSymbol}</div>
-                            <div className="text-[10px] text-text-dim" data-testid="lent-usd">{formatUsd(usdValue(p.suppliedAssets, p.assetDecimals, price))}</div>
-                          </>
-                        ) : "—"}
-                      </td>
-                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
-                        {p.borrowedShares > 0n ? (
-                          <>
-                            <div>{fmt(p.borrowedAssets, p.assetDecimals, 6)} {p.assetSymbol}</div>
-                            <div className="text-[10px] text-text-dim" data-testid="borrowed-usd">{formatUsd(usdValue(p.borrowedAssets, p.assetDecimals, price))}</div>
-                          </>
-                        ) : "—"}
-                      </td>
-                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
-                        {p.collateralAmount > 0n ? (
-                          <>
-                            <div>{fmt(p.collateralAmount, p.collateralDecimals)} {p.collateralSymbol}</div>
-                            <div className="text-[10px] text-text-dim" data-testid="collateral-usd">
-                              {formatUsd(isolatedCollateralUsd(p.collateralAmount, p.exchangeRate, p.assetDecimals, price))}
+                      <tbody key={p.pair} className="border-b border-border/50 hover:bg-white/5">
+                        <tr>
+                          <td className={TD}>
+                            <PairName asset={p.assetSymbol} collateral={p.collateralSymbol} />
+                          </td>
+                          <td className={NUM}>
+                            {p.suppliedShares > 0n ? (
+                              <>
+                                <div>{fmt(p.suppliedAssets, p.assetDecimals)} {p.assetSymbol}</div>
+                                <div className="text-[10px] text-text-dim" data-testid="lent-usd">{formatUsd(usdValue(p.suppliedAssets, p.assetDecimals, price))}</div>
+                              </>
+                            ) : "—"}
+                          </td>
+                          <td className={NUM}>
+                            {p.borrowedShares > 0n ? (
+                              <>
+                                <div>{fmt(p.borrowedAssets, p.assetDecimals, 6)} {p.assetSymbol}</div>
+                                <div className="text-[10px] text-text-dim" data-testid="borrowed-usd">{formatUsd(usdValue(p.borrowedAssets, p.assetDecimals, price))}</div>
+                              </>
+                            ) : "—"}
+                          </td>
+                          <td className={NUM}>
+                            {p.collateralAmount > 0n ? (
+                              <>
+                                <div>{fmt(p.collateralAmount, p.collateralDecimals)} {p.collateralSymbol}</div>
+                                <div className="text-[10px] text-text-dim" data-testid="collateral-usd">
+                                  {formatUsd(isolatedCollateralUsd(p.collateralAmount, p.exchangeRate, p.assetDecimals, price))}
+                                </div>
+                              </>
+                            ) : "—"}
+                          </td>
+                          <td className={NUM}>
+                            {p.borrowedShares > 0n ? (
+                              <>
+                                <div>{health.value}{p.maxLTV !== undefined ? ` / ${formatMaxLtvPercent(p.maxLTV)}` : ""}</div>
+                                <div className="text-[10px] text-text-dim">{health.statusLabel}{p.oracleBadData ? " · price data stale" : ""}</div>
+                              </>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td colSpan={5} className="px-3 pb-3 pt-0">
+                            <div className="flex gap-1.5 justify-end flex-wrap">
+                              {p.suppliedShares > 0n && (
+                                <button onClick={() => setModal({ type: "withdraw", pair: p.pair })} className={BTN}>
+                                  Withdraw
+                                </button>
+                              )}
+                              {p.borrowedShares > 0n && (
+                                <button onClick={() => setModal({ type: "repay", pair: p.pair })} className={BTN}>
+                                  Repay
+                                </button>
+                              )}
+                              {(p.collateralAmount > 0n || p.borrowedShares > 0n) && (
+                                <button onClick={() => setModal({ type: "addCollateral", pair: p.pair })} className={BTN}>
+                                  Add collateral
+                                </button>
+                              )}
+                              {p.collateralAmount > 0n && (
+                                <button onClick={() => setModal({ type: "removeCollateral", pair: p.pair })} className={BTN}>
+                                  Remove
+                                </button>
+                              )}
                             </div>
-                          </>
-                        ) : "—"}
-                      </td>
-                      <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>
-                        {p.borrowedShares > 0n ? (
-                          <>
-                            <div>{health.value}{p.maxLTV !== undefined ? ` / ${formatMaxLtvPercent(p.maxLTV)}` : ""}</div>
-                            <div className="text-[10px] text-text-dim">{health.statusLabel}{p.oracleBadData ? " · price data stale" : ""}</div>
-                          </>
-                        ) : "—"}
-                      </td>
-                      <td className={`${TD} text-right`}>
-                        <div className="flex gap-1.5 justify-end flex-wrap">
-                          {p.suppliedShares > 0n && (
-                            <button
-                              onClick={() => setModal({ type: "withdraw", pair: p.pair })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                            >
-                              Withdraw
-                            </button>
-                          )}
-                          {p.borrowedShares > 0n && (
-                            <button
-                              onClick={() => setModal({ type: "repay", pair: p.pair })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                            >
-                              Repay
-                            </button>
-                          )}
-                          {(p.collateralAmount > 0n || p.borrowedShares > 0n) && (
-                            <button
-                              onClick={() => setModal({ type: "addCollateral", pair: p.pair })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                            >
-                              Add collateral
-                            </button>
-                          )}
-                          {p.collateralAmount > 0n && (
-                            <button
-                              onClick={() => setModal({ type: "removeCollateral", pair: p.pair })}
-                              className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                          </td>
+                        </tr>
+                      </tbody>
                     );
                   })}
-                  </>
-                )}
-              </tbody>
+                </>
+              )}
             </table>
           </div>
         </div>
@@ -246,18 +260,18 @@ export default function IsolatedPage() {
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">All Pairs</span>
         </div>
-        <div className="technical-border bg-card overflow-x-auto">
+        <div className="technical-border bg-card">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border/50">
                 <th className={`${TH} text-left`}>Pair</th>
                 <th className={`${TH} text-right`}>Total Supplied</th>
                 <th className={`${TH} text-right`}>Total Borrowed</th>
-                <th className={`${TH} text-right`}>Util</th>
+                <th className={`${TH} text-right ${XL}`}>Util</th>
                 <th className={`${TH} text-right`}>Lend APY</th>
                 <th className={`${TH} text-right`}>Borrow APY</th>
                 <th className={`${TH} text-right`}>Max LTV</th>
-                <th className={`${TH} text-right`} title="Pair oracle exchange rate: collateral per 1 asset">Price</th>
+                <th className={`${TH} text-right ${XL}`} title="Pair oracle exchange rate: collateral per 1 asset">Price</th>
                 <th className={`${TH} text-right`}>Action</th>
               </tr>
             </thead>
@@ -265,7 +279,7 @@ export default function IsolatedPage() {
               {pairsLoading ? (
                 [0, 1].map((i) => (
                   <tr key={i} className="border-b border-border/50">
-                    <td colSpan={9} className="px-2 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <td colSpan={9} className="px-3 py-4"><Skeleton className="h-8 w-full" /></td>
                   </tr>
                 ))
               ) : pairs.length === 0 ? (
@@ -278,25 +292,22 @@ export default function IsolatedPage() {
                 pairs.map((p) => (
                   <tr key={p.name} className="border-b border-border/50 hover:bg-white/5">
                     <td className={TD}>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        <TokenIcon symbol={p.assetSymbol} size={20} />
-                        <span className="text-muted-foreground">/</span>
-                        <TokenIcon symbol={p.collateralSymbol} size={20} />
-                        <span className="font-mono text-sm ml-1">{p.assetSymbol}/{p.collateralSymbol}</span>
-                      </div>
+                      <PairName asset={p.assetSymbol} collateral={p.collateralSymbol} />
+                      {/* Under the name, so it shows at every width (the Price column is xl-only). */}
+                      {p.oracleBadData && <div className="text-[10px] font-mono text-amber-400 mt-1">borrows blocked</div>}
                     </td>
-                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
-                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{fmt(p.totalBorrowAmount, p.assetDecimals)}</td>
-                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`}</td>
+                    <td className={NUM}>{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
+                    <td className={NUM}>{fmt(p.totalBorrowAmount, p.assetDecimals)}</td>
+                    <td className={`${NUM} ${XL}`}>{p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`}</td>
                     {/* APY = aprToApy(APR from previewAddInterest); 0 while interest is paused (spec §3.1). */}
-                    <td className={`${TD} font-mono text-sm text-right text-emerald-400 whitespace-nowrap`} data-testid="pair-lend-apy">
+                    <td className={`${NUM} text-emerald-400`} data-testid="pair-lend-apy">
                       {formatApy(p.lendApr && aprToApy(p.lendApr))}
                     </td>
-                    <td className={`${TD} font-mono text-sm text-right text-amber-400 whitespace-nowrap`} data-testid="pair-borrow-apy">
+                    <td className={`${NUM} text-amber-400`} data-testid="pair-borrow-apy">
                       {formatApy(p.borrowApr && aprToApy(p.borrowApr))}
                     </td>
-                    <td className={`${TD} font-mono text-sm text-right whitespace-nowrap`}>{p.maxLTV === undefined ? "—" : formatMaxLtvPercent(p.maxLTV)}</td>
-                    <td className={`${TD} font-mono text-xs text-right`} title="Pair oracle: collateral per 1 asset">
+                    <td className={NUM}>{p.maxLTV === undefined ? "—" : formatMaxLtvPercent(p.maxLTV)}</td>
+                    <td className={`${TD} font-mono text-xs text-right ${XL}`} title="Pair oracle: collateral per 1 asset">
                       {p.exchangeRate !== undefined
                         ? `1 ${p.assetSymbol} = ${fmt(
                             collateralPerWholeAsset(p.exchangeRate, p.assetDecimals),
@@ -304,26 +315,19 @@ export default function IsolatedPage() {
                             6,
                           )} ${p.collateralSymbol}`
                         : "—"}
-                      {p.oracleBadData && <div className="text-amber-400">borrows blocked</div>}
                     </td>
                     <td className={`${TD} text-right`}>
                       {isDeployedPair(p) ? (
-                        <div className="flex gap-1.5 justify-end flex-wrap">
-                          <button
-                            onClick={() => setModal({ type: "lend", pair: p.pair })}
-                            className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                          >
+                        <div className="flex flex-col items-end gap-1.5">
+                          <button onClick={() => setModal({ type: "lend", pair: p.pair })} className={BTN}>
                             Lend
                           </button>
-                          <button
-                            onClick={() => setModal({ type: "borrow", pair: p.pair })}
-                            className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                          >
+                          <button onClick={() => setModal({ type: "borrow", pair: p.pair })} className={BTN}>
                             Borrow
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[10px] font-mono text-text-dim uppercase">Not deployed</span>
+                        <span className="text-[10px] font-mono text-text-dim uppercase whitespace-nowrap">Not deployed</span>
                       )}
                     </td>
                   </tr>

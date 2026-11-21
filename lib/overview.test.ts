@@ -216,8 +216,57 @@ describe("riskiestIsolated: the priority order (spec §3.3, r1 #14.1)", () => {
     expect(noRate.kind === "position" && [noRate.priority, noRate.row.label]).toEqual(["unavailable", "WETH/USDC"]);
   });
 
+  it("3: a zero LTV never wins, whatever its maxLTV (0 or unreadable), in either order (Gemini r1 #1)", () => {
+    // Collateral-only with maxLTV 0: LTV 0% → Safe, ratio 0. It must not mask a Danger position.
+    const zeroMax = wethUsdc({ maxLTV: 0n });
+    const danger = usdcWeth({ borrowedAssets: 1_400n * E6 }); // 70% of 75% → 0.93, Danger
+    for (const order of [[zeroMax, danger], [danger, zeroMax]]) {
+      const p = pick(order);
+      expect(p.kind === "position" && [p.priority, p.row.label, p.row.health.status]).toEqual(["highest", "USDC/WETH", "danger"]);
+    }
+    // Same with an unreadable maxLTV on the collateral-only position (debt 0 is Safe, spec §3.1).
+    const unreadable = wethUsdc({ maxLTV: undefined });
+    for (const order of [[unreadable, danger], [danger, unreadable]]) {
+      const p = pick(order);
+      expect(p.kind === "position" && p.row.label).toBe("USDC/WETH");
+    }
+    const i = input({}, { positions: [zeroMax, danger] });
+    expect(buildOverview(i).risk.status).toBe("danger");
+    // Only zero-LTV positions: one of them, Safe.
+    const q = pick([zeroMax, wethUsdc({ pair: P1, maxLTV: 75_000n })]);
+    expect(q.kind === "position" && q.row.health.status).toBe("safe");
+  });
+
   it("no borrow or collateral position: none", () => {
     expect(pick([usdcWeth({ borrowedShares: 0n, borrowedAssets: 0n, collateralAmount: 0n })])).toEqual({ kind: "none" });
+  });
+});
+
+describe("initial isolated load (Gemini r1 #4)", () => {
+  const loadingInput = () =>
+    // While the snapshots load, every deployed pair is still "unknown".
+    input({ loading: true }, { loading: true, incomplete: true, positions: [], unknownPairs: [P1.toLowerCase(), P2.toLowerCase()] });
+
+  it("no isolated rows (no flash of 'unavailable' rows); the core rows still show", () => {
+    const rows = positionRows(loadingInput());
+    expect(rows.map((r) => r.kind)).toEqual(["coreSupply", "coreBorrow"]);
+    // Partly loaded (snapshots in, conversions pending): still no isolated rows.
+    expect(positionRows(input({}, { loading: true, positions: [usdcWeth({ borrowedAssets: undefined })] })).some((r) => r.kind !== "coreSupply" && r.kind !== "coreBorrow")).toBe(false);
+  });
+
+  it("the isolated risk pick is 'loading' and the overall status 'loading', never Safe", () => {
+    const o = buildOverview(loadingInput());
+    expect(o.risk.isolated).toEqual({ kind: "loading" });
+    expect(o.risk.status).toBe("loading");
+    // Even if the page-level flag lags, the isolated loading alone keeps it from Safe.
+    const lagging = buildOverview({ ...loadingInput(), loading: false });
+    expect(lagging.risk.status).toBe("unavailable");
+  });
+
+  it("once loaded, a failed pair shows its 'unavailable' row and the unknown pick", () => {
+    const o = buildOverview(input({}, { positions: [usdcWeth()], unknownPairs: [P2.toLowerCase()], incomplete: true }));
+    expect(o.rows.filter((r) => r.kind === "unavailable")).toHaveLength(1);
+    expect(o.risk.isolated.kind).toBe("unknown");
   });
 });
 
