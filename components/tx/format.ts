@@ -46,7 +46,10 @@ export function formatBorrowLimit(used: BorrowLimitUsed): string {
 
 /** An 8-decimal ETH price: "$2,000.00" for the core (USD) or "2,000.00 USDC" for a pair. */
 export function formatEthPrice(price: bigint, unit: "usd" | "usdc"): string {
-  const text = formatAmount(price, PRICE_DECIMALS, 2);
+  const abs = price < 0n ? -price : price;
+  const fixed = toDecimal(abs.toString()).div(toDecimal(10).pow(PRICE_DECIMALS)).toDecimalPlaces(2, 1 /* ROUND_DOWN */).toFixed(2);
+  const [int, frac] = fixed.split(".");
+  const text = `${price < 0n ? "-" : ""}${groupThousands(int)}.${frac}`;
   return unit === "usd" ? `$${text}` : `${text} USDC`;
 }
 
