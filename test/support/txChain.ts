@@ -48,6 +48,8 @@ export interface TxChainState {
   /** ERC-20 balanceOf / allowance answered to fresh (multicall) reads. */
   wallet: bigint;
   allowance: bigint;
+  /** pair.maxRedeem(owner). */
+  maxRedeem: bigint;
 }
 
 export const MAX_HF = (1n << 256n) - 1n;
@@ -77,6 +79,7 @@ export function defaultTxChain(): TxChainState {
     perShare: 1_000_000n,
     wallet: 10n ** 24n,
     allowance: 10n ** 24n,
+    maxRedeem: 0n,
   };
 }
 
@@ -146,7 +149,7 @@ export function txChain(state: TxChainState) {
         case "allowance":
           return ok(state.allowance);
         case "maxRedeem":
-          return ok(0n);
+          return ok(state.maxRedeem);
         default:
           return fail(`unscripted ${c.functionName}`);
       }
