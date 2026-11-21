@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { bigintAt, resultAt, useLuminaReadContract, useLuminaReader, useLuminaWrite } from "@/hooks/chain";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
@@ -33,7 +33,15 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
   const [amount, setAmount] = useState("");
   const [withdrawAll, setWithdrawAll] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // MAX reads the share balance before sending: one send at a time, bound to the account and the
+  // intent it started with (review U2 r1 #1).
+  const [checking, setChecking] = useState(false);
+  const checkingRef = useRef(false);
   const { address } = useAccount();
+  const liveRef = useRef({ address, withdrawAll });
+  useEffect(() => {
+    liveRef.current = { address, withdrawAll };
+  });
   const readNow = useLuminaReader();
   const tx = useLuminaWrite();
   const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
@@ -75,6 +83,9 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
       await tx.send(withdrawRequest(parsed));
       return;
     }
+    if (checkingRef.current) return;
+    checkingRef.current = true;
+    setChecking(true);
     try {
       // The whole share balance, and what the pair's liquidity lets out right now.
       const r = await readNow([
@@ -94,9 +105,17 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
         setNotice("The pair's free liquidity does not cover your whole balance right now; withdraw an amount instead.");
         return;
       }
+      const live = liveRef.current;
+      if (!live.withdrawAll || live.address?.toLowerCase() !== address.toLowerCase()) {
+        setNotice("The account or the amount changed while your balance was read; nothing was sent.");
+        return;
+      }
       await tx.send(redeemRequest(shares));
     } catch (err) {
       setNotice(`Could not read your share balance (${(err as Error).message}); nothing was sent.`);
+    } finally {
+      checkingRef.current = false;
+      setChecking(false);
     }
   };
 
@@ -146,6 +165,7 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
               decimals={assetDecimals}
               apy={info?.lendApr === undefined ? undefined : aprToApy(info.lendApr)}
               invalid={overMax || overLent ? "more than you can withdraw now" : null}
+              clamped={overLent}
             />
           )}
 
@@ -154,6 +174,7 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
             isPending={tx.isPending}
             isSimulating={tx.isSimulating}
             isConfirming={tx.isConfirming}
+            isChecking={checking}
             disabled={!address || !info || (!withdrawAll && (parsed === 0n || overMax))}
           >
             Withdraw {assetSymbol}

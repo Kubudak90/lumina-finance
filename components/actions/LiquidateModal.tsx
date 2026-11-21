@@ -6,14 +6,15 @@ import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { safeParseUnits, truncateAddress } from "@/lib/format";
 import { exactApproval } from "@/lib/approvals";
-import { abortFollowUp } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { formatHealth } from "@/lib/risk";
 import { coreLiquidationEstimate } from "@/lib/txSummary";
+import { HEALTH_FACTOR_LIQUIDATION_THRESHOLD } from "@/lib/liquidation";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { POOL_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
-import { useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { resultAt, useLuminaReader, useLuminaWrite } from "@/hooks/chain";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
@@ -50,6 +51,11 @@ interface LiquidateModalProps {
    * screen); before sending, a healed borrower disables the action.
    */
   liquidatable: boolean;
+  /**
+   * The borrower is listed but its liquidation limit cannot be computed now (a price or reserve
+   * config read failed): the stale limit is not used, the action is disabled.
+   */
+  limitUnavailable?: boolean;
   onClose: () => void;
 }
 
@@ -71,9 +77,13 @@ export function LiquidateModal({
   closeFactorBps,
   collateralLimited,
   liquidatable,
+  limitUnavailable = false,
   onClose,
 }: LiquidateModalProps) {
   const [amount, setAmount] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const readNow = useLuminaReader();
+  const actionable = liquidatable && !limitUnavailable;
   const { address } = useAccount();
   const pool = LUMINA.contracts.pool;
   const wallet = useWalletBalance(debtAsset);
@@ -96,13 +106,45 @@ export function LiquidateModal({
     args: [collateralAsset, debtAsset, borrower, value, false],
   });
 
-  const sendLiquidation = async ({ amount: value }: LiquidateParams) => {
+  const stop = (text: string, reason: string) => {
+    setNotice(text);
+    return abortFollowUp(reason);
+  };
+
+  const sendLiquidation = async ({ amount: value }: LiquidateParams): Promise<FollowUpResult> => {
     if (!pool) return;
+    setNotice(null);
+    // The modal stays open by the selected target: a healed borrower must not be sent to (review
+    // U2 r1 #3), neither from the page's list nor from the chain right before the wallet prompt.
+    if (!actionable) {
+      return stop("This borrower cannot be liquidated right now; nothing was sent.", "the borrower is no longer liquidatable");
+    }
     const walletNow = await wallet.fetchNow();
     if (walletNow === undefined || walletNow < value) {
       toast.error("Liquidation not sent", { description: "Your wallet balance no longer covers the amount." });
       return abortFollowUp("your wallet balance no longer covers the amount");
     }
+    let healthFactor: bigint | undefined;
+    try {
+      const account = resultAt<readonly unknown[]>(
+        await readNow([{ address: pool, abi: POOL_ABI, functionName: "getUserAccountData", args: [borrower] }]),
+        0,
+      );
+      healthFactor = account && typeof account[5] === "bigint" ? account[5] : undefined;
+    } catch {
+      healthFactor = undefined;
+    }
+    if (healthFactor === undefined || healthFactor >= HEALTH_FACTOR_LIQUIDATION_THRESHOLD) {
+      return stop(
+        healthFactor === undefined
+          ? "The borrower's health factor could not be read; nothing was sent."
+          : "The borrower's health factor is at or above 1.0 now; nothing was sent.",
+        "the borrower is no longer liquidatable",
+      );
+    }
+    // The account, chain and inputs must still be the ones this follow-up started with.
+    const stale = flow.stale();
+    if (stale) return cancelFollowUp(stale);
     await tx.send(liquidationRequest(value));
   };
 
@@ -189,13 +231,22 @@ export function LiquidateModal({
         </TxSuccess>
       ) : (
         <TxForm title="Liquidate Position">
-          <p className="text-sm text-muted-foreground">
-            Max repayable: {formatAmount(maxDebt, debtDecimals, 6)} {debtSymbol} (
-            {closeFactorBps === 10_000n ? "100% close factor, HF ≤ 0.95" : "50% close factor"}
-            {collateralLimited ? ", limited by the collateral at the liquidation bonus" : ""})
-          </p>
+          {limitUnavailable ? (
+            <p className="text-sm text-muted-foreground">Max repayable: unavailable</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Max repayable: {formatAmount(maxDebt, debtDecimals, 6)} {debtSymbol} (
+              {closeFactorBps === 10_000n ? "100% close factor, HF ≤ 0.95" : "50% close factor"}
+              {collateralLimited ? ", limited by the collateral at the liquidation bonus" : ""})
+            </p>
+          )}
           {!liquidatable && (
             <TxNotice testId="not-liquidatable">This borrower is no longer liquidatable (health factor at or above 1.0).</TxNotice>
+          )}
+          {liquidatable && limitUnavailable && (
+            <TxNotice testId="limit-unavailable">
+              The liquidation limit is unavailable: a price or reserve config could not be read. Liquidating is disabled until it can.
+            </TxNotice>
           )}
           <AmountField
             label="Repay Amount"
@@ -207,6 +258,7 @@ export function LiquidateModal({
           >
             {exceedsMax && <p className="text-xs text-destructive mt-1">Amount exceeds the max liquidatable debt</p>}
             {insufficientBalance && !exceedsMax && <p className="text-xs text-destructive mt-1">Insufficient balance</p>}
+            {notice && <TxNotice testId="liquidate-notice">{notice}</TxNotice>}
           </AmountField>
 
           {parsedAmount > 0n && (
@@ -247,7 +299,8 @@ export function LiquidateModal({
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
-            disabled={!address || !liquidatable || parsedAmount === 0n || exceedsMax || walletBalance === undefined || insufficientBalance}
+            isChecking={flow.isChecking}
+            disabled={!address || !actionable || parsedAmount === 0n || exceedsMax || walletBalance === undefined || insufficientBalance}
           >
             {needsApproval ? `Approve ${debtSymbol}` : "Execute Liquidation"}
           </TxButton>

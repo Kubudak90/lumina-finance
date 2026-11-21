@@ -152,6 +152,9 @@ export default function LiquidationsPage() {
     ? (opportunities.find((o) => o.key === selected.key && o.borrower.toLowerCase() === selected.borrower.toLowerCase()) ?? null)
     : null;
   const target = liveSelected ?? selected;
+  // A listed target whose live limit is null (a price or reserve config read failed) is not
+  // actionable: the latched limit is only kept so the modal stays mounted (review U2 r1 #4).
+  const targetLimitUnavailable = liveSelected !== null && liveSelected.limit === null;
   const targetLimit = liveSelected?.limit ?? selected?.limit ?? null;
 
   // ─── Isolated pair lookup for the same searched address ───
@@ -386,6 +389,7 @@ export default function LiquidationsPage() {
           closeFactorBps={targetLimit.closeFactor}
           collateralLimited={targetLimit.collateralLimited}
           liquidatable={liveSelected !== null}
+          limitUnavailable={targetLimitUnavailable}
           onClose={() => setSelected(null)}
         />
       )}

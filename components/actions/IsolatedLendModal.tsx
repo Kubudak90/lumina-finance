@@ -5,11 +5,11 @@ import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { exactApproval } from "@/lib/approvals";
-import { abortFollowUp } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { aprToApy } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
@@ -50,13 +50,16 @@ export function IsolatedLendModal({ pair, onClose }: { pair: `0x${string}`; onCl
     args: [value, address],
   });
 
-  const sendDeposit = async ({ amount: value }: { amount: bigint }) => {
+  const sendDeposit = async ({ amount: value }: { amount: bigint }): Promise<FollowUpResult> => {
     if (!address) return;
     const walletNow = await wallet.fetchNow();
     if (walletNow === undefined || walletNow < value) {
       toast.error("Deposit not sent", { description: "Your wallet balance no longer covers the amount." });
       return abortFollowUp("your wallet balance no longer covers the amount");
     }
+    // The account, chain and inputs must still be the ones this follow-up started with.
+    const stale = flow.stale();
+    if (stale) return cancelFollowUp(stale);
     await tx.send(depositRequest(value));
   };
 
@@ -143,6 +146,7 @@ export function IsolatedLendModal({ pair, onClose }: { pair: `0x${string}`; onCl
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
             disabled={!address || !info || parsed === 0n || balanceRaw === undefined || overBalance}
           >
             {needsApproval ? `Approve ${assetSymbol}` : `Lend ${assetSymbol}`}

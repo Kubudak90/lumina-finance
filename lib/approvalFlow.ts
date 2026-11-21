@@ -45,6 +45,47 @@ export function isFollowUpAbort(value: unknown): value is FollowUpAbort {
   return typeof value === "object" && value !== null && typeof (value as FollowUpAbort).aborted === "string";
 }
 
+/**
+ * What a follow-up reports when its binding went stale during its pre-send re-checks (the
+ * account, the wallet network or the inputs changed): nothing was sent, step 2 is "cancelled".
+ */
+export interface FollowUpCancel {
+  cancelled: string;
+}
+
+export function cancelFollowUp(reason: string): FollowUpCancel {
+  return { cancelled: reason };
+}
+
+export function isFollowUpCancel(value: unknown): value is FollowUpCancel {
+  return typeof value === "object" && value !== null && typeof (value as FollowUpCancel).cancelled === "string";
+}
+
+/** The account, chain and inputs a follow-up was started for. */
+export interface FollowUpBinding {
+  account: `0x${string}` | undefined;
+  chainId: number | undefined;
+  paramsKey: string;
+}
+
+/**
+ * Why a follow-up bound to `bound` must not send any more given the `live` state, or null while
+ * it is still current. Checked right before the action's wallet prompt (review U2 r1 #1).
+ */
+export function staleFollowUp(bound: FollowUpBinding, live: FollowUpBinding): string | null {
+  if (!live.account || !bound.account || live.account.toLowerCase() !== bound.account.toLowerCase()) {
+    return "the connected account changed";
+  }
+  if (live.chainId !== bound.chainId) return "the wallet network changed";
+  if (live.paramsKey !== bound.paramsKey) return "the inputs changed";
+  return null;
+}
+
+/** Handed to a follow-up: `stale()` is checked right before it sends (null = still current). */
+export interface FollowUpGuard {
+  stale: () => string | null;
+}
+
 export type FollowUpDecision<P> =
   | { kind: "idle" }
   | { kind: "wait" }

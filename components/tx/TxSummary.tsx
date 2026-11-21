@@ -75,11 +75,12 @@ const UNAVAILABLE_WHY: Record<UnavailableReason, string> = {
   "missing-input": "Some of the data behind this preview is loading or could not be read.",
 };
 
-function InvalidNote({ text }: { text: string | null | undefined }) {
+/** An invalid amount's preview is still shown; it says "clamped" only when the maths clamped it. */
+function InvalidNote({ text, clamped }: { text: string | null | undefined; clamped: boolean }) {
   if (!text) return null;
   return (
     <p className="text-xs text-destructive" data-testid="tx-summary-invalid">
-      Preview of an invalid amount: {text}. The amount is clamped to what the action can use.
+      Preview of an invalid amount: {text}.{clamped ? " The preview clamps it to what the action can use." : ""}
     </p>
   );
 }
@@ -146,7 +147,7 @@ export function CoreRiskSummary({
       <SummaryRow label={apyLabel} before={formatRate(apy)} />
       {why && <p className="text-xs text-muted-foreground">{UNAVAILABLE_WHY[why]}</p>}
       <RiskWarning status={afterHealth.status} venue="core" />
-      <InvalidNote text={invalid ?? (preview.invalid ? "more than the action can use" : null)} />
+      <InvalidNote text={invalid ?? (preview.invalid ? "more than the action can use" : null)} clamped={preview.clamped} />
       <FreshnessStamp stamp={stamp} label="Position" />
     </Frame>
   );
@@ -201,7 +202,8 @@ export function IsolatedRiskSummary({
       />
       <SummaryRow label={apyLabel} before={formatRate(apy)} />
       <RiskWarning status={afterHealth.status} venue="isolated" />
-      <InvalidNote text={invalid ?? (preview.invalid ? "more than the position holds" : null)} />
+      {/* lib/risk clamps every isolated over-amount it flags (repay over the debt, remove over the collateral). */}
+      <InvalidNote text={invalid ?? (preview.invalid ? "more than the position holds" : null)} clamped={preview.invalid} />
       <FreshnessStamp stamp={stamp} label="Position" />
     </Frame>
   );
@@ -218,6 +220,7 @@ export function LenderSummary({
   decimals,
   apy,
   invalid,
+  clamped = false,
 }: {
   before: bigint | undefined;
   after: bigint | undefined;
@@ -225,12 +228,14 @@ export function LenderSummary({
   decimals: number;
   apy: Decimal | undefined;
   invalid?: string | null;
+  /** `after` was clamped (a withdrawal over the lent balance shows 0). */
+  clamped?: boolean;
 }) {
   return (
     <Frame profile="lender" title="Before → after">
       <SummaryRow label="Lent balance" before={formatToken(before, decimals, symbol)} after={formatToken(after, decimals, symbol)} />
       <SummaryRow label="Lend APY" before={formatRate(apy)} />
-      <InvalidNote text={invalid} />
+      <InvalidNote text={invalid} clamped={clamped} />
     </Frame>
   );
 }

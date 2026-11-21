@@ -4,14 +4,14 @@ import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useGuardStatus } from "@/hooks/useGuardStatus";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { exactApproval } from "@/lib/approvals";
-import { abortFollowUp, type FollowUpAbort } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { isolatedBorrowMaxFromReads } from "@/lib/borrowMax";
 import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
 import { aprToApy, formatMaxLtvPercent, isolatedPreview } from "@/lib/risk";
@@ -101,7 +101,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
     return abortFollowUp(reason, reapprove);
   };
 
-  const sendBorrow = async (params: BorrowParams): Promise<FollowUpAbort | void> => {
+  const sendBorrow = async (params: BorrowParams): Promise<FollowUpResult> => {
     if (!address || !info || !collateral) return;
     setNotice(null);
     try {
@@ -134,6 +134,9 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
           state.allowance < params.collateral,
         );
       }
+      // The account, chain and inputs must still be the ones this follow-up started with.
+      const stale = flow.stale();
+      if (stale) return cancelFollowUp(stale);
       await tx.send(borrowRequest(params));
     } catch (err) {
       return stop(`Re-check failed (${(err as Error).message}); nothing was sent.`, "the re-check could not read the chain");
@@ -189,8 +192,14 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
       ) : (
         <TxForm title={`Borrow ${assetSymbol} (collateral: ${collateralSymbol})`}>
           <GuardNotice venue="isolated" />
-          {borrowBlocked && info?.oracleBadData === undefined && (
-            <p className="text-xs text-amber-400">Pair oracle unavailable; borrowing is disabled. {GUARD_BLOCKED_NOTE.isolated}</p>
+          {/* The guard is OK but the pair oracle blocks: GuardNotice says nothing, so say why (r1 #7). */}
+          {borrowBlocked && guard.borrowAllowed && (
+            <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
+              {info?.oracleBadData === undefined
+                ? "The pair oracle cannot be read right now; borrowing is disabled until it can."
+                : "The pair oracle flags its price as bad data; borrowing is disabled until it recovers."}{" "}
+              {GUARD_BLOCKED_NOTE.isolated}
+            </p>
           )}
           <p className="text-sm text-muted-foreground">
             Post {collateralSymbol} as collateral and borrow {assetSymbol} in one transaction. Max LTV in this pair is {maxLtvPercent}.
@@ -275,6 +284,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
             disabled={!address || !info || parsedBorrow === 0n || insufficientCollateral || overMax || maxBorrow === null || borrowBlocked}
           >
             {borrowBlocked ? "Borrowing blocked" : needsCollateralApproval ? `Approve ${collateralSymbol}` : `Borrow ${assetSymbol}`}

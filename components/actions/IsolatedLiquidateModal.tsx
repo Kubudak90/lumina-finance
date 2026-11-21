@@ -4,12 +4,12 @@ import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { hasExecutionHeadroom, repayApproval, repayHeadroom } from "@/lib/approvals";
-import { abortFollowUp, type FollowUpAbort } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { formatHealth, isolatedLtvOf } from "@/lib/risk";
 import { isolatedLiquidationEstimate } from "@/lib/txSummary";
 import type { TxErrorContext } from "@/lib/txErrors";
@@ -132,9 +132,12 @@ export function IsolatedLiquidateModal({
     return abortFollowUp(reason, reapprove);
   };
 
-  const sendLiquidation = async (params: LiquidateParams): Promise<FollowUpAbort | void> => {
+  const sendLiquidation = async (params: LiquidateParams): Promise<FollowUpResult> => {
     if (!address) return;
     setNotice(null);
+    // The modal stays open by the selected target: never send to a borrower the page no longer
+    // lists, nor to one the pair sees as solvent right now (review U2 r1 #3).
+    if (!liquidatable) return stop("The borrower has no debt left in this pair; nothing was sent.", "the borrower is no longer liquidatable");
     try {
       // From the chain, not the poll cache: the borrower's shares, then their current value.
       const state = await fresh.accountState(pair, borrower, asset, address);
@@ -148,6 +151,21 @@ export function IsolatedLiquidateModal({
           "the borrower's debt is now smaller than the selected shares",
         );
       }
+      // Solvency as `_isSolvent` sees it: the whole debt, the collateral, maxLTV and the pair rate.
+      const [risk, debtNow] = await Promise.all([
+        fresh.pairRisk(pair, dualOracle ?? info?.dualOracle ?? null),
+        fresh.shareValue(pair, state.borrowShares),
+      ]);
+      const ltvNow = isolatedLtvOf({ debt: debtNow, collateral: state.collateral, maxLTV: risk.maxLtv, exchangeRate: risk.exchangeRate });
+      const insolvent = ltvNow.kind === "infinite" || (ltvNow.kind === "value" && ltvNow.ltv > risk.maxLtv);
+      if (!insolvent) {
+        return stop(
+          ltvNow.kind === "unavailable"
+            ? "The borrower's solvency could not be read; nothing was sent."
+            : "The borrower is solvent at the pair's current price; nothing was sent.",
+          "the borrower is no longer liquidatable",
+        );
+      }
       const valueNow = await fresh.shareValue(pair, shares);
       if (!hasExecutionHeadroom({ allowance: state.allowance, wallet: state.wallet, value: valueNow })) {
         const walletShortNow = state.wallet < repayHeadroom(valueNow);
@@ -159,6 +177,9 @@ export function IsolatedLiquidateModal({
           !walletShortNow,
         );
       }
+      // The account, chain and inputs must still be the ones this follow-up started with.
+      const stale = flow.stale();
+      if (stale) return cancelFollowUp(stale);
       await tx.send(liquidateRequest(shares, liquidationDeadline()));
     } catch (err) {
       return stop(`Re-check failed (${(err as Error).message}); nothing was sent.`, "the re-check could not read the chain");
@@ -275,7 +296,7 @@ export function IsolatedLiquidateModal({
               </p>
             )}
             {insufficientWallet && <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} for the current share value plus the accrual margin</p>}
-            {notice && <TxNotice>{notice}</TxNotice>}
+            {notice && <TxNotice testId="liquidate-notice">{notice}</TxNotice>}
           </AmountField>
 
           {sharesToLiquidate > 0n && (
@@ -316,6 +337,7 @@ export function IsolatedLiquidateModal({
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
             disabled={
               !address ||
               !liquidatable ||

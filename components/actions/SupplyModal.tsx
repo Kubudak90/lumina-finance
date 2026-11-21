@@ -6,13 +6,13 @@ import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { safeParseUnits } from "@/lib/format";
 import { exactApproval } from "@/lib/approvals";
-import { abortFollowUp } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { coreApy, corePreview } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { POOL_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
 import { useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { PostTxAllowance } from "@/components/common/PostTxAllowance";
@@ -53,7 +53,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
     args: [asset, value, address, 0],
   });
 
-  const sendSupply = async (value: bigint) => {
+  const sendSupply = async (value: bigint): Promise<FollowUpResult> => {
     if (!address || !pool) return;
     // Re-validate against the chain right before the wallet prompt.
     const walletNow = await wallet.fetchNow();
@@ -61,6 +61,9 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
       toast.error("Supply not sent", { description: "Your wallet balance no longer covers the amount." });
       return abortFollowUp("your wallet balance no longer covers the amount");
     }
+    // The account, chain and inputs must still be the ones this follow-up started with.
+    const stale = flow.stale();
+    if (stale) return cancelFollowUp(stale);
     await tx.send(supplyRequest(value));
   };
 
@@ -153,6 +156,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
             disabled={!address || parsedAmount === 0n || balance === undefined || overBalance}
           >
             {needsApproval ? `Approve ${symbol}` : `Supply ${symbol}`}

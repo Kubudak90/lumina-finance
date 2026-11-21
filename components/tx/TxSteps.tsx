@@ -75,9 +75,10 @@ export function actionRow(steps: ApprovalSteps | null, action: ActionTxView, ctx
   if (!steps) return { state: "waiting" };
   const s = steps.step2;
   if (s.kind === "cancelled") return { state: "cancelled", detail: s.reason };
-  // Once the action's transaction is under way, its own state is the truth.
-  if (action.isSimulating) return { state: "simulating" };
+  // Once the action's transaction is under way, its own state is the truth. The wallet prompt
+  // wins over simulating: the simulation is over once the wallet asks.
   if (action.isPending) return { state: "confirm in wallet" };
+  if (action.isSimulating) return { state: "simulating" };
   if (action.isConfirming) return { state: "confirming" };
   if (action.isSuccess) return { state: "done" };
   if (s.kind === "checking") return { state: "checking" };

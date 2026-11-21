@@ -4,13 +4,13 @@ import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { hasExecutionHeadroom, planIsolatedRepay, repayHeadroom, walletBoundedShares } from "@/lib/approvals";
-import { abortFollowUp, type FollowUpAbort } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { aprToApy, isolatedPreview, type IsolatedAction } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { QUERY } from "@/lib/queryPolicy";
@@ -115,7 +115,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
     return abortFollowUp(reason, reapprove);
   };
 
-  const sendRepay = async (params: RepayParams): Promise<FollowUpAbort | void> => {
+  const sendRepay = async (params: RepayParams): Promise<FollowUpResult> => {
     if (!address || !asset) return;
     setNotice(null);
     try {
@@ -140,6 +140,9 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
           !walletShortNow,
         );
       }
+      // The account, chain and inputs must still be the ones this follow-up started with.
+      const stale = flow.stale();
+      if (stale) return cancelFollowUp(stale);
       setSubmittedAll(params.mode === "all");
       await tx.send(repayRequest(sharesNow));
     } catch (err) {
@@ -285,6 +288,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
             disabled={!address || positionState.status !== "known" || !plan || walletRaw === undefined || walletShort || overShares}
           >
             {needsApproval ? `Approve ${assetSymbol}` : `Repay ${assetSymbol}`}

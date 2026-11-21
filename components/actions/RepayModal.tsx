@@ -5,14 +5,14 @@ import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { safeParseUnits } from "@/lib/format";
 import { coreFullRepayFunding, hasExecutionHeadroom, planCoreRepay } from "@/lib/approvals";
-import { abortFollowUp, type FollowUpAbort } from "@/lib/approvalFlow";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import { coreApy, corePreview } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { QUERY } from "@/lib/queryPolicy";
 import { POOL_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { LUMINA, getCoreMarketByAsset } from "@/lib/deployments";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
@@ -92,7 +92,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     return abortFollowUp(reason, reapprove);
   };
 
-  const sendRepay = async (params: RepayParams): Promise<FollowUpAbort | void> => {
+  const sendRepay = async (params: RepayParams): Promise<FollowUpResult> => {
     if (!address || !pool) return;
     setNotice(null);
     // Re-validate against the chain right before the wallet prompt (#6).
@@ -128,6 +128,9 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
         return stop("The allowance no longer covers the amount; approve again.", "the allowance no longer covers the amount", true);
       }
     }
+    // The account, chain and inputs must still be the ones this follow-up started with.
+    const stale = flow.stale();
+    if (stale) return cancelFollowUp(stale);
     setSubmittedFull(next.full);
     await tx.send(repayRequest(next.amountArg));
   };
@@ -257,6 +260,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
             isPending={tx.isPending || flow.isPending}
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
             disabled={!address || !plan || walletValue === undefined || shortForPartial || (funding !== null && !funding.fundable)}
           >
             {needsApproval ? `Approve ${symbol}` : `Repay ${symbol}`}

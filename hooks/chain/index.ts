@@ -207,7 +207,15 @@ export function useLuminaWrite() {
           walletChainId,
           simulatorChainId,
           rpcChainId: rpc.rpcChainId,
-          simulate: (params) => simulateContract(config, params as never) as Promise<{ request: object }>,
+          // `simulating` ends when the simulation does: during the wallet prompt only `isPending`
+          // is set, so the flags are exclusive (simulating → confirm in wallet → confirming).
+          simulate: async (params) => {
+            try {
+              return (await simulateContract(config, params as never)) as { request: object };
+            } finally {
+              setSimulating(false);
+            }
+          },
           write: (params) => write.writeContractAsync(params as never),
         });
       } catch (err) {

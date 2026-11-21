@@ -273,6 +273,7 @@ describe("liquidations: the modal stays mounted by the selected target", () => {
   it("isolated: a full liquidation removes the borrower from the list → the success screen stays", async () => {
     setRead(POOL, "getUserAccountData", [0n, 0n, 0n, 0n, 0n, MAX_HF]);
     chain.snapshots[lc(BORROWER)] = [0n, 100n, 10n ** 17n];
+    chain.maxLtv = 40_000n; // 100 USDC against 0.1 WETH ($200) = 50% LTV: insolvent
     setRead(PAIR_USDC_WETH, "toBorrowAmount", 100_000_000n);
     checkBorrower();
     await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Liquidate" })[0]));
