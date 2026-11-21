@@ -1,0 +1,472 @@
+{
+  "source": "lumina-core src/contracts/protocol/libraries/helpers/Errors.sol",
+  "commit": "ea6465c0ff03789e4b0a66cf117f8cb8b40bf93e",
+  "blob": "d3f564cbdfd77cf2f1ba0dce8dbfcd22a756469f",
+  "errors": [
+    {
+      "code": "1",
+      "name": "CALLER_NOT_POOL_ADMIN",
+      "comment": "The caller of the function is not a pool admin"
+    },
+    {
+      "code": "2",
+      "name": "CALLER_NOT_EMERGENCY_ADMIN",
+      "comment": "The caller of the function is not an emergency admin"
+    },
+    {
+      "code": "3",
+      "name": "CALLER_NOT_POOL_OR_EMERGENCY_ADMIN",
+      "comment": "The caller of the function is not a pool or emergency admin"
+    },
+    {
+      "code": "4",
+      "name": "CALLER_NOT_RISK_OR_POOL_ADMIN",
+      "comment": "The caller of the function is not a risk or pool admin"
+    },
+    {
+      "code": "5",
+      "name": "CALLER_NOT_ASSET_LISTING_OR_POOL_ADMIN",
+      "comment": "The caller of the function is not an asset listing or pool admin"
+    },
+    {
+      "code": "6",
+      "name": "CALLER_NOT_BRIDGE",
+      "comment": "The caller of the function is not a bridge"
+    },
+    {
+      "code": "7",
+      "name": "ADDRESSES_PROVIDER_NOT_REGISTERED",
+      "comment": "Pool addresses provider is not registered"
+    },
+    {
+      "code": "8",
+      "name": "INVALID_ADDRESSES_PROVIDER_ID",
+      "comment": "Invalid id for the pool addresses provider"
+    },
+    {
+      "code": "9",
+      "name": "NOT_CONTRACT",
+      "comment": "Address is not a contract"
+    },
+    {
+      "code": "10",
+      "name": "CALLER_NOT_POOL_CONFIGURATOR",
+      "comment": "The caller of the function is not the pool configurator"
+    },
+    {
+      "code": "11",
+      "name": "CALLER_NOT_ATOKEN",
+      "comment": "The caller of the function is not an AToken"
+    },
+    {
+      "code": "12",
+      "name": "INVALID_ADDRESSES_PROVIDER",
+      "comment": "The address of the pool addresses provider is invalid"
+    },
+    {
+      "code": "13",
+      "name": "INVALID_FLASHLOAN_EXECUTOR_RETURN",
+      "comment": "Invalid return value of the flashloan executor function"
+    },
+    {
+      "code": "14",
+      "name": "RESERVE_ALREADY_ADDED",
+      "comment": "Reserve has already been added to reserve list"
+    },
+    {
+      "code": "15",
+      "name": "NO_MORE_RESERVES_ALLOWED",
+      "comment": "Maximum amount of reserves in the pool reached"
+    },
+    {
+      "code": "16",
+      "name": "EMODE_CATEGORY_RESERVED",
+      "comment": "Zero eMode category is reserved for volatile heterogeneous assets"
+    },
+    {
+      "code": "17",
+      "name": "INVALID_EMODE_CATEGORY_ASSIGNMENT",
+      "comment": "Invalid eMode category assignment to asset"
+    },
+    {
+      "code": "18",
+      "name": "RESERVE_LIQUIDITY_NOT_ZERO",
+      "comment": "The liquidity of the reserve needs to be 0"
+    },
+    {
+      "code": "19",
+      "name": "FLASHLOAN_PREMIUM_INVALID",
+      "comment": "Invalid flashloan premium"
+    },
+    {
+      "code": "20",
+      "name": "INVALID_RESERVE_PARAMS",
+      "comment": "Invalid risk parameters for the reserve"
+    },
+    {
+      "code": "21",
+      "name": "INVALID_EMODE_CATEGORY_PARAMS",
+      "comment": "Invalid risk parameters for the eMode category"
+    },
+    {
+      "code": "22",
+      "name": "BRIDGE_PROTOCOL_FEE_INVALID",
+      "comment": "Invalid bridge protocol fee"
+    },
+    {
+      "code": "23",
+      "name": "CALLER_MUST_BE_POOL",
+      "comment": "The caller of this function must be a pool"
+    },
+    {
+      "code": "24",
+      "name": "INVALID_MINT_AMOUNT",
+      "comment": "Invalid amount to mint"
+    },
+    {
+      "code": "25",
+      "name": "INVALID_BURN_AMOUNT",
+      "comment": "Invalid amount to burn"
+    },
+    {
+      "code": "26",
+      "name": "INVALID_AMOUNT",
+      "comment": "Amount must be greater than 0"
+    },
+    {
+      "code": "27",
+      "name": "RESERVE_INACTIVE",
+      "comment": "Action requires an active reserve"
+    },
+    {
+      "code": "28",
+      "name": "RESERVE_FROZEN",
+      "comment": "Action cannot be performed because the reserve is frozen"
+    },
+    {
+      "code": "29",
+      "name": "RESERVE_PAUSED",
+      "comment": "Action cannot be performed because the reserve is paused"
+    },
+    {
+      "code": "30",
+      "name": "BORROWING_NOT_ENABLED",
+      "comment": "Borrowing is not enabled"
+    },
+    {
+      "code": "32",
+      "name": "NOT_ENOUGH_AVAILABLE_USER_BALANCE",
+      "comment": "User cannot withdraw more than the available balance"
+    },
+    {
+      "code": "33",
+      "name": "INVALID_INTEREST_RATE_MODE_SELECTED",
+      "comment": "Invalid interest rate mode selected"
+    },
+    {
+      "code": "34",
+      "name": "COLLATERAL_BALANCE_IS_ZERO",
+      "comment": "The collateral balance is 0"
+    },
+    {
+      "code": "35",
+      "name": "HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD",
+      "comment": "Health factor is lesser than the liquidation threshold"
+    },
+    {
+      "code": "36",
+      "name": "COLLATERAL_CANNOT_COVER_NEW_BORROW",
+      "comment": "There is not enough collateral to cover a new borrow"
+    },
+    {
+      "code": "37",
+      "name": "COLLATERAL_SAME_AS_BORROWING_CURRENCY",
+      "comment": "Collateral is (mostly) the same currency that is being borrowed"
+    },
+    {
+      "code": "39",
+      "name": "NO_DEBT_OF_SELECTED_TYPE",
+      "comment": "For repayment of a specific type of debt, the user needs to have debt that type"
+    },
+    {
+      "code": "40",
+      "name": "NO_EXPLICIT_AMOUNT_TO_REPAY_ON_BEHALF",
+      "comment": "To repay on behalf of a user an explicit amount to repay is needed"
+    },
+    {
+      "code": "42",
+      "name": "NO_OUTSTANDING_VARIABLE_DEBT",
+      "comment": "User does not have outstanding variable rate debt on this reserve"
+    },
+    {
+      "code": "43",
+      "name": "UNDERLYING_BALANCE_ZERO",
+      "comment": "The underlying balance needs to be greater than 0"
+    },
+    {
+      "code": "44",
+      "name": "INTEREST_RATE_REBALANCE_CONDITIONS_NOT_MET",
+      "comment": "Interest rate rebalance conditions were not met"
+    },
+    {
+      "code": "45",
+      "name": "HEALTH_FACTOR_NOT_BELOW_THRESHOLD",
+      "comment": "Health factor is not below the threshold"
+    },
+    {
+      "code": "46",
+      "name": "COLLATERAL_CANNOT_BE_LIQUIDATED",
+      "comment": "The collateral chosen cannot be liquidated"
+    },
+    {
+      "code": "47",
+      "name": "SPECIFIED_CURRENCY_NOT_BORROWED_BY_USER",
+      "comment": "User did not borrow the specified currency"
+    },
+    {
+      "code": "49",
+      "name": "INCONSISTENT_FLASHLOAN_PARAMS",
+      "comment": "Inconsistent flashloan parameters"
+    },
+    {
+      "code": "50",
+      "name": "BORROW_CAP_EXCEEDED",
+      "comment": "Borrow cap is exceeded"
+    },
+    {
+      "code": "51",
+      "name": "SUPPLY_CAP_EXCEEDED",
+      "comment": "Supply cap is exceeded"
+    },
+    {
+      "code": "52",
+      "name": "UNBACKED_MINT_CAP_EXCEEDED",
+      "comment": "Unbacked mint cap is exceeded"
+    },
+    {
+      "code": "53",
+      "name": "DEBT_CEILING_EXCEEDED",
+      "comment": "Debt ceiling is exceeded"
+    },
+    {
+      "code": "54",
+      "name": "UNDERLYING_CLAIMABLE_RIGHTS_NOT_ZERO",
+      "comment": "Claimable rights over underlying not zero (aToken supply or accruedToTreasury)"
+    },
+    {
+      "code": "56",
+      "name": "VARIABLE_DEBT_SUPPLY_NOT_ZERO",
+      "comment": "Variable debt supply is not zero"
+    },
+    {
+      "code": "57",
+      "name": "LTV_VALIDATION_FAILED",
+      "comment": "Ltv validation failed"
+    },
+    {
+      "code": "58",
+      "name": "INCONSISTENT_EMODE_CATEGORY",
+      "comment": "Inconsistent eMode category"
+    },
+    {
+      "code": "59",
+      "name": "PRICE_ORACLE_SENTINEL_CHECK_FAILED",
+      "comment": "Price oracle sentinel validation failed"
+    },
+    {
+      "code": "60",
+      "name": "ASSET_NOT_BORROWABLE_IN_ISOLATION",
+      "comment": "Asset is not borrowable in isolation mode"
+    },
+    {
+      "code": "61",
+      "name": "RESERVE_ALREADY_INITIALIZED",
+      "comment": "Reserve has already been initialized"
+    },
+    {
+      "code": "62",
+      "name": "USER_IN_ISOLATION_MODE_OR_LTV_ZERO",
+      "comment": "User is in isolation mode or ltv is zero"
+    },
+    {
+      "code": "63",
+      "name": "INVALID_LTV",
+      "comment": "Invalid ltv parameter for the reserve"
+    },
+    {
+      "code": "64",
+      "name": "INVALID_LIQ_THRESHOLD",
+      "comment": "Invalid liquidity threshold parameter for the reserve"
+    },
+    {
+      "code": "65",
+      "name": "INVALID_LIQ_BONUS",
+      "comment": "Invalid liquidity bonus parameter for the reserve"
+    },
+    {
+      "code": "66",
+      "name": "INVALID_DECIMALS",
+      "comment": "Invalid decimals parameter of the underlying asset of the reserve"
+    },
+    {
+      "code": "67",
+      "name": "INVALID_RESERVE_FACTOR",
+      "comment": "Invalid reserve factor parameter for the reserve"
+    },
+    {
+      "code": "68",
+      "name": "INVALID_BORROW_CAP",
+      "comment": "Invalid borrow cap for the reserve"
+    },
+    {
+      "code": "69",
+      "name": "INVALID_SUPPLY_CAP",
+      "comment": "Invalid supply cap for the reserve"
+    },
+    {
+      "code": "70",
+      "name": "INVALID_LIQUIDATION_PROTOCOL_FEE",
+      "comment": "Invalid liquidation protocol fee for the reserve"
+    },
+    {
+      "code": "71",
+      "name": "INVALID_EMODE_CATEGORY",
+      "comment": "Invalid eMode category for the reserve"
+    },
+    {
+      "code": "72",
+      "name": "INVALID_UNBACKED_MINT_CAP",
+      "comment": "Invalid unbacked mint cap for the reserve"
+    },
+    {
+      "code": "73",
+      "name": "INVALID_DEBT_CEILING",
+      "comment": "Invalid debt ceiling for the reserve"
+    },
+    {
+      "code": "74",
+      "name": "INVALID_RESERVE_INDEX",
+      "comment": "Invalid reserve index"
+    },
+    {
+      "code": "75",
+      "name": "ACL_ADMIN_CANNOT_BE_ZERO",
+      "comment": "ACL admin cannot be set to the zero address"
+    },
+    {
+      "code": "76",
+      "name": "INCONSISTENT_PARAMS_LENGTH",
+      "comment": "Array parameters that should be equal length are not"
+    },
+    {
+      "code": "77",
+      "name": "ZERO_ADDRESS_NOT_VALID",
+      "comment": "Zero address not valid"
+    },
+    {
+      "code": "78",
+      "name": "INVALID_EXPIRATION",
+      "comment": "Invalid expiration"
+    },
+    {
+      "code": "79",
+      "name": "INVALID_SIGNATURE",
+      "comment": "Invalid signature"
+    },
+    {
+      "code": "80",
+      "name": "OPERATION_NOT_SUPPORTED",
+      "comment": "Operation not supported"
+    },
+    {
+      "code": "81",
+      "name": "DEBT_CEILING_NOT_ZERO",
+      "comment": "Debt ceiling is not zero"
+    },
+    {
+      "code": "82",
+      "name": "ASSET_NOT_LISTED",
+      "comment": "Asset is not listed"
+    },
+    {
+      "code": "83",
+      "name": "INVALID_OPTIMAL_USAGE_RATIO",
+      "comment": "Invalid optimal usage ratio"
+    },
+    {
+      "code": "85",
+      "name": "UNDERLYING_CANNOT_BE_RESCUED",
+      "comment": "The underlying asset cannot be rescued"
+    },
+    {
+      "code": "86",
+      "name": "ADDRESSES_PROVIDER_ALREADY_ADDED",
+      "comment": "Reserve has already been added to reserve list"
+    },
+    {
+      "code": "87",
+      "name": "POOL_ADDRESSES_DO_NOT_MATCH",
+      "comment": "The token implementation pool address and the pool address provided by the initializing pool do not match"
+    },
+    {
+      "code": "89",
+      "name": "SILOED_BORROWING_VIOLATION",
+      "comment": "User is trying to borrow multiple assets including a siloed one"
+    },
+    {
+      "code": "90",
+      "name": "RESERVE_DEBT_NOT_ZERO",
+      "comment": "the total debt of the reserve needs to be 0"
+    },
+    {
+      "code": "91",
+      "name": "FLASHLOAN_DISABLED",
+      "comment": "FlashLoaning for this asset is disabled"
+    },
+    {
+      "code": "92",
+      "name": "INVALID_MAX_RATE",
+      "comment": "The expect maximum borrow rate is invalid"
+    },
+    {
+      "code": "93",
+      "name": "WITHDRAW_TO_ATOKEN",
+      "comment": "Withdrawing to the aToken is not allowed"
+    },
+    {
+      "code": "94",
+      "name": "SUPPLY_TO_ATOKEN",
+      "comment": "Supplying to the aToken is not allowed"
+    },
+    {
+      "code": "95",
+      "name": "SLOPE_2_MUST_BE_GTE_SLOPE_1",
+      "comment": "Variable interest rate slope 2 can not be lower than slope 1"
+    },
+    {
+      "code": "96",
+      "name": "CALLER_NOT_RISK_OR_POOL_OR_EMERGENCY_ADMIN",
+      "comment": "The caller of the function is not a risk, pool or emergency admin"
+    },
+    {
+      "code": "97",
+      "name": "LIQUIDATION_GRACE_SENTINEL_CHECK_FAILED",
+      "comment": "Liquidation grace sentinel validation failed"
+    },
+    {
+      "code": "98",
+      "name": "INVALID_GRACE_PERIOD",
+      "comment": "Grace period above a valid range"
+    },
+    {
+      "code": "99",
+      "name": "INVALID_FREEZE_STATE",
+      "comment": "Reserve is already in the passed freeze state"
+    },
+    {
+      "code": "100",
+      "name": "NOT_BORROWABLE_IN_EMODE",
+      "comment": "Asset not borrowable in eMode"
+    }
+  ]
+}

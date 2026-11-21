@@ -1,0 +1,227 @@
+{
+  "chain": "lumina-monorepo harness (anvil, chain id 19529), private instance",
+  "capturedAt": "2026-11-21T07:23:57.521Z",
+  "cases": [
+    {
+      "name": "core supply 0 → 26",
+      "venue": "core",
+      "action": "supply",
+      "contract": "Pool",
+      "functionName": "supply",
+      "args": [
+        "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "0",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720",
+        0
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000023236000000000000000000000000000000000000000000000000000000000000",
+      "rpcMessage": "execution reverted: 26",
+      "viemShortMessage": "The contract function \"supply\" reverted with the following reason:\n26",
+      "viemMessage": "The contract function \"supply\" reverted with the following reason:\n26\n\nContract Call:\n  address:   0x0A162db55B8824A87f5a39B9Fa14e04C3BDE4aF9\n  function:  supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)\n  args:            (0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720, 0)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "core withdraw over balance → 32",
+      "venue": "core",
+      "action": "withdraw",
+      "contract": "Pool",
+      "functionName": "withdraw",
+      "args": [
+        "0x660000000000000000000000000000000000000c",
+        "50000000000000000000",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000023332000000000000000000000000000000000000000000000000000000000000",
+      "rpcMessage": "execution reverted: 32",
+      "viemShortMessage": "The contract function \"withdraw\" reverted with the following reason:\n32",
+      "viemMessage": "The contract function \"withdraw\" reverted with the following reason:\n32\n\nContract Call:\n  address:   0x0A162db55B8824A87f5a39B9Fa14e04C3BDE4aF9\n  function:  withdraw(address asset, uint256 amount, address to)\n  args:              (0x660000000000000000000000000000000000000c, 50000000000000000000, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "core borrow over collateral → 36",
+      "venue": "core",
+      "action": "borrow",
+      "contract": "Pool",
+      "functionName": "borrow",
+      "args": [
+        "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "60000000000",
+        "2",
+        0,
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000023336000000000000000000000000000000000000000000000000000000000000",
+      "rpcMessage": "execution reverted: 36",
+      "viemShortMessage": "The contract function \"borrow\" reverted with the following reason:\n36",
+      "viemMessage": "The contract function \"borrow\" reverted with the following reason:\n36\n\nContract Call:\n  address:   0x0A162db55B8824A87f5a39B9Fa14e04C3BDE4aF9\n  function:  borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)\n  args:            (0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B, 60000000000, 2, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "core borrow over cap → 50",
+      "venue": "core",
+      "action": "borrow",
+      "contract": "Pool",
+      "functionName": "borrow",
+      "args": [
+        "0x660000000000000000000000000000000000000c",
+        "26000000000000000000",
+        "2",
+        0,
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000023530000000000000000000000000000000000000000000000000000000000000",
+      "rpcMessage": "execution reverted: 50",
+      "viemShortMessage": "The contract function \"borrow\" reverted with the following reason:\n50",
+      "viemMessage": "The contract function \"borrow\" reverted with the following reason:\n50\n\nContract Call:\n  address:   0x0A162db55B8824A87f5a39B9Fa14e04C3BDE4aF9\n  function:  borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)\n  args:            (0x660000000000000000000000000000000000000c, 26000000000000000000, 2, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair borrowAsset over max LTV → Insolvent",
+      "venue": "isolated",
+      "action": "borrow",
+      "contract": "LightlendPair",
+      "functionName": "borrowAsset",
+      "args": [
+        "20000000000",
+        "0",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0xed27783c000000000000000000000000000000000000000000000000000000051f4d5c2f00000000000000000000000000000000000000000000000029a2241af62c000000000000000000000000000000000000000000000113ba14354580144d555555",
+      "rpcMessage": "execution reverted: custom error 0xed27783c: 000000000000000000000000000000000000000000000000000000051f4d5c2f00000000000000000000000000000000000000000000000029a2241af62c000000000000000000000000000000000000000000000113ba14354580144d555555",
+      "viemShortMessage": "The contract function \"borrowAsset\" reverted.",
+      "viemMessage": "The contract function \"borrowAsset\" reverted.\n\nError: Insolvent(uint256 _borrow, uint256 _collateral, uint256 _exchangeRate)\n                (22000000047, 3000000000000000000, 333333333333333333333333333)\n \nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  borrowAsset(uint256 _borrowAmount, uint256 _collateralAmount, address _receiver)\n  args:                 (20000000000, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair borrowAsset over liquidity → InsufficientAssetsInContract",
+      "venue": "isolated",
+      "action": "borrow",
+      "contract": "LightlendPair",
+      "functionName": "borrowAsset",
+      "args": [
+        "90000000000",
+        "0",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0xc5bb6dae0000000000000000000000000000000000000000000000000000000b2e83584000000000000000000000000000000000000000000000000000000014f46b0400",
+      "rpcMessage": "execution reverted: custom error 0xc5bb6dae: 0000000000000000000000000000000000000000000000000000000b2e83584000000000000000000000000000000000000000000000000000000014f46b0400",
+      "viemShortMessage": "The contract function \"borrowAsset\" reverted.",
+      "viemMessage": "The contract function \"borrowAsset\" reverted.\n\nError: InsufficientAssetsInContract(uint256 _assets, uint256 _request)\n                                   (48025000000, 90000000000)\n \nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  borrowAsset(uint256 _borrowAmount, uint256 _collateralAmount, address _receiver)\n  args:                 (90000000000, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair removeCollateral over balance → Panic 0x11",
+      "venue": "isolated",
+      "action": "removeCollateral",
+      "contract": "LightlendPair",
+      "functionName": "removeCollateral",
+      "args": [
+        "10000000000000000000",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x4e487b710000000000000000000000000000000000000000000000000000000000000011",
+      "rpcMessage": "execution reverted: panic: arithmetic underflow or overflow (0x11)",
+      "viemShortMessage": "The contract function \"removeCollateral\" reverted with the following reason:\nArithmetic operation resulted in underflow or overflow.",
+      "viemMessage": "The contract function \"removeCollateral\" reverted with the following reason:\nArithmetic operation resulted in underflow or overflow.\n\nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  removeCollateral(uint256 _collateralAmount, address _receiver)\n  args:                      (10000000000000000000, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair liquidate solvent borrower → BorrowerSolvent",
+      "venue": "isolated",
+      "action": "liquidate",
+      "contract": "LightlendPair",
+      "functionName": "liquidate",
+      "args": [
+        "1",
+        "1796205300",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x75e595fa",
+      "rpcMessage": "execution reverted: custom error 0x75e595fa",
+      "viemShortMessage": "The contract function \"liquidate\" reverted.",
+      "viemMessage": "The contract function \"liquidate\" reverted.\n\nError: BorrowerSolvent()\n \nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  liquidate(uint128 _sharesToLiquidate, uint256 _deadline, address _borrower)\n  args:               (1, 1796205300, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0x90F79bf6EB2c4f870365E785982E1f101E93b906\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair liquidate past deadline → PastDeadline",
+      "venue": "isolated",
+      "action": "liquidate",
+      "contract": "LightlendPair",
+      "functionName": "liquidate",
+      "args": [
+        "1",
+        "1796201690",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "OK",
+      "block": "536",
+      "data": "0x5ba2a8d5000000000000000000000000000000000000000000000000000000006b0fdce4000000000000000000000000000000000000000000000000000000006b0fdcda",
+      "rpcMessage": "execution reverted: custom error 0x5ba2a8d5: 000000000000000000000000000000000000000000000000000000006b0fdce4000000000000000000000000000000000000000000000000000000006b0fdcda",
+      "viemShortMessage": "The contract function \"liquidate\" reverted.",
+      "viemMessage": "The contract function \"liquidate\" reverted.\n\nError: PastDeadline(uint256 _blockTimestamp, uint256 _deadline)\n                   (1796201700, 1796201690)\n \nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  liquidate(uint128 _sharesToLiquidate, uint256 _deadline, address _borrower)\n  args:               (1, 1796201690, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0x90F79bf6EB2c4f870365E785982E1f101E93b906\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "core borrow, guard stale → 59",
+      "venue": "core",
+      "action": "borrow",
+      "contract": "Pool",
+      "functionName": "borrow",
+      "args": [
+        "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B",
+        "100000000",
+        "2",
+        0,
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "REFERENCE_STALE",
+      "block": "537",
+      "data": "0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000023539000000000000000000000000000000000000000000000000000000000000",
+      "rpcMessage": "execution reverted: 59",
+      "viemShortMessage": "The contract function \"borrow\" reverted with the following reason:\n59",
+      "viemMessage": "The contract function \"borrow\" reverted with the following reason:\n59\n\nContract Call:\n  address:   0x0A162db55B8824A87f5a39B9Fa14e04C3BDE4aF9\n  function:  borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)\n  args:            (0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B, 100000000, 2, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair borrowAsset, guard stale → ExceedsMaxOracleDeviation",
+      "venue": "isolated",
+      "action": "borrow",
+      "contract": "LightlendPair",
+      "functionName": "borrowAsset",
+      "args": [
+        "100000000",
+        "0",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "REFERENCE_STALE",
+      "block": "537",
+      "data": "0x345513d9",
+      "rpcMessage": "execution reverted: custom error 0x345513d9",
+      "viemShortMessage": "The contract function \"borrowAsset\" reverted.",
+      "viemMessage": "The contract function \"borrowAsset\" reverted.\n\nError: ExceedsMaxOracleDeviation()\n \nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  borrowAsset(uint256 _borrowAmount, uint256 _collateralAmount, address _receiver)\n  args:                 (100000000, 0, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    },
+    {
+      "name": "pair removeCollateral with debt, guard stale → ExceedsMaxOracleDeviation",
+      "venue": "isolated",
+      "action": "removeCollateral",
+      "contract": "LightlendPair",
+      "functionName": "removeCollateral",
+      "args": [
+        "100000000000000000",
+        "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720"
+      ],
+      "guardStatus": "REFERENCE_STALE",
+      "block": "537",
+      "data": "0x345513d9",
+      "rpcMessage": "execution reverted: custom error 0x345513d9",
+      "viemShortMessage": "The contract function \"removeCollateral\" reverted.",
+      "viemMessage": "The contract function \"removeCollateral\" reverted.\n\nError: ExceedsMaxOracleDeviation()\n \nContract Call:\n  address:   0x45189E6e82f97a8f6A8A9F71430227927610381c\n  function:  removeCollateral(uint256 _collateralAmount, address _receiver)\n  args:                      (100000000000000000, 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720)\n  sender:    0xa0Ee7A142d267C1f36714E4a8F75612F20a79720\n\nDocs: https://viem.sh/docs/contract/simulateContract\nVersion: viem@2.38.6"
+    }
+  ]
+}

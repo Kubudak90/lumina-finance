@@ -1,0 +1,156 @@
+{
+  "source": "lumina-isolated contracts/LightlendPairConstants.sol + LightlendPairAccessControlErrors.sol (compiled LightlendPair artifact)",
+  "commit": "3a0e3ef7083e0926199321441afa5d3f012bdde5",
+  "errors": [
+    {
+      "name": "Insolvent",
+      "signature": "Insolvent(uint256,uint256,uint256)",
+      "selector": "0xed27783c"
+    },
+    {
+      "name": "BorrowerSolvent",
+      "signature": "BorrowerSolvent()",
+      "selector": "0x75e595fa"
+    },
+    {
+      "name": "InsufficientAssetsInContract",
+      "signature": "InsufficientAssetsInContract(uint256,uint256)",
+      "selector": "0xc5bb6dae"
+    },
+    {
+      "name": "SlippageTooHigh",
+      "signature": "SlippageTooHigh(uint256,uint256)",
+      "selector": "0x76baadda"
+    },
+    {
+      "name": "BadSwapper",
+      "signature": "BadSwapper()",
+      "selector": "0x1311dc6d"
+    },
+    {
+      "name": "InvalidPath",
+      "signature": "InvalidPath(address,address)",
+      "selector": "0xb0b3262d"
+    },
+    {
+      "name": "BadProtocolFee",
+      "signature": "BadProtocolFee()",
+      "selector": "0xda0afa57"
+    },
+    {
+      "name": "PastDeadline",
+      "signature": "PastDeadline(uint256,uint256)",
+      "selector": "0x5ba2a8d5"
+    },
+    {
+      "name": "SetterRevoked",
+      "signature": "SetterRevoked()",
+      "selector": "0x8c34a9b8"
+    },
+    {
+      "name": "ExceedsMaxOracleDeviation",
+      "signature": "ExceedsMaxOracleDeviation()",
+      "selector": "0x345513d9"
+    },
+    {
+      "name": "InvalidReceiver",
+      "signature": "InvalidReceiver()",
+      "selector": "0x1e4ec46b"
+    },
+    {
+      "name": "ZeroAddress",
+      "signature": "ZeroAddress()",
+      "selector": "0xd92e233d"
+    },
+    {
+      "name": "AssetEqualsCollateral",
+      "signature": "AssetEqualsCollateral()",
+      "selector": "0x2a820686"
+    },
+    {
+      "name": "InvalidOracleDeviation",
+      "signature": "InvalidOracleDeviation()",
+      "selector": "0x574e37d0"
+    },
+    {
+      "name": "InvalidUtilizationRate",
+      "signature": "InvalidUtilizationRate()",
+      "selector": "0x0815a6a3"
+    },
+    {
+      "name": "InvalidLTV",
+      "signature": "InvalidLTV()",
+      "selector": "0x5e544952"
+    },
+    {
+      "name": "InvalidLiquidationFee",
+      "signature": "InvalidLiquidationFee()",
+      "selector": "0x16535458"
+    },
+    {
+      "name": "InvalidProtocolFee",
+      "signature": "InvalidProtocolFee()",
+      "selector": "0xba97f838"
+    },
+    {
+      "name": "InvalidSeedAmount",
+      "signature": "InvalidSeedAmount()",
+      "selector": "0xb8a4a415"
+    },
+    {
+      "name": "InsufficientLiquidatorBonus",
+      "signature": "InsufficientLiquidatorBonus()",
+      "selector": "0xb3d95110"
+    },
+    {
+      "name": "MaxLTVTooHighForLiquidationFee",
+      "signature": "MaxLTVTooHighForLiquidationFee()",
+      "selector": "0x28c5ed2f"
+    },
+    {
+      "name": "OnlyProtocolOrOwner",
+      "signature": "OnlyProtocolOrOwner()",
+      "selector": "0x1d1e647b"
+    },
+    {
+      "name": "OnlyTimelockOrOwner",
+      "signature": "OnlyTimelockOrOwner()",
+      "selector": "0x6f545269"
+    },
+    {
+      "name": "ExceedsBorrowLimit",
+      "signature": "ExceedsBorrowLimit()",
+      "selector": "0x97ba4de3"
+    },
+    {
+      "name": "AccessControlRevoked",
+      "signature": "AccessControlRevoked()",
+      "selector": "0x1ada47b8"
+    },
+    {
+      "name": "RepayPaused",
+      "signature": "RepayPaused()",
+      "selector": "0x3cc383d2"
+    },
+    {
+      "name": "ExceedsDepositLimit",
+      "signature": "ExceedsDepositLimit()",
+      "selector": "0x2ab4a214"
+    },
+    {
+      "name": "WithdrawPaused",
+      "signature": "WithdrawPaused()",
+      "selector": "0xe0a39803"
+    },
+    {
+      "name": "LiquidatePaused",
+      "signature": "LiquidatePaused()",
+      "selector": "0x6d2c35dc"
+    },
+    {
+      "name": "InterestPaused",
+      "signature": "InterestPaused()",
+      "selector": "0xa02a2bcd"
+    }
+  ]
+}
