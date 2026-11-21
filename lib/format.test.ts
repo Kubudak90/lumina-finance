@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import Decimal from "decimal.js";
 import {
   formatApy,
+  formatExactTokenAmount,
   formatHealthFactor,
   formatLiquidationPrice,
   formatPairPrice,
@@ -153,5 +154,32 @@ describe("one token-amount formatter for every surface (U4 review r1 #2)", () =>
     expect(formatPairPrice(500_000_000_000_000n, 18)).toBe("0.0005");
     expect(formatPairPrice(426_315_789_473_684n, 18)).toBe("0.000426");
     expect(formatPairPrice(2_000_000_000n, 6)).toBe("2,000");
+  });
+});
+
+describe("approval and allowance figures: exact, never rounded (U4 review r2 #1)", () => {
+  it("keeps every non-zero fraction digit, drops trailing zeros, groups thousands", () => {
+    expect(formatExactTokenAmount(123_456_000_000_000_000n, 18)).toBe("0.123456"); // not 0.1234
+    expect(formatExactTokenAmount(50_050_000_000_000_001n, 18)).toBe("0.050050000000000001"); // not 0.05
+    expect(formatExactTokenAmount(50_010_000_000_000_000n, 18)).toBe("0.05001");
+    expect(formatExactTokenAmount(1_234_567_890_123_456_789_012n, 18)).toBe("1,234.567890123456789012");
+    expect(formatExactTokenAmount(959_960_000_000n, 6)).toBe("959,960");
+    expect(formatExactTokenAmount(1_500_000n, 6)).toBe("1.5");
+    expect(formatExactTokenAmount(0n, 18)).toBe("0");
+  });
+
+  it("no dust floor and no float: 1 wei and a full uint256 are exact", () => {
+    expect(formatExactTokenAmount(1n, 18)).toBe("0.000000000000000001");
+    expect(formatExactTokenAmount(1n, 6)).toBe("0.000001");
+    expect(formatExactTokenAmount((1n << 256n) - 1n, 18)).toBe(
+      "115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457.584007913129639935",
+    );
+  });
+
+  it("an allowance short of an approval never reads the same (the 4-place amount formatter would)", () => {
+    const allowance = 50_010_000_000_000_000n;
+    const approval = 50_050_000_000_000_001n;
+    expect(formatTokenAmount(allowance, 18)).toBe(formatTokenAmount(approval, 18)); // both "0.05": why approvals don't use it
+    expect(formatExactTokenAmount(allowance, 18)).not.toBe(formatExactTokenAmount(approval, 18));
   });
 });

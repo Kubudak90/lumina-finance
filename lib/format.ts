@@ -48,8 +48,8 @@ function unitsDown(value: bigint, decimals: number, places: number): string {
 }
 
 /**
- * A token amount (base units) as "1,234.5678": the one formatter of every token amount the app
- * shows — positions, balances, debts, collateral, wallet, allowances, limits and totals, on the
+ * A token amount (base units) as "1,234.5678": the one formatter of every position / balance
+ * amount the app shows — positions, balances, debts, collateral, wallet, limits and totals, on the
  * pages and in the modals — so one amount never reads two ways.
  *
  * The convention (U4 review r1 #2), one rule everywhere:
@@ -61,9 +61,28 @@ function unitsDown(value: bigint, decimals: number, places: number): string {
  * the raw call in Details, the wallet prompt), so two renderings of one amount never contradict
  * each other. A debt is understated by less than 0.0001 of the token at most and never reads 0;
  * the risk figures carry the conservative rounding (HF floored, LTV rounded up, lib/risk).
+ * Allowance and approval figures are the exception: they are shown exactly
+ * (`formatExactTokenAmount`).
  */
 export function formatTokenAmount(value: bigint, decimals: number): string {
   return unitsDown(value, decimals, AMOUNT_FRACTION_DIGITS);
+}
+
+/**
+ * An allowance or approval amount (base units) EXACTLY: thousands grouped, every non-zero fraction
+ * digit kept (trailing zeros dropped), never rounded, no dust floor — "0.123456",
+ * "0.050050000000000001", "0.000000000000000001". The figures of the approval flow (what an
+ * approval grants, the current and the remaining allowance, TxSteps' "Approve ‹token› ‹amount›")
+ * use it, so they always equal the amount of the approve call and an allowance that falls short
+ * never reads like the approval it triggers (U4 review r2 #1). Positions and balances keep
+ * `formatTokenAmount`.
+ */
+export function formatExactTokenAmount(value: bigint, decimals: number): string {
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  // Base units / 10^decimals is exact with AmountDecimal's 100 digits; toFixed() never rounds it.
+  const [int, frac] = new AmountDecimal(abs.toString()).div(new AmountDecimal(10).pow(decimals)).toFixed().split(".");
+  return `${negative ? "-" : ""}${groupThousands(int)}${frac ? `.${frac}` : ""}`;
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatTokenAmount } from "@/lib/format";
+import { formatExactTokenAmount } from "@/lib/format";
 
 /** After a confirmed transaction: the allowance that really remains, read from the chain. */
 export function PostTxAllowance({
@@ -35,7 +35,7 @@ export function PostTxAllowance({
         ? "reading…"
         : value === undefined
           ? "unavailable"
-          : `${formatTokenAmount(value, decimals)} ${symbol}`}
+          : `${formatExactTokenAmount(value, decimals)} ${symbol}`}
     </p>
   );
 }

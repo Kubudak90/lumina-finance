@@ -1,8 +1,11 @@
 import { residualAllowance } from "@/lib/approvals";
-import { formatTokenAmount } from "@/lib/format";
+import { formatExactTokenAmount } from "@/lib/format";
 
-/** The app's one amount formatter (lib/format): the approve amount reads as TxSteps' row 1 does. */
-const fmt = formatTokenAmount;
+/**
+ * Allowance figures exactly, never rounded (lib/format, U4 review r2 #1): "Approves (exact)" is the
+ * approve call's amount, as TxSteps' row 1 shows it, and an allowance short of it never reads equal.
+ */
+const fmt = formatExactTokenAmount;
 
 /**
  * Current allowance, what this action approves, and (for buffered repays) an ESTIMATE of what
