@@ -341,6 +341,12 @@ input[type="number"] { -moz-appearance: textfield; }
     background-color: Highlight;
     color: HighlightText;
   }
+  /* forced-color-adjust: none keeps the author's transparent outline on this button, so its
+     focus would vanish; give it the system text colour and drop the author ring (Gemini LT r2). */
+  .theme-selector [role="radio"][aria-checked="true"]:focus-visible {
+    outline-color: CanvasText;
+    box-shadow: none;
+  }
 }
 
 @media print {
