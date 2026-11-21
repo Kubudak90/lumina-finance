@@ -2,7 +2,8 @@
 /**
  * U2 review r1 #2: useLuminaWrite's flags are exclusive — `isSimulating` ends when the simulation
  * resolves, before the wallet prompt (`isPending`), so the UI can show simulating → confirm in
- * wallet. The real hook, with wagmi's write and simulate controlled by the test.
+ * wallet. U4 review r1 #4: a send whose component unmounted while it simulated opens no wallet
+ * prompt. The real hook, with wagmi's write and simulate controlled by the test.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
@@ -12,6 +13,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const ctl = vi.hoisted(() => ({
   resolveSimulate: null as null | (() => void),
   resolveWrite: null as null | ((hash: `0x${string}`) => void),
+  /** writeContractAsync calls: each one is a wallet prompt. */
+  walletPrompts: 0,
 }));
 
 vi.mock("wagmi", () => ({
@@ -27,6 +30,7 @@ vi.mock("wagmi", () => ({
       error: null,
       reset: () => {},
       writeContractAsync: () => {
+        ctl.walletPrompts += 1;
         setPending(true);
         return new Promise<`0x${string}`>((resolve) => {
           ctl.resolveWrite = (hash) => {
@@ -48,6 +52,7 @@ vi.mock("@/lib/deployments", async (importOriginal) => ({ ...(await importOrigin
 vi.mock("@/lib/chains", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/chains")>()), rpcUrlFor: () => "https://rpc.test" }));
 
 import { useLuminaWrite, useRpcChainStatus } from "@/hooks/chain";
+import { renderClosable } from "../support/closable";
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -78,5 +83,34 @@ describe("useLuminaWrite: simulating → confirm in wallet are exclusive", () =>
     await expect(sent).resolves.toBe(hash);
     expect(result.current.write.isPending).toBe(false);
     expect(result.current.write.isSimulating).toBe(false);
+  });
+});
+
+describe("useLuminaWrite: no wallet prompt once its component is gone (U4 review r1 #4)", () => {
+  it("the dialog closes while it simulates; the simulation resolves right after the closing commit → no writeContractAsync", async () => {
+    ctl.resolveSimulate = null;
+    ctl.walletPrompts = 0;
+    const live: { write?: ReturnType<typeof useLuminaWrite>; rpc?: string } = {};
+    function Sender() {
+      live.write = useLuminaWrite();
+      live.rpc = useRpcChainStatus().status;
+      return null;
+    }
+    // The simulation resolves inside the closing commit (layout phase), before passive cleanups run.
+    const dialog = renderClosable(wrapper({ children: <Sender /> }), () => ctl.resolveSimulate?.());
+    await waitFor(() => expect(live.rpc).toBe("ok"));
+
+    let sent!: Promise<unknown>;
+    act(() => {
+      sent = live.write!.send({ address: "0x0000000000000000000000000000000000000001", abi: [], functionName: "supply", args: [] });
+    });
+    await waitFor(() => expect(ctl.resolveSimulate).not.toBeNull());
+    expect(live.write!.isSimulating).toBe(true);
+
+    await dialog.closeOutsideAct();
+
+    expect(dialog.probe.passiveRanBeforeCommitMicrotasks).toBe(false); // the window was open
+    expect(ctl.walletPrompts).toBe(0); // no wallet prompt for the closed dialog
+    await expect(sent).resolves.toBeUndefined(); // and the send ends: no hash
   });
 });

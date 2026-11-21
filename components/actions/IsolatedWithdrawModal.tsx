@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { bigintAt, resultAt, useLuminaReadContract, useLuminaReader, useLuminaWrite } from "@/hooks/chain";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
+import { useIsomorphicLayoutEffect, useMountedRef } from "@/hooks/useMountedRef";
 import { aprToApy } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
@@ -38,18 +39,14 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
   const [checking, setChecking] = useState(false);
   const checkingRef = useRef(false);
   const { address, chainId } = useAccount();
-  // Updated at commit; `mounted` stops a MAX read that resolves after the dialog closed
-  // (review U2 r2, minors 1 and 2).
-  const liveRef = useRef({ address, chainId, withdrawAll, mounted: false });
-  useLayoutEffect(() => {
-    liveRef.current = { ...liveRef.current, address, chainId, withdrawAll };
+  // Both updated at commit (layout effects): `liveRef` so a MAX read that resolves right after an
+  // edit sees it, `mountedRef` so one that resolves right after the dialog closed sends nothing
+  // (review U2 r2, minors 1 and 2; U4 review r1 #4).
+  const liveRef = useRef({ address, chainId, withdrawAll });
+  useIsomorphicLayoutEffect(() => {
+    liveRef.current = { address, chainId, withdrawAll };
   });
-  useEffect(() => {
-    liveRef.current.mounted = true;
-    return () => {
-      liveRef.current.mounted = false;
-    };
-  }, []);
+  const mountedRef = useMountedRef();
   const readNow = useLuminaReader();
   const tx = useLuminaWrite();
   const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
@@ -114,8 +111,8 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
         setNotice("The pair's free liquidity does not cover your whole balance right now; withdraw an amount instead.");
         return;
       }
+      if (!mountedRef.current) return; // the dialog was closed while the balance was read: send nothing
       const live = liveRef.current;
-      if (!live.mounted) return; // the dialog was closed while the balance was read: send nothing
       if (!live.withdrawAll || live.address?.toLowerCase() !== address.toLowerCase() || live.chainId !== startChainId) {
         setNotice("The account or the amount changed while your balance was read; nothing was sent.");
         return;

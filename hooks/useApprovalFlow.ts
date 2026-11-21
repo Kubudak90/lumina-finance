@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { ERC20_ABI } from "@/lib/abis";
@@ -19,9 +19,7 @@ import {
 } from "@/lib/approvalFlow";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
-
-/** Layout effect in the browser, plain effect during SSR (no server warning). */
-const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+import { useIsomorphicLayoutEffect, useMountedRef } from "@/hooks/useMountedRef";
 
 /**
  * The one place an ERC-20 approval is built (lib/scope.test.ts: no free-standing approve anywhere
@@ -135,14 +133,9 @@ export function useApprovalFlow<P>(options: {
     liveSessionRef.current = session;
     liveBindingRef.current = { account: address, chainId, paramsKey };
   });
-  // A follow-up whose dialog was closed while it re-checked must not open a wallet prompt.
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  // A follow-up whose dialog was closed while it re-checked must not open a wallet prompt. The flag
+  // flips at the unmounting commit (layout effect), before any later microtask (U4 review r1 #4).
+  const mountedRef = useMountedRef();
 
   // A change of the inputs, account or chain clears the session unless a flow is still active;
   // a change while the flow is active is a cancellation instead (decideFollowUp while the approval
@@ -211,7 +204,7 @@ export function useApprovalFlow<P>(options: {
     if (!mountedRef.current) return "the dialog was closed";
     const bound = runningBindingRef.current;
     return bound ? staleFollowUp(bound, liveBindingRef.current) : null;
-  }, []);
+  }, [mountedRef]);
 
   // Each pending flow is resolved (cancelled or continued) exactly once.
   const resolvedRef = useRef<PendingFollowUp<P> | null>(null);
