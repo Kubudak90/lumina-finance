@@ -27,11 +27,17 @@ interface LiquidationOpportunity {
   collateralAsset: `0x${string}`;
   debtSymbol: string;
   debtDecimals: number;
+  collateralSymbol: string;
+  collateralDecimals: number;
+  /** The borrower's raw variable debt of the debt asset and aToken balance of the collateral. */
+  rawDebt: bigint;
+  rawCollateral: bigint;
   /** null when a price or reserve config is unavailable. */
   limit: LiquidationLimit | null;
 }
 
 interface IsolatedLiquidationOpportunity {
+  borrower: `0x${string}`;
   pair: IsolatedPairInfo & { pair: `0x${string}` };
   /** undefined if the share → amount conversion failed. */
   borrowedAmount: bigint | undefined;
@@ -40,9 +46,12 @@ interface IsolatedLiquidationOpportunity {
 }
 
 export default function LiquidationsPage() {
-  // Only keys live in state; the opportunity itself is re-derived from polled data every render.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [selectedPair, setSelectedPair] = useState<`0x${string}` | null>(null);
+  // The selected target is latched when its modal opens, so the modal stays mounted when the
+  // borrower drops out of the live list (a liquidation that heals the borrower keeps its success
+  // screen; spec ui-usability-v1 §3.2). While the target is in the live list, the modal gets its
+  // live, polled data.
+  const [selected, setSelected] = useState<LiquidationOpportunity | null>(null);
+  const [selectedIsolated, setSelectedIsolated] = useState<IsolatedLiquidationOpportunity | null>(null);
   const [searchAddress, setSearchAddress] = useState("");
   const [checkAddress, setCheckAddress] = useState<`0x${string}` | undefined>();
   const { pairs: allPairs } = useIsolatedPairs();
@@ -129,13 +138,21 @@ export default function LiquidationsPage() {
             collateralAsset: collateralMarket.asset,
             debtSymbol: debtMarket.symbol,
             debtDecimals: debtMarket.decimals,
+            collateralSymbol: collateralMarket.symbol,
+            collateralDecimals: collateralMarket.decimals,
+            rawDebt: debt,
+            rawCollateral: collateral,
             limit,
           });
         }
       }
     }
   }
-  const selected = opportunities.find((o) => o.key === selectedKey && o.limit !== null) ?? null;
+  const liveSelected = selected
+    ? (opportunities.find((o) => o.key === selected.key && o.borrower.toLowerCase() === selected.borrower.toLowerCase()) ?? null)
+    : null;
+  const target = liveSelected ?? selected;
+  const targetLimit = liveSelected?.limit ?? selected?.limit ?? null;
 
   // ─── Isolated pair lookup for the same searched address ───
   const isolatedSnapshotContracts = checkAddress
@@ -174,6 +191,7 @@ export default function LiquidationsPage() {
         const snap = isolatedSnapshots.data?.[i]?.result as readonly [bigint, bigint, bigint] | undefined;
         const conv = isolatedConv.data?.[i];
         return {
+          borrower: checkAddress,
           pair: p,
           borrowedShares: snap?.[1] ?? 0n,
           borrowedAmount: conv && conv.status === "success" ? (conv.result as bigint) : undefined,
@@ -182,7 +200,12 @@ export default function LiquidationsPage() {
       })
       .filter((o) => o.borrowedShares > 0n);
   }, [checkAddress, isolatedPairs, isolatedSnapshots.data, isolatedConv.data]);
-  const selectedIsolated = isolatedOpportunities.find((o) => o.pair.pair === selectedPair) ?? null;
+  const liveIsolated = selectedIsolated
+    ? (isolatedOpportunities.find(
+        (o) => o.pair.pair === selectedIsolated.pair.pair && o.borrower.toLowerCase() === selectedIsolated.borrower.toLowerCase(),
+      ) ?? null)
+    : null;
+  const isolatedTarget = liveIsolated ?? selectedIsolated;
 
   const isValidAddress = (addr: string): addr is `0x${string}` => {
     return /^0x[0-9a-fA-F]{40}$/.test(addr);
@@ -278,7 +301,7 @@ export default function LiquidationsPage() {
                   <td className="px-6 py-4">
                     <button
                       className="h-8 px-4 bg-destructive text-destructive-foreground text-[10px] font-mono uppercase tracking-wider hover:bg-destructive/80 transition-colors"
-                      onClick={() => setSelectedKey(o.key)}
+                      onClick={() => o.limit !== null && setSelected(o)}
                       disabled={o.limit === null}
                       title={o.limit === null ? "Price or reserve config unavailable" : undefined}
                     >
@@ -335,7 +358,7 @@ export default function LiquidationsPage() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <button
-                      onClick={() => setSelectedPair(o.pair.pair)}
+                      onClick={() => setSelectedIsolated(o)}
                       className="h-8 px-4 bg-destructive text-destructive-foreground text-[10px] font-mono uppercase tracking-wider hover:bg-destructive/80 transition-colors"
                     >
                       Liquidate
@@ -348,32 +371,39 @@ export default function LiquidationsPage() {
         </table>
       </div>
 
-      {selected && selected.limit && (
+      {target && targetLimit && (
         <LiquidateModal
-          borrower={selected.borrower}
-          debtAsset={selected.debtAsset}
-          debtSymbol={selected.debtSymbol}
-          collateralAsset={selected.collateralAsset}
-          maxDebt={selected.limit.maxDebtToCover}
-          closeFactorBps={selected.limit.closeFactor}
-          collateralLimited={selected.limit.collateralLimited}
-          debtDecimals={selected.debtDecimals}
-          onClose={() => setSelectedKey(null)}
+          borrower={target.borrower}
+          debtAsset={target.debtAsset}
+          debtSymbol={target.debtSymbol}
+          debtDecimals={target.debtDecimals}
+          collateralAsset={target.collateralAsset}
+          collateralSymbol={target.collateralSymbol}
+          collateralDecimals={target.collateralDecimals}
+          borrowerDebt={target.rawDebt}
+          borrowerCollateral={target.rawCollateral}
+          maxDebt={targetLimit.maxDebtToCover}
+          closeFactorBps={targetLimit.closeFactor}
+          collateralLimited={targetLimit.collateralLimited}
+          liquidatable={liveSelected !== null}
+          onClose={() => setSelected(null)}
         />
       )}
-      {selectedIsolated && checkAddress && (
+      {isolatedTarget && (
         <IsolatedLiquidateModal
-          pair={selectedIsolated.pair.pair}
-          asset={selectedIsolated.pair.asset}
-          assetSymbol={selectedIsolated.pair.assetSymbol}
-          assetDecimals={selectedIsolated.pair.assetDecimals}
-          collateralSymbol={selectedIsolated.pair.collateralSymbol}
-          collateralDecimals={selectedIsolated.pair.collateralDecimals}
-          borrower={checkAddress}
-          borrowerDebtAsset={selectedIsolated.borrowedAmount}
-          borrowerDebtShares={selectedIsolated.borrowedShares}
-          borrowerCollateral={selectedIsolated.collateral}
-          onClose={() => setSelectedPair(null)}
+          pair={isolatedTarget.pair.pair}
+          asset={isolatedTarget.pair.asset}
+          assetSymbol={isolatedTarget.pair.assetSymbol}
+          assetDecimals={isolatedTarget.pair.assetDecimals}
+          collateralSymbol={isolatedTarget.pair.collateralSymbol}
+          collateralDecimals={isolatedTarget.pair.collateralDecimals}
+          borrower={isolatedTarget.borrower}
+          borrowerDebtAsset={isolatedTarget.borrowedAmount}
+          borrowerDebtShares={isolatedTarget.borrowedShares}
+          borrowerCollateral={isolatedTarget.collateral}
+          dualOracle={isolatedTarget.pair.dualOracle}
+          liquidatable={liveIsolated !== null}
+          onClose={() => setSelectedIsolated(null)}
         />
       )}
     </div>
