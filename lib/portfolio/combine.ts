@@ -1,4 +1,8 @@
+import type Decimal from "decimal.js";
 import type { LighterSnapshot } from "@/lib/lighter";
+import { baseValue, isolatedCollateralBase8 } from "@/lib/prices";
+import { aprToApy, coreApy, toDecimal } from "@/lib/risk";
+import { oldestStamp, type BlockStamp } from "@/lib/valuation";
 
 export type LuminaLegs = {
   poolSupplyUsd: number;
@@ -57,6 +61,171 @@ export function combinePortfolio(
     lighterPerpDeltaUsd: lighterPerp,
     totalUsd: lighterEquityUsd == null ? luminaNet : luminaNet + lighterEquityUsd,
     netDeltaUsd: lighterPerp == null ? luminaNet : luminaNet + lighterPerp,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Account totals (ui-usability-v1 spec §3.1): the ONE definition the dashboard and the portfolio use
+// ---------------------------------------------------------------------------------------------
+
+export interface TotalsCorePosition {
+  asset: string;
+  decimals: number;
+  /** aToken balance; undefined = unavailable. */
+  supplied: bigint | undefined;
+  /** Variable debt; undefined = unavailable. */
+  borrowed: bigint | undefined;
+}
+
+export interface TotalsCoreRates {
+  /** Aave ray rates (APR); undefined = unavailable. */
+  supplyRate: bigint | undefined;
+  borrowRate: bigint | undefined;
+}
+
+export interface TotalsIsolatedPosition {
+  asset: string;
+  assetDecimals: number;
+  /** Lent assets; undefined when the share conversion failed. */
+  suppliedAssets: bigint | undefined;
+  /** Debt; undefined when the share conversion failed. */
+  borrowedAssets: bigint | undefined;
+  collateralAmount: bigint;
+  /** Pair rate: collateral per asset × 1e18. */
+  exchangeRate: bigint | undefined;
+  /** Pair APRs (fractions) from previewAddInterest; undefined = unavailable. */
+  lendApr: Decimal | undefined;
+  borrowApr: Decimal | undefined;
+}
+
+export interface AccountTotalsInput {
+  core: readonly TotalsCorePosition[];
+  coreRatesOf: (asset: string) => TotalsCoreRates | undefined;
+  isolated: readonly TotalsIsolatedPosition[];
+  /** AaveOracle price (base currency, 8 decimals) by asset; undefined = unavailable (FE-06). */
+  priceOf: (asset: string) => bigint | undefined;
+  /** The isolated list is not known to be complete: loading, or a pair snapshot failed. */
+  isolatedIncomplete: boolean;
+  /** Block stamps of every read the totals combine. */
+  stamps: {
+    core: BlockStamp | undefined;
+    prices: BlockStamp | undefined;
+    isolated: BlockStamp | undefined;
+    conversions: BlockStamp | undefined;
+    pairs: BlockStamp | undefined;
+  };
+}
+
+/** USD legs in base currency (8 decimals); undefined = unavailable, never a silently lower $0. */
+export interface AccountLegs {
+  coreSupplied: bigint | undefined;
+  coreDebt: bigint | undefined;
+  isolatedLent: bigint | undefined;
+  isolatedCollateral: bigint | undefined;
+  isolatedDebt: bigint | undefined;
+}
+
+export interface AccountTotals {
+  /** core supplied + isolated lent + isolated collateral − core debt − isolated debt (wallets excluded). */
+  netWorth: bigint | undefined;
+  /** core supplied + isolated lent + isolated collateral. */
+  deposits: bigint | undefined;
+  /** core debt + isolated debt. */
+  debt: bigint | undefined;
+  legs: AccountLegs;
+  /**
+   * (Σ earning USD × APY − Σ debt USD × APY) / net worth, posted collateral earning 0. undefined
+   * ("—") when net worth is ≤ 0 or unavailable, or a non-zero earning / debt position has no USD
+   * value or APY. Zero balances are ignored.
+   */
+  netApy: Decimal | undefined;
+  /** The oldest block among core, prices, isolated snapshots, conversions and pairs. */
+  stamp: BlockStamp | undefined;
+  incomplete: boolean;
+}
+
+interface Leg {
+  amount: bigint | undefined;
+  value: bigint | undefined;
+  /** +1 earning, −1 debt, 0 posted collateral (earns nothing). */
+  sign: 1 | -1 | 0;
+  apy: Decimal | undefined;
+}
+
+function sumLegs(legs: readonly Leg[]): bigint | undefined {
+  let total = 0n;
+  for (const leg of legs) {
+    if (leg.amount === 0n) continue;
+    if (leg.value === undefined) return undefined;
+    total += leg.value;
+  }
+  return total;
+}
+
+const value8 = (amount: bigint | undefined, decimals: number, price: bigint | undefined) =>
+  amount === undefined ? undefined : amount === 0n ? 0n : price === undefined || price <= 0n ? undefined : baseValue(amount, decimals, price);
+
+export function accountTotals(input: AccountTotalsInput): AccountTotals {
+  const { priceOf, isolatedIncomplete } = input;
+  const supply: Leg[] = [];
+  const coreDebt: Leg[] = [];
+  for (const p of input.core) {
+    const price = priceOf(p.asset);
+    const rates = input.coreRatesOf(p.asset);
+    supply.push({ amount: p.supplied, value: value8(p.supplied, p.decimals, price), sign: 1, apy: coreApy(rates?.supplyRate) });
+    coreDebt.push({ amount: p.borrowed, value: value8(p.borrowed, p.decimals, price), sign: -1, apy: coreApy(rates?.borrowRate) });
+  }
+  const lent: Leg[] = [];
+  const collateral: Leg[] = [];
+  const isoDebt: Leg[] = [];
+  for (const p of input.isolated) {
+    const price = priceOf(p.asset);
+    lent.push({ amount: p.suppliedAssets, value: value8(p.suppliedAssets, p.assetDecimals, price), sign: 1, apy: p.lendApr && aprToApy(p.lendApr) });
+    isoDebt.push({ amount: p.borrowedAssets, value: value8(p.borrowedAssets, p.assetDecimals, price), sign: -1, apy: p.borrowApr && aprToApy(p.borrowApr) });
+    const cValue =
+      p.collateralAmount === 0n
+        ? 0n
+        : p.exchangeRate === undefined || p.exchangeRate <= 0n || price === undefined || price <= 0n
+          ? undefined
+          : isolatedCollateralBase8(p.collateralAmount, p.exchangeRate, p.assetDecimals, price);
+    collateral.push({ amount: p.collateralAmount, value: cValue, sign: 0, apy: undefined });
+  }
+
+  const legs: AccountLegs = {
+    coreSupplied: sumLegs(supply),
+    coreDebt: sumLegs(coreDebt),
+    isolatedLent: isolatedIncomplete ? undefined : sumLegs(lent),
+    isolatedCollateral: isolatedIncomplete ? undefined : sumLegs(collateral),
+    isolatedDebt: isolatedIncomplete ? undefined : sumLegs(isoDebt),
+  };
+  const add = (...v: (bigint | undefined)[]) => (v.some((x) => x === undefined) ? undefined : v.reduce<bigint>((a, b) => a + b!, 0n));
+  const deposits = add(legs.coreSupplied, legs.isolatedLent, legs.isolatedCollateral);
+  const debt = add(legs.coreDebt, legs.isolatedDebt);
+  const netWorth = deposits === undefined || debt === undefined ? undefined : deposits - debt;
+
+  let netApy: Decimal | undefined;
+  if (netWorth !== undefined && netWorth > 0n) {
+    let weighted: Decimal | undefined = toDecimal(0);
+    for (const leg of [...supply, ...coreDebt, ...lent, ...isoDebt]) {
+      if (leg.amount === 0n) continue;
+      if (leg.value === undefined || leg.apy === undefined) {
+        weighted = undefined;
+        break;
+      }
+      weighted = weighted!.plus(leg.apy.mul(leg.value.toString()).mul(leg.sign));
+    }
+    netApy = weighted?.div(netWorth.toString());
+  }
+
+  const { core, prices, isolated, conversions, pairs } = input.stamps;
+  return {
+    netWorth,
+    deposits,
+    debt,
+    legs,
+    netApy,
+    stamp: oldestStamp([core, prices, isolated, conversions, pairs]),
+    incomplete: isolatedIncomplete,
   };
 }
 

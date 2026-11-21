@@ -33,11 +33,13 @@ export interface UserAccountData {
 const CALLS_PER_MARKET = 3;
 const ACCOUNT_INDEX = STAMP_OFFSET;
 const MARKETS_OFFSET = STAMP_OFFSET + 1;
+/** Pool.getUserEMode(user), after the per-market calls (spec ui-usability-v1 §3.1, r1 #7). */
+const EMODE_INDEX = MARKETS_OFFSET + LUMINA.coreMarkets.length * CALLS_PER_MARKET;
 
 /**
  * The connected user's core position in ONE multicall: account data (HF), per-market aToken and
- * debt balances and collateral flags, plus the block they were read at. Polled every 15 s
- * (FE-07). Token addresses come from the manifest.
+ * debt balances and collateral flags, the eMode category, plus the block they were read at. Polled
+ * every 15 s (FE-07). Token addresses come from the manifest.
  */
 export function useUserPosition() {
   const { address } = useAccount();
@@ -54,6 +56,7 @@ export function useUserPosition() {
         { address: m.variableDebtToken, abi: VARIABLE_DEBT_TOKEN_ABI, functionName: "balanceOf", args: [address] },
         { address: dataProvider, abi: DATA_PROVIDER_ABI, functionName: "getUserReserveData", args: [m.asset, address] },
       ]),
+      { address: pool, abi: POOL_ABI, functionName: "getUserEMode", args: [address] },
     ];
   }, [address, pool, dataProvider]);
 
@@ -93,6 +96,11 @@ export function useUserPosition() {
   return {
     positions,
     accountData,
+    /**
+     * The user's eMode category (0 = none), read in the same multicall as the positions; undefined
+     * if the read failed or is loading. Non-zero makes the per-reserve risk maths "unavailable".
+     */
+    eMode: bigintAt(results, EMODE_INDEX),
     stamp: readStamp(results),
     isLoading: !!address && query.isLoading,
     isError: query.isError,
