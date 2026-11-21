@@ -8,6 +8,8 @@ interface TxButtonProps {
   isPending: boolean;
   isConfirming?: boolean;
   isSimulating?: boolean;
+  /** Pre-send re-checks are running (a follow-up reads the chain before its wallet prompt). */
+  isChecking?: boolean;
   disabled?: boolean;
   children: React.ReactNode;
 }
@@ -21,11 +23,12 @@ export function TxButton({
   isPending,
   isConfirming,
   isSimulating,
+  isChecking,
   disabled,
   children,
 }: TxButtonProps) {
   const gate = useActionGate();
-  const isLoading = isPending || isConfirming || !!isSimulating;
+  const isLoading = isPending || isConfirming || !!isSimulating || !!isChecking;
 
   return (
     <Button
@@ -37,13 +40,15 @@ export function TxButton({
     >
       {!gate.ready
         ? gate.reason
-        : isSimulating
-          ? "Simulating..."
-          : isPending
-            ? "Confirm in wallet..."
+        : isPending
+          ? "Confirm in wallet..."
+          : isSimulating
+            ? "Simulating..."
             : isConfirming
               ? "Confirming..."
-              : children}
+              : isChecking
+                ? "Checking..."
+                : children}
     </Button>
   );
 }

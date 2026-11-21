@@ -1,27 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-import { toast } from "sonner";
-import { safeParseUnits, isValidDecimalInput, formatHealthFactor } from "@/lib/format";
-import { explorerToastAction } from "@/lib/explorer";
+import { safeParseUnits } from "@/lib/format";
 import { coreFullRepayFunding, hasExecutionHeadroom, planCoreRepay } from "@/lib/approvals";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
+import { coreApy, corePreview } from "@/lib/risk";
+import type { TxErrorContext } from "@/lib/txErrors";
 import { QUERY } from "@/lib/queryPolicy";
 import { POOL_ABI, VARIABLE_DEBT_TOKEN_ABI } from "@/lib/abis";
 import { LUMINA, getCoreMarketByAsset } from "@/lib/deployments";
-import { parseErrorMessage } from "@/lib/errorMessages";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
-import { useHealthFactor } from "@/hooks/useHealthFactor";
 import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { PostTxAllowance } from "@/components/common/PostTxAllowance";
-import { ExplorerLink } from "@/components/common/ExplorerLink";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { AmountField, TxDialog, TxForm, TxNotice, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
+import { CoreRiskSummary, SummaryRow } from "@/components/tx/TxSummary";
+import { TxSteps } from "@/components/tx/TxSteps";
+import { TxDetails } from "@/components/tx/TxDetails";
+import { CoreAfterState, previewCall } from "@/components/tx/AfterStates";
+import { useCoreRiskInputs } from "@/components/tx/reads";
+import { formatAmount, formatToken } from "@/components/tx/format";
 
 interface RepayModalProps {
   asset: `0x${string}`;
@@ -32,7 +35,7 @@ interface RepayModalProps {
 
 type RepayParams = { repayAll: boolean; input: bigint };
 
-const fmt = (v: bigint, d: number, max = 6) => Number(formatUnits(v, d)).toLocaleString("en-US", { maximumFractionDigits: max });
+const CTX: TxErrorContext = { venue: "core", action: "repay" };
 
 /**
  * Core (Aave) repay.
@@ -52,9 +55,9 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
   const { address } = useAccount();
   const pool = LUMINA.contracts.pool;
   const debtToken = getCoreMarketByAsset(asset)?.variableDebtToken ?? undefined;
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const tx = useLuminaWrite();
   const wallet = useWalletBalance(asset);
-  const { healthFactor } = useHealthFactor();
+  const core = useCoreRiskInputs();
 
   // The debt the pool will see, polled; re-read right before sending.
   const debtRead = useLuminaReadContract({
@@ -76,7 +79,20 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
   const funding = plan?.full && walletValue !== undefined && debt !== undefined ? coreFullRepayFunding(walletValue, debt) : null;
   const shortForPartial = !repayAll && walletValue !== undefined && parsedAmount > walletValue;
 
-  const sendRepay = async (params: RepayParams) => {
+  const repayRequest = (amountArg: bigint) => ({
+    address: pool ?? ("" as `0x${string}`),
+    abi: POOL_ABI,
+    functionName: "repay",
+    args: [asset, amountArg, 2n, address],
+  });
+
+  /** Stop before sending: the long text for the notice, the short one for row 2 of TxSteps. */
+  const stop = (text: string, reason: string, reapprove = false) => {
+    setNotice(text);
+    return abortFollowUp(reason, reapprove);
+  };
+
+  const sendRepay = async (params: RepayParams): Promise<FollowUpResult> => {
     if (!address || !pool) return;
     setNotice(null);
     // Re-validate against the chain right before the wallet prompt (#6).
@@ -86,41 +102,37 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
       flow.refetchAllowance(),
     ]);
     if (debtNow === undefined || walletNow === undefined || allowanceNow === undefined) {
-      setNotice("Could not re-read your debt, wallet or allowance; nothing was sent.");
-      return;
+      return stop("Could not re-read your debt, wallet or allowance; nothing was sent.", "the re-check could not read the chain");
     }
     const next = planFor(params, debtNow);
-    if (!next) {
-      setNotice("Nothing left to repay.");
-      return;
-    }
+    if (!next) return stop("Nothing left to repay.", "nothing left to repay");
     if (next.full) {
       // The pool pulls the debt at execution: wallet and allowance need only the execution headroom
       // over the CURRENT debt (half the approval buffer), not a fresh buffer (Gemini r2 C1).
       const f = coreFullRepayFunding(walletNow, debtNow);
       if (!f.fundable) {
-        setNotice(
-          `Your wallet (${fmt(walletNow, decimals)} ${symbol}) does not cover the full debt plus the accrual margin. Repay ${fmt(f.partial, decimals)} ${symbol} instead.`,
+        return stop(
+          `Your wallet (${formatAmount(walletNow, decimals, 6)} ${symbol}) does not cover the full debt plus the accrual margin. Repay ${formatAmount(f.partial, decimals, 6)} ${symbol} instead.`,
+          "the wallet no longer covers the full debt",
         );
-        return;
       }
       if (!hasExecutionHeadroom({ allowance: allowanceNow, wallet: walletNow, value: debtNow })) {
-        setNotice("The debt grew past the approved amount; approve again.");
-        return;
+        return stop("The debt grew past the approved amount; approve again.", "interest pushed the debt past the approved headroom", true);
       }
     } else {
       // A finite repay pulls exactly the amount (at most the debt): no accrual margin needed.
       if (walletNow < next.amountArg) {
-        setNotice("Your wallet balance no longer covers the amount; nothing was sent.");
-        return;
+        return stop("Your wallet balance no longer covers the amount; nothing was sent.", "the wallet no longer covers the amount");
       }
       if (allowanceNow < next.amountArg) {
-        setNotice("The allowance no longer covers the amount; approve again.");
-        return;
+        return stop("The allowance no longer covers the amount; approve again.", "the allowance no longer covers the amount", true);
       }
     }
+    // The account, chain and inputs must still be the ones this follow-up started with.
+    const stale = flow.stale();
+    if (stale) return cancelFollowUp(stale);
     setSubmittedFull(next.full);
-    await send({ address: pool, abi: POOL_ABI, functionName: "repay", args: [asset, next.amountArg, 2n, address] });
+    await tx.send(repayRequest(next.amountArg));
   };
 
   const flow = useApprovalFlow<RepayParams>({
@@ -128,28 +140,13 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     spender: pool,
     paramsKey: repayAll ? "all" : amount,
     onProceed: sendRepay,
+    actionBusy: tx.isSimulating || tx.isPending || tx.isConfirming,
   });
   const needsApproval = plan !== null && flow.needsApproval(plan.approve);
 
-  const prevErrorRef = useRef<Error | null>(null);
-  const prevApprovalErrorRef = useRef<Error | null>(null);
-  useEffect(() => {
-    if (error && error !== prevErrorRef.current) {
-      prevErrorRef.current = error;
-      toast.error("Repayment failed", { description: parseErrorMessage(error) });
-    }
-  }, [error]);
-  useEffect(() => {
-    if (flow.error && flow.error !== prevApprovalErrorRef.current) {
-      prevApprovalErrorRef.current = flow.error;
-      toast.error("Approval failed", { description: parseErrorMessage(flow.error) });
-    }
-  }, [flow.error]);
-  useEffect(() => {
-    if (isSuccess && hash) {
-      toast.success("Repayment successful", { description: "Transaction confirmed", action: explorerToastAction(hash) });
-    }
-  }, [isSuccess, hash]);
+  useTxErrorToast(tx.error, "Repayment failed", CTX);
+  useTxErrorToast(flow.error, "Approval failed", { venue: "core", action: "approve" });
+  useTxSuccessToast(tx.isSuccess, tx.hash, "Repayment successful");
 
   const handleRepay = () => {
     if (!address || !pool || !plan) return;
@@ -158,7 +155,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
       void flow.start(params, plan.approve);
       return;
     }
-    void sendRepay(params);
+    void flow.proceed(params);
   };
 
   const offerPartial = (partial: bigint) => {
@@ -167,124 +164,111 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
     setNotice(null);
   };
 
+  const preview = plan ? corePreview(core.snapshot, { kind: "repay", asset, amount: plan.full ? "all" : parsedAmount }) : null;
+  const allowanceNote = (
+    <AllowanceNote
+      symbol={symbol}
+      decimals={decimals}
+      spenderLabel="Pool"
+      allowance={flow.allowance}
+      approveAmount={plan && needsApproval ? plan.approve : undefined}
+      expectedPull={plan?.assetValue}
+      buffered
+    />
+  );
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        {isSuccess ? (
-          <div className="text-center py-4 space-y-2">
-            <div className="text-4xl mb-4 text-accent">&#10003;</div>
-            <DialogHeader className="items-center">
-              <DialogTitle className="text-xl">Repayment Successful</DialogTitle>
-            </DialogHeader>
-            <p className="text-muted-foreground">
-              You repaid {submittedFull ? "your full" : amount} {symbol}{submittedFull ? " debt" : ""}
-            </p>
-            <PostTxAllowance refetch={flow.refetchAllowance} symbol={symbol} decimals={decimals} spenderLabel="Pool" />
-            {hash && <ExplorerLink hash={hash} />}
-            <Button variant="link" onClick={onClose}>Close</Button>
+    <TxDialog onClose={onClose}>
+      {tx.isSuccess ? (
+        <TxSuccess
+          title="Repayment Successful"
+          message={`You repaid ${submittedFull ? "your full" : amount} ${symbol}${submittedFull ? " debt" : ""}`}
+          hash={tx.hash}
+          onClose={onClose}
+        >
+          <CoreAfterState core={core} receiptBlock={tx.receipt?.blockNumber} />
+          <PostTxAllowance refetch={flow.refetchAllowance} symbol={symbol} decimals={decimals} spenderLabel="Pool" />
+        </TxSuccess>
+      ) : (
+        <TxForm title={`Repay ${symbol}`}>
+          <div className="technical-border bg-background p-3 space-y-1">
+            <SummaryRow label={`${symbol} Debt`} before={debt === undefined ? "—" : formatToken(debt, decimals, symbol, 6)} />
+            <SummaryRow label="Wallet" before={walletValue === undefined ? "—" : formatToken(walletValue, decimals, symbol, 6)} />
           </div>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>Repay {symbol}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="technical-border bg-background p-3 space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{symbol} Debt</span>
-                  <span className="font-mono">{debt === undefined ? "—" : fmt(debt, decimals)} {symbol}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Wallet</span>
-                  <span className="font-mono">{walletValue === undefined ? "—" : fmt(walletValue, decimals)} {symbol}</span>
-                </div>
+
+          <AmountField
+            label="Amount"
+            aside={repayAll ? <span className="text-xs text-accent font-mono">Full debt (updates with accrual)</span> : undefined}
+            value={shownAmount}
+            decimals={decimals}
+            onChange={(v) => {
+              setRepayAll(false);
+              setAmount(v);
+            }}
+            onMax={() => {
+              setRepayAll(true);
+              setAmount(debt !== undefined ? formatUnits(debt, decimals) : "");
+            }}
+            maxDisabled={debt === undefined || debt === 0n}
+          >
+            {shortForPartial && <p className="text-xs text-destructive mt-1">Insufficient wallet balance</p>}
+            {funding && !funding.fundable && (
+              <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="partial-offer">
+                <p>Your wallet does not cover the full debt plus the accrual margin (0.05%).</p>
+                <button type="button" className="underline" onClick={() => offerPartial(funding.partial)}>
+                  Repay {formatAmount(funding.partial, decimals, 6)} {symbol} (wallet balance) instead
+                </button>
               </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm text-muted-foreground">Amount</label>
-                  {repayAll && <span className="text-xs text-accent font-mono">Full debt (updates with accrual)</span>}
-                </div>
-                <div className="relative">
-                  <Input
-                    aria-label="Amount"
-                    type="number"
-                    value={shownAmount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "" || (isValidDecimalInput(v, decimals) && Number(v) >= 0)) {
-                        setRepayAll(false);
-                        setAmount(v);
-                      }
-                    }}
-                    placeholder="0.00"
-                    min="0"
-                    step="any"
-                    className="h-12 text-lg bg-transparent border-border font-mono pr-16"
-                  />
-                  <button
-                    type="button"
-                    disabled={debt === undefined || debt === 0n}
-                    onClick={() => {
-                      setRepayAll(true);
-                      setAmount(debt !== undefined ? formatUnits(debt, decimals) : "");
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
-                  >
-                    MAX
-                  </button>
-                </div>
-                {shortForPartial && <p className="text-xs text-destructive mt-1">Insufficient wallet balance</p>}
-                {funding && !funding.fundable && (
-                  <div className="text-xs text-amber-400 mt-1 space-y-1" data-testid="partial-offer">
-                    <p>Your wallet does not cover the full debt plus the accrual margin (0.05%).</p>
-                    <button type="button" className="underline" onClick={() => offerPartial(funding.partial)}>
-                      Repay {fmt(funding.partial, decimals)} {symbol} (wallet balance) instead
-                    </button>
-                  </div>
-                )}
-                {plan?.full && funding?.fundable && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Full repay: the pool takes your debt as of the repay block (accrual until then is covered).
-                  </p>
-                )}
-                {notice && <p className="text-xs text-amber-400 mt-1" data-testid="repay-notice">{notice}</p>}
-                {flow.cancelReason && <p className="text-xs text-amber-400 mt-1">Approval flow cancelled: {flow.cancelReason}.</p>}
+            )}
+            {plan?.full && funding?.fundable && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Full repay: the pool takes your debt as of the repay block (accrual until then is covered).
+              </p>
+            )}
+            {notice && <TxNotice testId="repay-notice">{notice}</TxNotice>}
+            {!preview && (
+              <div className="mt-1">
+                <FreshnessStamp stamp={core.stamp} label="Position" />
               </div>
+            )}
+          </AmountField>
 
-              <AllowanceNote
-                symbol={symbol}
-                decimals={decimals}
-                spenderLabel="Pool"
-                allowance={flow.allowance}
-                approveAmount={plan && needsApproval ? plan.approve : undefined}
-                expectedPull={plan?.assetValue}
-                buffered
-              />
+          {preview && (
+            <CoreRiskSummary
+              preview={preview}
+              apy={coreApy(core.getMarket(asset)?.borrowRate)}
+              apyLabel="Borrow APY"
+              invalid={shortForPartial ? "more than your wallet balance" : null}
+              stamp={core.stamp}
+            />
+          )}
 
-              {healthFactor !== undefined && (
-                <div className="technical-border bg-background p-3 space-y-1.5">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Health Factor</span>
-                    <span className="font-mono font-medium">{formatHealthFactor(healthFactor)}</span>
-                  </div>
-                  <p className="text-xs text-emerald-400">Repaying improves your health factor</p>
-                </div>
-              )}
+          <TxSteps
+            steps={flow.steps}
+            approvalNeeded={needsApproval}
+            approveAmount={plan && needsApproval ? plan.approve : undefined}
+            symbol={symbol}
+            decimals={decimals}
+            actionLabel={`Repay ${symbol}`}
+            action={tx}
+            ctx={CTX}
+          />
+          {allowanceNote}
 
-              <TxButton
-                onClick={handleRepay}
-                isPending={isPending || flow.isPending}
-                isSimulating={isSimulating || flow.isSimulating}
-                isConfirming={isConfirming || flow.isConfirming || flow.awaitingApproval}
-                disabled={!address || !plan || walletValue === undefined || shortForPartial || (funding !== null && !funding.fundable)}
-              >
-                {needsApproval ? `Approve ${symbol}` : `Repay ${symbol}`}
-              </TxButton>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+          <TxButton
+            onClick={handleRepay}
+            isPending={tx.isPending || flow.isPending}
+            isSimulating={tx.isSimulating || flow.isSimulating}
+            isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
+            disabled={!address || !plan || walletValue === undefined || shortForPartial || (funding !== null && !funding.fundable)}
+          >
+            {needsApproval ? `Approve ${symbol}` : `Repay ${symbol}`}
+          </TxButton>
+
+          <TxDetails calls={plan ? [needsApproval ? flow.describeApprove(plan.approve) : null, previewCall(repayRequest(plan.amountArg))] : []} />
+        </TxForm>
+      )}
+    </TxDialog>
   );
 }

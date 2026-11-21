@@ -1,25 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-import { toast } from "sonner";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
-import { explorerToastAction } from "@/lib/explorer";
+import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { hasExecutionHeadroom, repayApproval, repayHeadroom } from "@/lib/approvals";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
+import { formatHealth, isolatedLtvOf } from "@/lib/risk";
+import { isolatedLiquidationEstimate } from "@/lib/txSummary";
+import type { TxErrorContext } from "@/lib/txErrors";
 import { QUERY } from "@/lib/queryPolicy";
+import { ISOLATED_PAIR_ABI } from "@/lib/abis";
+import { safeParseUnits, truncateAddress } from "@/lib/format";
 import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { PostTxAllowance } from "@/components/common/PostTxAllowance";
-import { ISOLATED_PAIR_ABI } from "@/lib/abis";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { isValidDecimalInput, safeParseUnits, truncateAddress } from "@/lib/format";
-import { parseErrorMessage } from "@/lib/errorMessages";
+import { AmountField, TxDialog, TxForm, TxNotice, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
+import { AfterState, LiquidationSummary, SummaryRow } from "@/components/tx/TxSummary";
+import { TxSteps } from "@/components/tx/TxSteps";
+import { TxDetails } from "@/components/tx/TxDetails";
+import { previewCall } from "@/components/tx/AfterStates";
+import { afterReadStatus, useCatchUp, useIsolatedAccountRead } from "@/components/tx/reads";
+import { UNAVAILABLE, formatAmount, formatToken } from "@/components/tx/format";
 
 interface Props {
   pair: `0x${string}`;
@@ -29,17 +35,24 @@ interface Props {
   collateralSymbol: string;
   collateralDecimals: number;
   borrower: `0x${string}`;
-  /** Live (polled) borrower data, re-derived by the page on every render. */
+  /** Live (polled) borrower data from the page (the last one seen once the borrower drops out). */
   borrowerDebtAsset: bigint | undefined;
   borrowerDebtShares: bigint;
   borrowerCollateral: bigint;
+  /** Pair dual oracle (for the post-receipt borrower read); defaults to the pair's. */
+  dualOracle?: `0x${string}` | null;
+  /**
+   * The borrower still has debt in the page's live list (default true). The modal stays mounted by
+   * the selected target when it drops out, so a full liquidation keeps its success screen.
+   */
+  liquidatable?: boolean;
   onClose: () => void;
 }
 
-const fmt = (v: bigint, d: number, max = 6) => Number(formatUnits(v, d)).toLocaleString("en-US", { maximumFractionDigits: max });
-
 /** "all": every borrow share of the borrower at send time; otherwise exactly `shares`. */
 type LiquidateParams = { all: boolean; shares: bigint };
+
+const CTX: TxErrorContext = { venue: "isolated", action: "liquidate" };
 
 /** `_deadline` argument: 30 minutes from now (called when sending, never during render). */
 function liquidationDeadline(): bigint {
@@ -65,6 +78,8 @@ export function IsolatedLiquidateModal({
   borrowerDebtAsset,
   borrowerDebtShares,
   borrowerCollateral,
+  dualOracle,
+  liquidatable = true,
   onClose,
 }: Props) {
   const [amount, setAmount] = useState("");
@@ -73,7 +88,10 @@ export function IsolatedLiquidateModal({
   const { address } = useAccount();
   const fresh = useIsolatedFreshReads();
   const wallet = useWalletBalance(asset);
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const info = useIsolatedPair(pair);
+  const tx = useLuminaWrite();
+  // The borrower re-read (stamped) once the receipt is in (spec §3.2 profile (c)).
+  const after = useIsolatedAccountRead(pair, dualOracle ?? info?.dualOracle, borrower, tx.isSuccess);
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
   const shownAmount = all && borrowerDebtAsset !== undefined ? formatUnits(borrowerDebtAsset, assetDecimals) : amount;
@@ -102,34 +120,69 @@ export function IsolatedLiquidateModal({
   // The pull is the shares' current value (it grows with accrual), not the typed amount.
   const insufficientWallet = shareValue !== undefined && walletRaw !== undefined && walletRaw < repayHeadroom(shareValue);
 
-  const sendLiquidation = async (params: LiquidateParams) => {
+  const liquidateRequest = (shares: bigint, deadline: bigint | string) => ({
+    address: pair,
+    abi: ISOLATED_PAIR_ABI,
+    functionName: "liquidate",
+    args: [shares, deadline, borrower],
+  });
+
+  const stop = (text: string, reason: string, reapprove = false) => {
+    setNotice(text);
+    return abortFollowUp(reason, reapprove);
+  };
+
+  const sendLiquidation = async (params: LiquidateParams): Promise<FollowUpResult> => {
     if (!address) return;
     setNotice(null);
+    // The modal stays open by the selected target: never send to a borrower the page no longer
+    // lists, nor to one the pair sees as solvent right now (review U2 r1 #3).
+    if (!liquidatable) return stop("The borrower has no debt left in this pair; nothing was sent.", "the borrower is no longer liquidatable");
     try {
       // From the chain, not the poll cache: the borrower's shares, then their current value.
       const state = await fresh.accountState(pair, borrower, asset, address);
       const shares = params.all ? state.borrowShares : params.shares;
       if (shares === 0n || state.borrowShares === 0n) {
-        setNotice("The borrower has no debt left; nothing was sent.");
-        return;
+        return stop("The borrower has no debt left; nothing was sent.", "the borrower has no debt left");
       }
       if (shares > state.borrowShares) {
-        setNotice(`The borrower now owes ${state.borrowShares.toString()} shares, fewer than the ${shares.toString()} selected; nothing was sent.`);
-        return;
+        return stop(
+          `The borrower now owes ${state.borrowShares.toString()} shares, fewer than the ${shares.toString()} selected; nothing was sent.`,
+          "the borrower's debt is now smaller than the selected shares",
+        );
+      }
+      // Solvency as `_isSolvent` sees it: the whole debt, the collateral, maxLTV and the pair rate.
+      const [risk, debtNow] = await Promise.all([
+        fresh.pairRisk(pair, dualOracle ?? info?.dualOracle ?? null),
+        fresh.shareValue(pair, state.borrowShares),
+      ]);
+      const ltvNow = isolatedLtvOf({ debt: debtNow, collateral: state.collateral, maxLTV: risk.maxLtv, exchangeRate: risk.exchangeRate });
+      const insolvent = ltvNow.kind === "infinite" || (ltvNow.kind === "value" && ltvNow.ltv > risk.maxLtv);
+      if (!insolvent) {
+        return stop(
+          ltvNow.kind === "unavailable"
+            ? "The borrower's solvency could not be read; nothing was sent."
+            : "The borrower is solvent at the pair's current price; nothing was sent.",
+          "the borrower is no longer liquidatable",
+        );
       }
       const valueNow = await fresh.shareValue(pair, shares);
       if (!hasExecutionHeadroom({ allowance: state.allowance, wallet: state.wallet, value: valueNow })) {
-        setNotice(
-          state.wallet < repayHeadroom(valueNow)
-            ? `Your wallet no longer covers these shares (${fmt(valueNow, assetDecimals)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
+        const walletShortNow = state.wallet < repayHeadroom(valueNow);
+        return stop(
+          walletShortNow
+            ? `Your wallet no longer covers these shares (${formatAmount(valueNow, assetDecimals, 6)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
             : "The shares' value grew past the approved amount; approve again.",
+          walletShortNow ? "the wallet no longer covers the shares' value" : "interest pushed the value past the approved headroom",
+          !walletShortNow,
         );
-        return;
       }
-      const deadline = liquidationDeadline();
-      await send({ address: pair, abi: ISOLATED_PAIR_ABI, functionName: "liquidate", args: [shares, deadline, borrower] });
+      // The account, chain and inputs must still be the ones this follow-up started with.
+      const stale = flow.stale();
+      if (stale) return cancelFollowUp(stale);
+      await tx.send(liquidateRequest(shares, liquidationDeadline()));
     } catch (err) {
-      setNotice(`Re-check failed (${(err as Error).message}); nothing was sent.`);
+      return stop(`Re-check failed (${(err as Error).message}); nothing was sent.`, "the re-check could not read the chain");
     }
   };
 
@@ -138,22 +191,13 @@ export function IsolatedLiquidateModal({
     spender: pair,
     paramsKey: `${borrower}|${all ? "all" : amount}`,
     onProceed: sendLiquidation,
+    actionBusy: tx.isSimulating || tx.isPending || tx.isConfirming,
   });
   const approvalNeeded = approveAmount !== undefined && flow.needsApproval(approveAmount);
 
-  const prevError = useRef<Error | null>(null);
-  useEffect(() => {
-    const e = error ?? flow.error;
-    if (e && e !== prevError.current) {
-      prevError.current = e;
-      toast.error("Liquidate failed", { description: parseErrorMessage(e) });
-    }
-  }, [error, flow.error]);
-  useEffect(() => {
-    if (isSuccess && hash) {
-      toast.success("Liquidation successful", { description: `Received ${collateralSymbol} collateral`, action: explorerToastAction(hash, "View") });
-    }
-  }, [isSuccess, hash, collateralSymbol]);
+  useTxErrorToast(tx.error, "Liquidate failed", CTX);
+  useTxErrorToast(flow.error, "Approval failed", { venue: "isolated", action: "approve" });
+  useTxSuccessToast(tx.isSuccess, tx.hash, "Liquidation successful", `Received ${collateralSymbol} collateral`);
 
   const handleLiquidate = () => {
     if (!address || sharesToLiquidate === 0n || approveAmount === undefined) return;
@@ -162,115 +206,164 @@ export function IsolatedLiquidateModal({
       void flow.start(params, approveAmount);
       return;
     }
-    void sendLiquidation(params);
+    void flow.proceed(params);
   };
 
+  const estimate = isolatedLiquidationEstimate({
+    shareValue,
+    debt: borrowerDebtAsset,
+    collateral: borrowerCollateral,
+    exchangeRate: info?.exchangeRate,
+  });
+  const afterStatus = afterReadStatus({
+    receiptBlock: tx.receipt?.blockNumber,
+    stamp: after.stamp,
+    failed: after.failed,
+    settled: after.settled,
+  });
+  useCatchUp(tx.isSuccess && afterStatus === "reading", after.refetch);
+  const afterLtv = isolatedLtvOf(after.state);
+
+  const allowanceNote = (
+    <AllowanceNote
+      symbol={assetSymbol}
+      decimals={assetDecimals}
+      spenderLabel="pair"
+      allowance={flow.allowance}
+      approveAmount={approvalNeeded ? approveAmount : undefined}
+      expectedPull={shareValue}
+      buffered
+    />
+  );
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        {isSuccess ? (
-          <div className="text-center py-4 space-y-2">
-            <div className="text-4xl mb-4 text-accent">&#10003;</div>
-            <DialogHeader className="items-center">
-              <DialogTitle className="text-xl">Liquidation Successful</DialogTitle>
-            </DialogHeader>
-            <p className="text-muted-foreground">Repaid part of {truncateAddress(borrower)}&apos;s debt; received {collateralSymbol}.</p>
-            <PostTxAllowance refetch={flow.refetchAllowance} symbol={assetSymbol} decimals={assetDecimals} spenderLabel="pair" />
-            <Button variant="link" onClick={onClose}>Close</Button>
+    <TxDialog onClose={onClose}>
+      {tx.isSuccess ? (
+        <TxSuccess
+          title="Liquidation Successful"
+          message={<>Repaid part of {truncateAddress(borrower)}&apos;s debt; received {collateralSymbol}.</>}
+          hash={tx.hash}
+          onClose={onClose}
+        >
+          <AfterState
+            title="Borrower after this liquidation"
+            status={afterStatus}
+            stamp={after.stamp}
+            rows={[
+              {
+                label: "Borrower LTV",
+                value: afterLtv.kind === "unavailable" ? UNAVAILABLE : formatHealth({ kind: "ltv", ltv: afterLtv, maxLTV: after.state.maxLTV }).value,
+              },
+              { label: "Borrower debt", value: formatToken(after.state.debt, assetDecimals, assetSymbol) },
+              { label: "Borrower collateral", value: formatToken(after.state.collateral, collateralDecimals, collateralSymbol) },
+            ]}
+          />
+          <PostTxAllowance refetch={flow.refetchAllowance} symbol={assetSymbol} decimals={assetDecimals} spenderLabel="pair" />
+        </TxSuccess>
+      ) : (
+        <TxForm title="Liquidate Position">
+          <div className="technical-border bg-background p-3 space-y-1 text-sm">
+            <SummaryRow label="Borrower" before={truncateAddress(borrower)} />
+            <SummaryRow label="Debt" before={formatToken(borrowerDebtAsset, assetDecimals, assetSymbol, 6)} />
+            <SummaryRow label="Collateral" before={formatToken(borrowerCollateral, collateralDecimals, collateralSymbol)} />
           </div>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>Liquidate Position</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="technical-border bg-background p-3 space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Borrower</span>
-                  <span className="font-mono">{truncateAddress(borrower)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Debt</span>
-                  <span className="font-mono">{borrowerDebtAsset === undefined ? "unavailable" : `${fmt(borrowerDebtAsset, assetDecimals)} ${assetSymbol}`}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Collateral</span>
-                  <span className="font-mono">{fmt(borrowerCollateral, collateralDecimals, 4)} {collateralSymbol}</span>
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Pay {assetSymbol} to settle part or all of the borrower&apos;s debt and receive {collateralSymbol} (with discount).
-                The pair reverts if the borrower is solvent at execution time.
+          <p className="text-sm text-muted-foreground">
+            Pay {assetSymbol} to settle part or all of the borrower&apos;s debt and receive {collateralSymbol} (with discount). The pair
+            reverts if the borrower is solvent at execution time.
+          </p>
+          {!liquidatable && <TxNotice testId="not-liquidatable">The borrower has no debt left in this pair.</TxNotice>}
+          <AmountField
+            label={`Amount to Repay (${assetSymbol})`}
+            aside={<>Wallet: <span className="font-mono">{walletRaw === undefined ? "—" : formatAmount(walletRaw, assetDecimals)}</span></>}
+            value={shownAmount}
+            decimals={assetDecimals}
+            onChange={(v) => {
+              setAll(false);
+              setAmount(v);
+            }}
+            onMax={() => setAll(true)}
+            maxDisabled={borrowerDebtShares === 0n}
+          >
+            {shareValue !== undefined && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Estimate: {sharesToLiquidate.toString()} shares, currently {formatToken(shareValue, assetDecimals, assetSymbol, 6)}; the pair takes
+                their value at execution.
               </p>
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm text-muted-foreground">Amount to Repay ({assetSymbol})</label>
-                  <span className="text-sm text-muted-foreground">
-                    Wallet: <span className="font-mono">{walletRaw === undefined ? "—" : fmt(walletRaw, assetDecimals, 4)}</span>
-                  </span>
-                </div>
-                <div className="relative">
-                  <Input
-                    aria-label="Amount"
-                    type="number"
-                    value={shownAmount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "" || (isValidDecimalInput(v, assetDecimals) && Number(v) >= 0)) {
-                        setAll(false);
-                        setAmount(v);
-                      }
-                    }}
-                    placeholder="0.00"
-                    min="0"
-                    step="any"
-                    className="h-12 text-lg bg-transparent border-border font-mono pr-16"
-                  />
-                  <button
-                    type="button"
-                    disabled={borrowerDebtShares === 0n}
-                    onClick={() => setAll(true)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
-                  >
-                    MAX
-                  </button>
-                </div>
-                {shareValue !== undefined && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Estimate: {sharesToLiquidate.toString()} shares, currently {fmt(shareValue, assetDecimals)} {assetSymbol}; the pair takes their value at execution.
-                  </p>
-                )}
-                {overShares && (
-                  <p className="text-xs text-destructive mt-1" data-testid="share-bound-error">
-                    More than the borrower&apos;s debt ({borrowerDebtShares.toString()} shares); use MAX.
-                  </p>
-                )}
-                {insufficientWallet && <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} for the current share value plus the accrual margin</p>}
-                {notice && <p className="text-xs text-amber-400 mt-1">{notice}</p>}
-                {flow.cancelReason && <p className="text-xs text-amber-400 mt-1">Approval flow cancelled: {flow.cancelReason}.</p>}
-              </div>
-              <AllowanceNote
-                symbol={assetSymbol}
-                decimals={assetDecimals}
-                spenderLabel="pair"
-                allowance={flow.allowance}
-                approveAmount={approvalNeeded ? approveAmount : undefined}
-                expectedPull={shareValue}
-                buffered
-              />
-              <TxButton
-                onClick={handleLiquidate}
-                isPending={isPending || flow.isPending}
-                isSimulating={isSimulating || flow.isSimulating}
-                isConfirming={isConfirming || flow.isConfirming || flow.awaitingApproval}
-                disabled={!address || sharesToLiquidate === 0n || overShares || walletRaw === undefined || insufficientWallet || borrowerDebtShares === 0n || approveAmount === undefined}
-              >
-                {approvalNeeded ? `Approve ${assetSymbol}` : "Liquidate"}
-              </TxButton>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+            )}
+            {overShares && (
+              <p className="text-xs text-destructive mt-1" data-testid="share-bound-error">
+                More than the borrower&apos;s debt ({borrowerDebtShares.toString()} shares); use MAX.
+              </p>
+            )}
+            {insufficientWallet && <p className="text-xs text-destructive mt-1">Insufficient {assetSymbol} for the current share value plus the accrual margin</p>}
+            {notice && <TxNotice testId="liquidate-notice">{notice}</TxNotice>}
+          </AmountField>
+
+          {sharesToLiquidate > 0n && (
+            <LiquidationSummary
+              figures={{
+                repaid: estimate.repaid,
+                debtBefore: borrowerDebtAsset,
+                debtAfter: estimate.debtAfter,
+                collateralBefore: borrowerCollateral,
+                collateralAfter: estimate.collateralAfter,
+                debtSymbol: assetSymbol,
+                debtDecimals: assetDecimals,
+                collateralSymbol,
+                collateralDecimals,
+              }}
+              note={
+                estimate.collateralExhausted
+                  ? "This takes all of the borrower's collateral; the pair writes off any debt left over."
+                  : "Remaining collateral is at most this: the pair also takes its liquidation fee, which is not read here."
+              }
+            />
+          )}
+
+          <TxSteps
+            steps={flow.steps}
+            approvalNeeded={approvalNeeded}
+            approveAmount={approvalNeeded ? approveAmount : undefined}
+            symbol={assetSymbol}
+            decimals={assetDecimals}
+            actionLabel="Liquidation"
+            action={tx}
+            ctx={CTX}
+          />
+          {allowanceNote}
+
+          <TxButton
+            onClick={handleLiquidate}
+            isPending={tx.isPending || flow.isPending}
+            isSimulating={tx.isSimulating || flow.isSimulating}
+            isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
+            disabled={
+              !address ||
+              !liquidatable ||
+              sharesToLiquidate === 0n ||
+              overShares ||
+              walletRaw === undefined ||
+              insufficientWallet ||
+              borrowerDebtShares === 0n ||
+              approveAmount === undefined
+            }
+          >
+            {approvalNeeded ? `Approve ${assetSymbol}` : "Liquidate"}
+          </TxButton>
+
+          <TxDetails
+            calls={
+              sharesToLiquidate > 0n
+                ? [
+                    approvalNeeded && approveAmount !== undefined ? flow.describeApprove(approveAmount) : null,
+                    previewCall(liquidateRequest(sharesToLiquidate, "now + 30 min, set when sending")),
+                  ]
+                : []
+            }
+          />
+        </TxForm>
+      )}
+    </TxDialog>
   );
 }

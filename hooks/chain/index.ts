@@ -207,7 +207,15 @@ export function useLuminaWrite() {
           walletChainId,
           simulatorChainId,
           rpcChainId: rpc.rpcChainId,
-          simulate: (params) => simulateContract(config, params as never) as Promise<{ request: object }>,
+          // `simulating` ends when the simulation does: during the wallet prompt only `isPending`
+          // is set, so the flags are exclusive (simulating → confirm in wallet → confirming).
+          simulate: async (params) => {
+            try {
+              return (await simulateContract(config, params as never)) as { request: object };
+            } finally {
+              setSimulating(false);
+            }
+          },
           write: (params) => write.writeContractAsync(params as never),
         });
       } catch (err) {
@@ -228,10 +236,18 @@ export function useLuminaWrite() {
     isConfirming: receipt.isLoading,
     isSuccess: receipt.isSuccess,
     hash: write.data,
-    /** Receipt of the last transaction sent by this hook instance. */
+    /**
+     * Receipt of the last transaction sent by this hook instance, with the block it was mined in:
+     * a success screen reads the after-state at a block at or after it (ui-usability-v1 §3.2).
+     */
     receipt: receipt.data
-      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status }
+      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status, blockNumber: receipt.data.blockNumber }
       : undefined,
+    /**
+     * The receipt of `hash` could not be read, or the transaction reverted (wagmi turns a reverted
+     * receipt into an error): the transaction will not report success.
+     */
+    receiptError: receipt.error ?? null,
     error: simulationError ?? write.error ?? receipt.error,
     reset: write.reset,
   };

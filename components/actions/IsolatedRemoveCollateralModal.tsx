@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaWrite } from "@/hooks/chain";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
-import { explorerToastAction } from "@/lib/explorer";
+import { useGuardStatus } from "@/hooks/useGuardStatus";
 import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
-import { toast } from "sonner";
-import { TxButton } from "@/components/common/TxButton";
+import { aprToApy, isolatedPreview } from "@/lib/risk";
+import type { TxErrorContext } from "@/lib/txErrors";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { isValidDecimalInput, safeParseUnits } from "@/lib/format";
-import { parseErrorMessage } from "@/lib/errorMessages";
+import { safeParseUnits } from "@/lib/format";
+import { TxButton } from "@/components/common/TxButton";
+import { GuardNotice } from "@/components/common/GuardNotice";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { AmountField, TxDialog, TxForm, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
+import { IsolatedRiskSummary } from "@/components/tx/TxSummary";
+import { TxDetails } from "@/components/tx/TxDetails";
+import { IsolatedAfterState, previewCall } from "@/components/tx/AfterStates";
+import { useIsolatedAccountRead } from "@/components/tx/reads";
+import { formatToken } from "@/components/tx/format";
+import { isolatedSides } from "@/components/tx/isolated";
 
 interface Props {
   pair: `0x${string}`;
@@ -24,7 +30,9 @@ interface Props {
 
 /**
  * Borrower-side collateral release — calls LightlendPair.removeCollateral(amount, receiver).
- * Reverts if the resulting position becomes insolvent.
+ * Reverts if the resulting position becomes insolvent. While in debt it is guard-gated like a
+ * borrow (spec §3.2, r2 #6): blocked when the price guard blocks borrows OR the pair oracle is
+ * unreadable / flags bad data, with a notice explaining which.
  */
 export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   // Live pair and position data on every render (Codex #8).
@@ -32,6 +40,7 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   const positionState = useIsolatedPosition(pair);
   const position = positionState.position;
   const positionKnown = positionState.status === "known";
+  const guard = useGuardStatus();
   const collateralSymbol = info?.collateralSymbol ?? "";
   const collateralDecimals = info?.collateralDecimals ?? 18;
   const collateralAmount = position?.collateralAmount ?? 0n;
@@ -40,109 +49,97 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   const oracleBadData = info?.oracleBadData;
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
+  const ctx: TxErrorContext = { venue: "isolated", action: "removeCollateral", guardStatus: guard.key };
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
-  const blocked = hasDebt && oracleBadData !== false;
+  const tx = useLuminaWrite();
+  const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
+  const sides = isolatedSides(info);
+  // Aligned with IsolatedBorrowModal: the guard OR the pair oracle blocks it while in debt.
+  const blocked = hasDebt && (!guard.borrowAllowed || oracleBadData !== false);
+  // The guard is OK but the pair oracle is unreadable or flags bad data: GuardNotice says nothing.
+  const oracleOnlyBlock = blocked && guard.borrowAllowed;
 
   const parsed = amount ? (safeParseUnits(amount, collateralDecimals) ?? 0n) : 0n;
-  const maxFmt = formatUnits(collateralAmount, collateralDecimals);
   const overMax = parsed > collateralAmount;
 
-  const prevError = useRef<Error | null>(null);
-  useEffect(() => {
-    if (error && error !== prevError.current) {
-      prevError.current = error;
-      toast.error("Remove collateral failed", { description: parseErrorMessage(error) });
-    }
-  }, [error]);
+  useTxErrorToast(tx.error, "Remove collateral failed", ctx);
+  useTxSuccessToast(tx.isSuccess, tx.hash, "Collateral removed", `Removed ${amount} ${collateralSymbol}`);
 
-  useEffect(() => {
-    if (isSuccess && hash) {
-      toast.success("Collateral removed", {
-        description: `Removed ${amount} ${collateralSymbol}`,
-        action: explorerToastAction(hash, "View"),
-      });
-    }
-  }, [isSuccess, hash, amount, collateralSymbol]);
+  const removeRequest = () => ({
+    address: pair,
+    abi: ISOLATED_PAIR_ABI,
+    functionName: "removeCollateral",
+    args: [parsed, address],
+  });
 
   const handleRemove = () => {
     if (!address) return;
-    void send({
-      address: pair,
-      abi: ISOLATED_PAIR_ABI,
-      functionName: "removeCollateral",
-      args: [parsed, address],
-    });
+    void tx.send(removeRequest());
   };
 
+  const preview = parsed > 0n && sides ? isolatedPreview(read.state, { kind: "removeCollateral", amount: parsed }, sides) : null;
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        {isSuccess ? (
-          <div className="text-center py-4">
-            <div className="text-4xl mb-4 text-accent">&#10003;</div>
-            <DialogHeader className="items-center">
-              <DialogTitle className="text-xl">Removed {amount} {collateralSymbol}</DialogTitle>
-            </DialogHeader>
-            <Button variant="link" onClick={onClose} className="mt-2">Close</Button>
-          </div>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>Remove {collateralSymbol} Collateral</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Withdraw {collateralSymbol} currently securing your debt.
-                The pair will revert if the position becomes insolvent.
-              </p>
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm text-muted-foreground">Amount</label>
-                  <span className="text-sm text-muted-foreground">
-                    Posted: <span className="font-mono">{Number(maxFmt).toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> {collateralSymbol}
-                  </span>
-                </div>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, collateralDecimals) && Number(v) >= 0)) setAmount(v); }}
-                    placeholder="0.00"
-                    min="0"
-                    step="any"
-                    className="h-12 text-lg bg-transparent border-border font-mono pr-16"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setAmount(maxFmt)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
-                  >
-                    MAX
-                  </button>
-                </div>
-                {overMax && <p className="text-xs text-destructive mt-1">Exceeds posted collateral</p>}
+    <TxDialog onClose={onClose}>
+      {tx.isSuccess ? (
+        <TxSuccess title={`Removed ${amount} ${collateralSymbol}`} hash={tx.hash} onClose={onClose}>
+          {sides && <IsolatedAfterState read={read} sides={sides} receiptBlock={tx.receipt?.blockNumber} />}
+        </TxSuccess>
+      ) : (
+        <TxForm title={`Remove ${collateralSymbol} Collateral`}>
+          {hasDebt && <GuardNotice venue="isolated" />}
+          {oracleOnlyBlock && (
+            <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
+              {oracleBadData === undefined
+                ? "The pair oracle cannot be read right now; removing collateral while in debt is disabled until it can."
+                : "The pair oracle flags its price as bad data; removing collateral while in debt is disabled until it recovers."}{" "}
+              {GUARD_BLOCKED_NOTE.isolated}
+            </p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Withdraw {collateralSymbol} currently securing your debt. The pair will revert if the position becomes insolvent.
+          </p>
+          <AmountField
+            label="Amount"
+            aside={<>Posted: <span className="font-mono">{positionKnown ? formatToken(collateralAmount, collateralDecimals, collateralSymbol) : "—"}</span></>}
+            value={amount}
+            decimals={collateralDecimals}
+            onChange={setAmount}
+            onMax={() => setAmount(formatUnits(collateralAmount, collateralDecimals))}
+            maxDisabled={!positionKnown || collateralAmount === 0n}
+          >
+            {overMax && <p className="text-xs text-destructive mt-1">Exceeds posted collateral</p>}
+            {!preview && (
+              <div className="mt-1">
+                <FreshnessStamp stamp={read.stamp} label="Position" />
               </div>
-              {blocked && (
-                <p className="text-xs text-amber-400">
-                  {oracleBadData === undefined
-                    ? "Pair oracle status unknown; removing collateral while in debt is disabled."
-                    : `The price guard blocks borrows on this pair. ${GUARD_BLOCKED_NOTE.isolated}`}
-                </p>
-              )}
-              <TxButton
-                onClick={handleRemove}
-                isPending={isPending}
-                isSimulating={isSimulating}
-                isConfirming={isConfirming}
-                disabled={!address || !positionKnown || parsed === 0n || overMax || blocked}
-              >
-                Remove {collateralSymbol}
-              </TxButton>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+            )}
+          </AmountField>
+
+          {preview && sides && (
+            <IsolatedRiskSummary
+              preview={preview}
+              sides={sides}
+              apy={info?.borrowApr === undefined ? undefined : aprToApy(info.borrowApr)}
+              apyLabel="Borrow APY"
+              invalid={overMax ? "more than your posted collateral" : null}
+              stamp={read.stamp}
+            />
+          )}
+
+          <TxButton
+            onClick={handleRemove}
+            isPending={tx.isPending}
+            isSimulating={tx.isSimulating}
+            isConfirming={tx.isConfirming}
+            disabled={!address || !positionKnown || parsed === 0n || overMax || blocked}
+          >
+            {blocked ? "Removal blocked" : `Remove ${collateralSymbol}`}
+          </TxButton>
+
+          <TxDetails calls={parsed > 0n ? [previewCall(removeRequest())] : []} />
+        </TxForm>
+      )}
+    </TxDialog>
   );
 }

@@ -300,6 +300,9 @@ describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3)", () => {
   beforeEach(() => {
     chain.snapshots[BORROWER.toLowerCase()] = [0n, 100n, 10n ** 17n];
     setRead(PAIR_USDC_WETH, "toBorrowAmount", 100_000_000n);
+    // The modal re-checks the borrower's solvency on-chain before sending (U2 r1 #3): 70–100 USDC
+    // of debt against 0.1 WETH ($200) is 35–50% LTV, so the scripted pair's max LTV must be below it.
+    chain.maxLtv = 30_000n;
   });
 
   it("wallet equal to the share value is not enough: the headroom is required", () => {

@@ -1,33 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-import { toast } from "sonner";
 import { useLuminaWrite } from "@/hooks/chain";
-import { useApprovalFlow } from "@/hooks/useApprovalFlow";
+import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useGuardStatus } from "@/hooks/useGuardStatus";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
-import { explorerToastAction } from "@/lib/explorer";
 import { exactApproval } from "@/lib/approvals";
-import { isolatedBorrowMaxFromReads, isolatedLtv } from "@/lib/borrowMax";
+import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
+import { isolatedBorrowMaxFromReads } from "@/lib/borrowMax";
 import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
+import { aprToApy, formatMaxLtvPercent, isolatedPreview } from "@/lib/risk";
+import type { TxErrorContext } from "@/lib/txErrors";
+import { ISOLATED_PAIR_ABI } from "@/lib/abis";
+import { safeParseUnits } from "@/lib/format";
 import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { GuardNotice } from "@/components/common/GuardNotice";
 import { PostTxAllowance } from "@/components/common/PostTxAllowance";
-import { ISOLATED_PAIR_ABI } from "@/lib/abis";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { isValidDecimalInput, safeParseUnits } from "@/lib/format";
-import { parseErrorMessage } from "@/lib/errorMessages";
-
-const fmt = (value: bigint, decimals: number, max = 4) =>
-  Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: max });
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { AmountField, TxDialog, TxForm, TxNotice, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
+import { IsolatedRiskSummary, SummaryRow } from "@/components/tx/TxSummary";
+import { TxSteps } from "@/components/tx/TxSteps";
+import { TxDetails } from "@/components/tx/TxDetails";
+import { IsolatedAfterState, previewCall } from "@/components/tx/AfterStates";
+import { useIsolatedAccountRead } from "@/components/tx/reads";
+import { formatToken } from "@/components/tx/format";
+import { isolatedSides } from "@/components/tx/isolated";
 
 type BorrowParams = { borrow: bigint; collateral: bigint };
 
@@ -47,6 +50,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
   const [borrowInput, setBorrowInput] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const { address } = useAccount();
+  const ctx: TxErrorContext = { venue: "isolated", action: "borrow", guardStatus: guard.key };
 
   const assetSymbol = info?.assetSymbol ?? "";
   const assetDecimals = info?.assetDecimals ?? 18;
@@ -54,12 +58,13 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
   const collateralSymbol = info?.collateralSymbol ?? "";
   const collateralDecimals = info?.collateralDecimals ?? 18;
   const wallet = useWalletBalance(collateral);
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const tx = useLuminaWrite();
+  const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
+  const sides = isolatedSides(info);
 
   const parsedCollateral = collateralInput ? (safeParseUnits(collateralInput, collateralDecimals) ?? 0n) : 0n;
   const parsedBorrow = borrowInput ? (safeParseUnits(borrowInput, assetDecimals) ?? 0n) : 0n;
   const collateralBalanceRaw = wallet.value;
-  const collateralBalanceFmt = collateralBalanceRaw === undefined ? "" : formatUnits(collateralBalanceRaw, collateralDecimals);
 
   // Position unknown (snapshot loading or failed) = collateral and debt unknown, never 0 (Gemini r2
   // M4). Known with no position = none; known with a failed debt conversion = debt unknown.
@@ -80,17 +85,23 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
       totalBorrow: info?.totalBorrowAmount,
     });
   const maxBorrow = maxFor(parsedCollateral);
-
-  const ltvAfter =
-    rate !== undefined && currentDebt !== undefined && currentCollateral !== undefined
-      ? isolatedLtv(currentDebt + parsedBorrow, currentCollateral + parsedCollateral, rate)
-      : null;
-  const ltvPercent = ltvAfter === null ? "—" : `${(Number(ltvAfter) / 1000).toFixed(2)}%`;
-  const maxLtvPercent = info?.maxLTV === undefined ? "—" : `${(Number(info.maxLTV) / 1000).toFixed(2)}%`;
+  const maxLtvPercent = info?.maxLTV === undefined ? "—" : formatMaxLtvPercent(info.maxLTV);
   const overMax = maxBorrow !== null && parsedBorrow > maxBorrow;
   const insufficientCollateral = collateralBalanceRaw !== undefined && parsedCollateral > collateralBalanceRaw;
 
-  const sendBorrow = async (params: BorrowParams) => {
+  const borrowRequest = (params: BorrowParams) => ({
+    address: pair,
+    abi: ISOLATED_PAIR_ABI,
+    functionName: "borrowAsset",
+    args: [params.borrow, params.collateral, address],
+  });
+
+  const stop = (text: string, reason: string, reapprove = false) => {
+    setNotice(text);
+    return abortFollowUp(reason, reapprove);
+  };
+
+  const sendBorrow = async (params: BorrowParams): Promise<FollowUpResult> => {
     if (!address || !info || !collateral) return;
     setNotice(null);
     try {
@@ -101,8 +112,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
         fresh.pairRisk(pair, info.dualOracle),
       ]);
       if (!risk.guardOk || risk.oracleBadData) {
-        setNotice(`Borrowing became blocked; nothing was sent. ${GUARD_BLOCKED_NOTE.isolated}`);
-        return;
+        return stop(`Borrowing became blocked; nothing was sent. ${GUARD_BLOCKED_NOTE.isolated}`, "the price guard tripped during the approval");
       }
       const debtNow = await fresh.shareValue(pair, state.borrowShares);
       const maxNow = isolatedBorrowMaxFromReads({
@@ -115,21 +125,21 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
         totalBorrow: risk.totalBorrowAmount,
       });
       if (maxNow === null || params.borrow > maxNow) {
-        setNotice("The borrow no longer fits the pair's limits at the current rate; nothing was sent.");
-        return;
+        return stop("The borrow no longer fits the pair's limits at the current rate; nothing was sent.", "the amount no longer fits the pair's limits");
       }
       if (params.collateral > 0n && (state.wallet < params.collateral || state.allowance < params.collateral)) {
-        setNotice("Your collateral balance or allowance no longer covers the amount; nothing was sent.");
-        return;
+        return stop(
+          "Your collateral balance or allowance no longer covers the amount; nothing was sent.",
+          "the collateral wallet or allowance no longer covers it",
+          state.allowance < params.collateral,
+        );
       }
-      await send({
-        address: pair,
-        abi: ISOLATED_PAIR_ABI,
-        functionName: "borrowAsset",
-        args: [params.borrow, params.collateral, address],
-      });
+      // The account, chain and inputs must still be the ones this follow-up started with.
+      const stale = flow.stale();
+      if (stale) return cancelFollowUp(stale);
+      await tx.send(borrowRequest(params));
     } catch (err) {
-      setNotice(`Re-check failed (${(err as Error).message}); nothing was sent.`);
+      return stop(`Re-check failed (${(err as Error).message}); nothing was sent.`, "the re-check could not read the chain");
     }
   };
 
@@ -138,22 +148,13 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
     spender: collateral ? pair : null,
     paramsKey: `${collateralInput}|${borrowInput}`,
     onProceed: sendBorrow,
+    actionBusy: tx.isSimulating || tx.isPending || tx.isConfirming,
   });
   const needsCollateralApproval = parsedCollateral > 0n && flow.needsApproval(parsedCollateral);
 
-  const prevError = useRef<Error | null>(null);
-  useEffect(() => {
-    const e = error ?? flow.error;
-    if (e && e !== prevError.current) {
-      prevError.current = e;
-      toast.error("Borrow failed", { description: parseErrorMessage(e) });
-    }
-  }, [error, flow.error]);
-  useEffect(() => {
-    if (isSuccess && hash) {
-      toast.success("Borrow successful", { description: `Borrowed ${borrowInput} ${assetSymbol}`, action: explorerToastAction(hash, "View") });
-    }
-  }, [isSuccess, hash, borrowInput, assetSymbol]);
+  useTxErrorToast(tx.error, "Borrow failed", ctx);
+  useTxErrorToast(flow.error, "Approval failed", { venue: "isolated", action: "approve" });
+  useTxSuccessToast(tx.isSuccess, tx.hash, "Borrow successful", `Borrowed ${borrowInput} ${assetSymbol}`);
 
   const handleBorrow = () => {
     if (!address || parsedBorrow === 0n) return;
@@ -163,137 +164,142 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
       void flow.start(params, exactApproval(parsedCollateral));
       return;
     }
-    void sendBorrow(params);
+    void flow.proceed(params);
   };
 
+  const hasInput = parsedBorrow > 0n || parsedCollateral > 0n;
+  const preview = hasInput && sides ? isolatedPreview(read.state, { kind: "borrow", amount: parsedBorrow, collateral: parsedCollateral }, sides) : null;
+  const allowanceNote = parsedCollateral > 0n && (
+    <AllowanceNote
+      symbol={collateralSymbol}
+      decimals={collateralDecimals}
+      spenderLabel="pair"
+      allowance={flow.allowance}
+      approveAmount={needsCollateralApproval ? parsedCollateral : undefined}
+    />
+  );
+  const params = { borrow: parsedBorrow, collateral: parsedCollateral };
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        {isSuccess ? (
-          <div className="text-center py-4">
-            <div className="text-4xl mb-4 text-accent">&#10003;</div>
-            <DialogHeader className="items-center">
-              <DialogTitle className="text-xl">Borrow Successful</DialogTitle>
-            </DialogHeader>
-            <p className="text-muted-foreground mt-2 mb-4">Borrowed {borrowInput} {assetSymbol}</p>
-            {parsedCollateral > 0n && (
-              <PostTxAllowance refetch={flow.refetchAllowance} symbol={collateralSymbol} decimals={collateralDecimals} spenderLabel="pair" />
-            )}
-            <Button variant="link" onClick={onClose}>Close</Button>
-          </div>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>Borrow {assetSymbol} (collateral: {collateralSymbol})</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <GuardNotice venue="isolated" />
-              {borrowBlocked && info?.oracleBadData === undefined && (
-                <p className="text-xs text-amber-400">Pair oracle unavailable; borrowing is disabled. {GUARD_BLOCKED_NOTE.isolated}</p>
-              )}
-              <p className="text-sm text-muted-foreground">
-                Post {collateralSymbol} as collateral and borrow {assetSymbol} in one transaction. Max LTV in this pair is {maxLtvPercent}.
+    <TxDialog onClose={onClose}>
+      {tx.isSuccess ? (
+        <TxSuccess title="Borrow Successful" message={`Borrowed ${borrowInput} ${assetSymbol}`} hash={tx.hash} onClose={onClose}>
+          {sides && <IsolatedAfterState read={read} sides={sides} receiptBlock={tx.receipt?.blockNumber} />}
+          {parsedCollateral > 0n && (
+            <PostTxAllowance refetch={flow.refetchAllowance} symbol={collateralSymbol} decimals={collateralDecimals} spenderLabel="pair" />
+          )}
+        </TxSuccess>
+      ) : (
+        <TxForm title={`Borrow ${assetSymbol} (collateral: ${collateralSymbol})`}>
+          <GuardNotice venue="isolated" />
+          {/* The guard is OK but the pair oracle blocks: GuardNotice says nothing, so say why (r1 #7). */}
+          {borrowBlocked && guard.borrowAllowed && (
+            <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
+              {info?.oracleBadData === undefined
+                ? "The pair oracle cannot be read right now; borrowing is disabled until it can."
+                : "The pair oracle flags its price as bad data; borrowing is disabled until it recovers."}{" "}
+              {GUARD_BLOCKED_NOTE.isolated}
+            </p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Post {collateralSymbol} as collateral and borrow {assetSymbol} in one transaction. Max LTV in this pair is {maxLtvPercent}.
+          </p>
+
+          <AmountField
+            label={`Add collateral (${collateralSymbol})`}
+            aside={<>Wallet: <span className="font-mono">{collateralBalanceRaw === undefined ? "—" : formatToken(collateralBalanceRaw, collateralDecimals, collateralSymbol)}</span></>}
+            value={collateralInput}
+            decimals={collateralDecimals}
+            onChange={setCollateralInput}
+            ariaLabel="Collateral"
+          >
+            {positionState.status === "unknown" && (
+              <p className="text-xs text-amber-400 mt-1" data-testid="position-unknown">
+                Your position in this pair could not be read; MAX and borrowing are unavailable until it loads.
               </p>
+            )}
+            {currentCollateral !== undefined && currentCollateral > 0n && (
+              <p className="text-xs text-muted-foreground mt-1">Already posted: {formatToken(currentCollateral, collateralDecimals, collateralSymbol)}</p>
+            )}
+            {insufficientCollateral && <p className="text-xs text-destructive mt-1">Insufficient {collateralSymbol} balance</p>}
+          </AmountField>
 
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm text-muted-foreground">Add collateral ({collateralSymbol})</label>
-                  <span className="text-sm text-muted-foreground">
-                    Wallet: <span className="font-mono">{collateralBalanceRaw === undefined ? "—" : Number(collateralBalanceFmt).toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> {collateralSymbol}
-                  </span>
-                </div>
-                <Input
-                  aria-label="Collateral"
-                  type="number"
-                  value={collateralInput}
-                  onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, collateralDecimals) && Number(v) >= 0)) setCollateralInput(v); }}
-                  placeholder="0.00"
-                  min="0"
-                  step="any"
-                  className="h-12 text-lg bg-transparent border-border font-mono"
-                />
-                {positionState.status === "unknown" && (
-                  <p className="text-xs text-amber-400 mt-1" data-testid="position-unknown">
-                    Your position in this pair could not be read; MAX and borrowing are unavailable until it loads.
-                  </p>
-                )}
-                {currentCollateral !== undefined && currentCollateral > 0n && (
-                  <p className="text-xs text-muted-foreground mt-1">Already posted: {fmt(currentCollateral, collateralDecimals)} {collateralSymbol}</p>
-                )}
-                {insufficientCollateral && <p className="text-xs text-destructive mt-1">Insufficient {collateralSymbol} balance</p>}
+          <AmountField
+            label={`Borrow (${assetSymbol})`}
+            aside={
+              <>
+                Max (99%):{" "}
+                <span className="font-mono" data-testid="borrow-max">
+                  {maxBorrow === null ? "unavailable" : formatToken(maxBorrow, assetDecimals, assetSymbol)}
+                </span>
+              </>
+            }
+            value={borrowInput}
+            decimals={assetDecimals}
+            onChange={setBorrowInput}
+            onMax={() => maxBorrow !== null && setBorrowInput(formatUnits(maxBorrow, assetDecimals))}
+            maxDisabled={maxBorrow === null}
+            ariaLabel="Borrow"
+          >
+            {overMax && parsedBorrow > 0n && <p className="text-xs text-destructive mt-1">Exceeds max LTV, pair liquidity or borrow limit</p>}
+            {notice && <TxNotice>{notice}</TxNotice>}
+            {!preview && (
+              <div className="mt-1">
+                <FreshnessStamp stamp={read.stamp} label="Position" />
               </div>
+            )}
+          </AmountField>
 
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm text-muted-foreground">Borrow ({assetSymbol})</label>
-                  <span className="text-sm text-muted-foreground">
-                    Max (99%):{" "}
-                    <span className="font-mono" data-testid="borrow-max">
-                      {maxBorrow === null ? "unavailable" : `${fmt(maxBorrow, assetDecimals)} ${assetSymbol}`}
-                    </span>
-                  </span>
-                </div>
-                <div className="relative">
-                  <Input
-                    aria-label="Borrow"
-                    type="number"
-                    value={borrowInput}
-                    onChange={(e) => { const v = e.target.value; if (v === "" || (isValidDecimalInput(v, assetDecimals) && Number(v) >= 0)) setBorrowInput(v); }}
-                    placeholder="0.00"
-                    min="0"
-                    step="any"
-                    className="h-12 text-lg bg-transparent border-border font-mono pr-16"
-                  />
-                  <button
-                    type="button"
-                    disabled={maxBorrow === null}
-                    onClick={() => maxBorrow !== null && setBorrowInput(formatUnits(maxBorrow, assetDecimals))}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-accent bg-accent/10 border border-accent/30 px-2.5 py-1 transition-colors"
-                  >
-                    MAX
-                  </button>
-                </div>
-                {overMax && parsedBorrow > 0n && <p className="text-xs text-destructive mt-1">Exceeds max LTV, pair liquidity or borrow limit</p>}
-                {notice && <p className="text-xs text-amber-400 mt-1">{notice}</p>}
-                {flow.cancelReason && <p className="text-xs text-amber-400 mt-1">Approval flow cancelled: {flow.cancelReason}.</p>}
-              </div>
+          {preview && sides && (
+            <IsolatedRiskSummary
+              preview={preview}
+              sides={sides}
+              apy={info?.borrowApr === undefined ? undefined : aprToApy(info.borrowApr)}
+              apyLabel="Borrow APY"
+              invalid={
+                overMax
+                  ? "more than you can borrow (max LTV, liquidity or limit)"
+                  : insufficientCollateral
+                    ? `more ${collateralSymbol} than your wallet holds`
+                    : null
+              }
+              stamp={read.stamp}
+            />
+          )}
 
-              <div className="technical-border bg-background p-3 space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">LTV after borrow (pair oracle)</span>
-                  <span className={`font-mono ${overMax ? "text-rose-400" : "text-emerald-400"}`}>{ltvPercent}</span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Pair liquidity</span>
-                  <span className="font-mono">
-                    {info?.availableLiquidity === undefined ? "unavailable" : `${fmt(info.availableLiquidity, assetDecimals)} ${assetSymbol}`}
-                  </span>
-                </div>
-              </div>
+          <TxSteps
+            steps={flow.steps}
+            approvalNeeded={needsCollateralApproval}
+            approveAmount={needsCollateralApproval ? parsedCollateral : undefined}
+            symbol={collateralSymbol}
+            decimals={collateralDecimals}
+            actionLabel={`Borrow ${assetSymbol}`}
+            action={tx}
+            ctx={ctx}
+          />
+          {allowanceNote}
 
-              {parsedCollateral > 0n && (
-                <AllowanceNote
-                  symbol={collateralSymbol}
-                  decimals={collateralDecimals}
-                  spenderLabel="pair"
-                  allowance={flow.allowance}
-                  approveAmount={needsCollateralApproval ? parsedCollateral : undefined}
-                />
-              )}
+          <TxButton
+            onClick={handleBorrow}
+            isPending={tx.isPending || flow.isPending}
+            isSimulating={tx.isSimulating || flow.isSimulating}
+            isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
+            isChecking={flow.isChecking}
+            disabled={!address || !info || parsedBorrow === 0n || insufficientCollateral || overMax || maxBorrow === null || borrowBlocked}
+          >
+            {borrowBlocked ? "Borrowing blocked" : needsCollateralApproval ? `Approve ${collateralSymbol}` : `Borrow ${assetSymbol}`}
+          </TxButton>
 
-              <TxButton
-                onClick={handleBorrow}
-                isPending={isPending || flow.isPending}
-                isSimulating={isSimulating || flow.isSimulating}
-                isConfirming={isConfirming || flow.isConfirming || flow.awaitingApproval}
-                disabled={!address || !info || parsedBorrow === 0n || insufficientCollateral || overMax || maxBorrow === null || borrowBlocked}
-              >
-                {borrowBlocked ? "Borrowing blocked" : needsCollateralApproval ? `Approve ${collateralSymbol}` : `Borrow ${assetSymbol}`}
-              </TxButton>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+          <TxDetails
+            calls={parsedBorrow > 0n ? [needsCollateralApproval ? flow.describeApprove(parsedCollateral) : null, previewCall(borrowRequest(params))] : []}
+          >
+            <SummaryRow
+              label="Pair liquidity"
+              before={info?.availableLiquidity === undefined ? "unavailable" : formatToken(info.availableLiquidity, assetDecimals, assetSymbol)}
+            />
+          </TxDetails>
+        </TxForm>
+      )}
+    </TxDialog>
   );
 }
