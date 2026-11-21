@@ -3,6 +3,8 @@ import {
   ExecutionRevertedError,
   InternalRpcError,
   InvalidInputRpcError,
+  NonceTooHighError,
+  NonceTooLowError,
   RawContractError,
   RpcRequestError,
   UserRejectedRequestError,
@@ -17,7 +19,7 @@ import aaveErrors from "../test/fixtures/aave-errors.json";
 import pairErrors from "../test/fixtures/pair-errors.json";
 import reverts from "../test/fixtures/revert-data.json";
 import { ISOLATED_PAIR_ABI, POOL_ABI } from "./abis";
-import { AAVE_ERRORS, decodeRevert, describeTxError, type TxErrorContext } from "./txErrors";
+import { AAVE_ERRORS, EXCEEDS_BALANCE_MESSAGE, NONCE_MESSAGE, decodeRevert, describeTxError, type TxErrorContext } from "./txErrors";
 
 const ERROR_STRING_ABI = [{ type: "error", name: "Error", inputs: [{ name: "message", type: "string" }] }] as const;
 const POOL = "0x0000000000000000000000000000000000000100";
@@ -400,6 +402,46 @@ describe("viem's real wrapping of node and wallet errors (Gemini r2)", () => {
   it("a wallet error with no revert detail keeps the wallet's text as the last resort", () => {
     const err = viaSend(metaMask({}), "core");
     expect(describeTxError(err, ctx())).toBe("Contract error: Internal JSON-RPC error.");
+  });
+
+  it("a stale nonce (node 'nonce too low' / 'nonce too high', as viem wraps it) → reset the wallet activity (U4 r1 #5)", () => {
+    for (const message of ["nonce too low", "nonce too high"]) {
+      const err = viaSend(nodeError(message), "core");
+      expect(describeTxError(err, ctx({ action: "supply" })), message).toBe(NONCE_MESSAGE);
+    }
+  });
+});
+
+describe("restored wallet-level messages of the removed error map (U4 r1 #5)", () => {
+  it("viem's NonceTooLowError / NonceTooHighError, bare or as a cause, by class or by name", () => {
+    expect(describeTxError(new NonceTooLowError({ nonce: 3 }), ctx())).toBe(NONCE_MESSAGE);
+    expect(describeTxError(new NonceTooHighError({ nonce: 9 }), ctx())).toBe(NONCE_MESSAGE);
+    const wrapped = Object.assign(new Error("Transaction failed"), { cause: Object.assign(new Error("x"), { name: "NonceTooLowError" }) });
+    expect(describeTxError(wrapped, ctx())).toBe(NONCE_MESSAGE);
+    expect(NONCE_MESSAGE).toBe("Nonce error — try resetting your wallet activity");
+  });
+
+  it("any error text with the word 'nonce' (a wallet's own wording), but not a longer word", () => {
+    expect(describeTxError(new Error("Nonce provided for the transaction is lower than the current nonce of the account."), ctx())).toBe(
+      NONCE_MESSAGE,
+    );
+    expect(describeTxError(new Error("invalid nonces list"), ctx())).toBe("invalid nonces list");
+  });
+
+  it("'exceeds balance' (an ERC-20 transfer over the balance) → the old map's wording", () => {
+    const erc20 = viemRevert(
+      encodeErrorResult({ abi: ERROR_STRING_ABI, errorName: "Error", args: ["ERC20: transfer amount exceeds balance"] }),
+      "core",
+      "supply",
+    );
+    expect(describeTxError(erc20, ctx({ action: "supply" }))).toBe(EXCEEDS_BALANCE_MESSAGE);
+    expect(describeTxError(new Error("execution reverted: ERC20: burn amount exceeds balance"), ctx())).toBe(EXCEEDS_BALANCE_MESSAGE);
+    expect(EXCEEDS_BALANCE_MESSAGE).toBe("Amount exceeds your balance");
+  });
+
+  it("a user rejection still wins over every other wording in the chain", () => {
+    const err = Object.assign(new Error("User rejected the request."), { cause: new Error("nonce too low") });
+    expect(describeTxError(err, ctx())).toBe("Transaction rejected by user");
   });
 });
 
