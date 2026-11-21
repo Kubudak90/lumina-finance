@@ -13,8 +13,11 @@ import {
   buildCoreSnapshot,
   coreApy,
   corePreview,
+  coreLiquidationPrice,
   coreRisk,
   formatHealth,
+  formatLtvPercent,
+  formatMaxLtvPercent,
   isolatedAprs,
   isolatedLiquidationPrice,
   isolatedLtvOf,
@@ -206,6 +209,20 @@ describe("core after-state (per reserve, from one snapshot)", () => {
     expect(ok(p.after).healthFactor).toBe(ok(p.before).healthFactor);
   });
 
+  it("supply with LTV 0 never turns an unreadable collateral flag into false (FE-07)", () => {
+    const unknownFlag = snap(weth({ supplied: 10n * E18, collateralEnabled: true }), usdc({ ltv: 0n, collateralEnabled: undefined }));
+    const after = applyCoreAction(unknownFlag, { kind: "supply", asset: USDC, amount: 2_000n * E6 }).snapshot!;
+    expect(after.reserves[1].collateralEnabled).toBeUndefined();
+    expect(accountData(after)).toEqual({ available: false, reason: "missing-input" });
+    // A known flag stays as read; an unknown LTV makes the flag unknown; LTV > 0 enables it.
+    const off = snap(weth(), usdc({ ltv: 0n, collateralEnabled: false }));
+    expect(applyCoreAction(off, { kind: "supply", asset: USDC, amount: E6 }).snapshot!.reserves[1].collateralEnabled).toBe(false);
+    const noLtv = snap(weth(), usdc({ ltv: undefined, collateralEnabled: false }));
+    expect(applyCoreAction(noLtv, { kind: "supply", asset: USDC, amount: E6 }).snapshot!.reserves[1].collateralEnabled).toBeUndefined();
+    const unknownOn = snap(weth(), usdc({ collateralEnabled: undefined }));
+    expect(applyCoreAction(unknownOn, { kind: "supply", asset: USDC, amount: E6 }).snapshot!.reserves[1].collateralEnabled).toBe(true);
+  });
+
   it("supply of collateral that is already on raises collateral", () => {
     const p = corePreview(base, { kind: "supply", asset: WETH, amount: 5n * E18 });
     expect(ok(p.after).totalCollateralBase).toBe(30_000n * E8);
@@ -359,6 +376,27 @@ describe("eMode ≠ 0 or an unknown reserve: unavailable (spec §3.1, r2 #4)", (
     const unknown: CoreReserve = { ...usdc({ supplied: E6, collateralEnabled: true }), asset: DAI, symbol: "DAI", ltv: undefined, liquidationThreshold: undefined };
     expect(coreRisk({ ...s, reserves: [...s.reserves, unknown] })).toEqual({ available: false, reason: "unknown-reserve" });
   });
+
+  it("coreLiquidationPrice guards itself: eMode ≠ 0 or unknown, unknown LT on held collateral, missing inputs", () => {
+    // `data` from the eMode-0 snapshot; the guards must not rely on the caller passing a matching one.
+    const data = ok(accountData(s));
+    expect(coreLiquidationPrice({ ...s, eMode: 1n }, data)).toEqual({ kind: "unavailable", reason: "emode" });
+    expect(coreLiquidationPrice({ ...s, eMode: undefined }, data)).toEqual({ kind: "unavailable", reason: "missing-input" });
+    const noLt = snap(weth({ supplied: 10n * E18, collateralEnabled: true, liquidationThreshold: undefined }), usdc({ borrowed: 8_000n * E6 }));
+    expect(coreLiquidationPrice(noLt, data)).toEqual({ kind: "unavailable", reason: "unknown-reserve" });
+    const noFlag = snap(weth({ supplied: 10n * E18, collateralEnabled: undefined }), usdc({ borrowed: 8_000n * E6 }));
+    expect(coreLiquidationPrice(noFlag, data)).toEqual({ kind: "unavailable", reason: "missing-input" });
+    const noBalance = snap(weth({ supplied: undefined }), usdc({ borrowed: 8_000n * E6 }));
+    expect(coreLiquidationPrice(noBalance, data)).toEqual({ kind: "unavailable", reason: "missing-input" });
+    expect(coreLiquidationPrice(s, data)).toEqual({ kind: "below", price: 1_000n * E8 });
+  });
+
+  it("the HF division is guarded: zero debt is type(uint256).max, never a throw", () => {
+    const d = ok(accountData(snap(weth({ borrowed: 1n }), usdc({ supplied: 1_000n * E6, collateralEnabled: true }))));
+    // 1 wei of WETH is worth 0 in the 1e8 base currency (floored, as GenericLogic): no debt → max HF.
+    expect(d.totalDebtBase).toBe(0n);
+    expect(d.healthFactor).toBe(MAX_HEALTH_FACTOR);
+  });
 });
 
 // =============================================================================================
@@ -421,8 +459,11 @@ describe("isolated LTV and after-state", () => {
     const totalAfter = { amount: TB.amount - pulled, shares: TB.shares - 150n * E6 };
     expect(r.state.totalBorrow).toEqual(totalAfter);
     expect(r.state.debt).toBe(vaultToAmount(totalAfter, 300n * E6, true));
-    // ≈ two thirds of 500 USDC (share price 1000/900).
-    expect(r.state.debt! - 333_333_334n).toBeLessThanOrEqual(2n);
+    // By hand, VaultAccount with the 1e3 virtual offsets:
+    //   pulled = ceil(150e6 × 1,000,001,000 / 900,001,000) = 166,666,649 → totals 833,333,351 / 750,000,000
+    //   debt   = ceil(300e6 × 833,334,351 / 750,001,000)   = 333,333,296
+    expect(pulled).toBe(166_666_649n);
+    expect(r.state.debt).toBe(333_333_296n);
   });
 
   it("repay by shares above the borrowed shares is clamped to 0 and flagged invalid; 'all' repays everything", () => {
@@ -544,6 +585,18 @@ describe("formatHealth: thresholds, status, gauges", () => {
     expect(hf((1234n * WAD) / 1000n).value).toBe("1.23");
   });
 
+  it("borrower LTV text rounds UP to hundredths; maxLTV text is exact", () => {
+    expect(formatLtvPercent(75_001n)).toBe("75.01%");
+    expect(formatLtvPercent(74_991n)).toBe("75.00%");
+    expect(formatLtvPercent(75_000n)).toBe("75.00%");
+    expect(formatLtvPercent(1n)).toBe("0.01%");
+    expect(formatLtvPercent(0n)).toBe("0.00%");
+    expect(formatMaxLtvPercent(75_000n)).toBe("75.00%");
+    expect(formatMaxLtvPercent(75_001n)).toBe("75.001%");
+    expect(formatMaxLtvPercent(77_550n)).toBe("77.55%");
+    expect(formatMaxLtvPercent(0n)).toBe("0.00%");
+  });
+
   it("HF gauge spans 0–3", () => {
     expect(hf(0n).gauge).toBe(0);
     expect(hf((15n * WAD) / 10n).gauge).toBe(50);
@@ -553,7 +606,7 @@ describe("formatHealth: thresholds, status, gauges", () => {
 
   it("isolated ltv/maxLTV: > 1.0 liquidatable, ≥ 0.9 danger, ≥ 0.8 warning, else safe; gauge 0–100% of maxLTV", () => {
     const l = (ltv: bigint) => formatHealth({ kind: "ltv", ltv: { kind: "value", ltv }, maxLTV: 75_000n });
-    expect(l(75_001n)).toMatchObject({ status: "liquidatable", gauge: 100 });
+    expect(l(75_001n)).toMatchObject({ status: "liquidatable", value: "75.01%", gauge: 100 });
     expect(l(75_000n)).toMatchObject({ status: "danger", value: "75.00%", gauge: 100 });
     expect(l(67_500n)).toMatchObject({ status: "danger", gauge: 90 });
     expect(l(67_499n).status).toBe("warning");

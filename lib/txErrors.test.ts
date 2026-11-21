@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RawContractError, UserRejectedRequestError, encodeErrorResult, getContractError, type Abi, type Hex } from "viem";
+import { InternalRpcError, RawContractError, UserRejectedRequestError, encodeErrorResult, getContractError, type Abi, type Hex } from "viem";
 import aaveErrors from "../test/fixtures/aave-errors.json";
 import pairErrors from "../test/fixtures/pair-errors.json";
 import reverts from "../test/fixtures/revert-data.json";
@@ -216,6 +216,90 @@ describe("context-dependent messages (action × guard status)", () => {
     const remove = describeTxError(err, ctx({ venue: "isolated", action: "removeCollateral" }));
     expect(borrow).toMatch(/This borrow would put the position above the pair's max LTV/);
     expect(remove).toMatch(/Removing this much collateral/);
+  });
+});
+
+describe("one text parser for every textual form (Gemini r1 #1)", () => {
+  const STALE_BORROW = "Borrowing is paused until a fresh price is posted; repaying and adding collateral still work.";
+  const stale = (over: Partial<TxErrorContext> = {}) => ctx({ guardStatus: "REFERENCE_STALE", ...over });
+
+  it("a structured reason 'execution reverted: 59' → the guard-stale borrow message", () => {
+    const err = { name: "ContractFunctionRevertedError", reason: "execution reverted: 59" };
+    expect(decodeRevert(err, "core")).toMatchObject({ kind: "aave", code: "59" });
+    expect(describeTxError(err, stale())).toBe(STALE_BORROW);
+    expect(describeTxError(new Error("Simulation failed", { cause: err }), stale())).toBe(STALE_BORROW);
+  });
+
+  it("the viem reason capture with an 'execution reverted:' prefix", () => {
+    const err = new Error('The contract function "borrow" reverted with the following reason:\nexecution reverted: 59');
+    expect(describeTxError(err, stale())).toBe(STALE_BORROW);
+  });
+
+  it("'execution reverted: custom error 0x…' with no data → the pair message", () => {
+    const err = { reason: "execution reverted: custom error 0x345513d9" };
+    expect(decodeRevert(err, "isolated")).toMatchObject({ kind: "custom", name: "ExceedsMaxOracleDeviation" });
+    expect(describeTxError(err, stale({ venue: "isolated" }))).toBe(STALE_BORROW);
+    expect(describeTxError(err, stale({ venue: "isolated", action: "removeCollateral" }))).toMatch(/^Removing collateral is paused/);
+    // A selector with arguments, as a structured reason.
+    const insolvent = { reason: "execution reverted: custom error 0xed27783c" };
+    expect(describeTxError(insolvent, ctx({ venue: "isolated" }))).toMatch(/This borrow would put the position above the pair's max LTV/);
+  });
+
+  it("'panic: … (0x11)' and 'reverted with reason string' forms, prefixed or not", () => {
+    expect(decodeRevert({ reason: "execution reverted: panic: arithmetic underflow or overflow (0x11)" }, "isolated")).toEqual({ kind: "panic", code: 0x11n });
+    expect(decodeRevert(new Error("execution reverted: panic: arithmetic underflow or overflow (0x11)"), "isolated")).toEqual({ kind: "panic", code: 0x11n });
+    expect(decodeRevert({ reason: "execution reverted: reverted with reason string '36'" }, "core")).toMatchObject({ kind: "aave", code: "36" });
+    expect(decodeRevert(new Error("call failed: reverted with reason string '59'"), "core")).toMatchObject({ kind: "aave", code: "59" });
+  });
+
+  it("a bare 'execution reverted' is not a decoded revert (short raw text kept)", () => {
+    expect(decodeRevert({ reason: "execution reverted" }, "core")).toBeNull();
+    expect(describeTxError(new Error("execution reverted"), ctx())).toBe("execution reverted");
+  });
+});
+
+describe("a bare 4-byte selector names a parameterized pair error (Gemini r1 #2)", () => {
+  it("0xed27783c → Insolvent and 0xc5bb6dae → InsufficientAssetsInContract, with no arguments", () => {
+    const insolvent = viemRevert("0xed27783c", "isolated", "borrowAsset");
+    expect(decodeRevert(insolvent, "isolated")).toEqual({ kind: "custom", name: "Insolvent", args: [] });
+    expect(describeTxError(insolvent, ctx({ venue: "isolated" }))).toMatch(/This borrow would put the position above the pair's max LTV/);
+    const liquidity = new Error('The contract function "borrowAsset" reverted with the following signature:\n0xc5bb6dae');
+    expect(decodeRevert(liquidity, "isolated")).toEqual({ kind: "custom", name: "InsufficientAssetsInContract", args: [] });
+    expect(describeTxError(liquidity, ctx({ venue: "isolated" }))).toBe("Not enough liquidity in the pair to borrow this amount.");
+  });
+
+  it("every pair error's bare selector resolves to its name; on the core venue it stays unknown", () => {
+    for (const e of pairErrors.errors) {
+      expect(decodeRevert(viemRevert(e.selector as Hex, "isolated", "borrowAsset"), "isolated"), e.name).toMatchObject({ kind: "custom", name: e.name });
+    }
+    expect(decodeRevert(viemRevert("0xed27783c", "core", "borrow"), "core")).toEqual({ kind: "unknown", data: "0xed27783c" });
+  });
+});
+
+describe("nested EIP-1193 payloads (Gemini r1 #3)", () => {
+  const data59 = () => reverts.cases.find((c) => c.name === "core borrow, guard stale → 59")!.data;
+  const STALE_BORROW = "Borrowing is paused until a fresh price is posted; repaying and adding collateral still work.";
+
+  it("InternalRpcError-shaped: data: { message: 'execution reverted: 59', data: 0x08c379a0… }", () => {
+    const rpcError = { name: "InternalRpcError", code: -32603, message: "Internal JSON-RPC error.", data: { code: 3, message: "execution reverted: 59", data: data59() } };
+    expect(data59().startsWith("0x08c379a0")).toBe(true);
+    expect(decodeRevert(rpcError, "core")).toMatchObject({ kind: "aave", code: "59" });
+    expect(describeTxError(rpcError, ctx({ guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+    // The payload's message alone is enough.
+    const messageOnly = { ...rpcError, data: { code: 3, message: "execution reverted: 59" } };
+    expect(decodeRevert(messageOnly, "core")).toMatchObject({ kind: "aave", code: "59" });
+    // As the cause of viem's InternalRpcError.
+    const wrapped = new InternalRpcError(Object.assign(new Error("Internal JSON-RPC error."), { data: rpcError.data }));
+    expect(describeTxError(wrapped, ctx({ guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+  });
+
+  it("data: { data: 0x345513d9 } and MetaMask's data.originalError.data", () => {
+    const flat = { name: "InternalRpcError", code: -32603, message: "Internal JSON-RPC error.", data: { data: "0x345513d9" } };
+    expect(decodeRevert(flat, "isolated")).toEqual({ kind: "custom", name: "ExceedsMaxOracleDeviation", args: [] });
+    const original = { code: -32603, message: "Internal JSON-RPC error.", data: { originalError: { code: 3, data: "0x345513d9", message: "execution reverted" } } };
+    expect(decodeRevert(original, "isolated")).toEqual({ kind: "custom", name: "ExceedsMaxOracleDeviation", args: [] });
+    const originalMessage = { code: -32603, message: "Internal JSON-RPC error.", data: { originalError: { message: "execution reverted: custom error 0x75e595fa" } } };
+    expect(decodeRevert(originalMessage, "isolated")).toMatchObject({ kind: "custom", name: "BorrowerSolvent" });
   });
 });
 

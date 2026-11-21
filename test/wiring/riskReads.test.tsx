@@ -62,8 +62,10 @@ function chain(script: Script = {}) {
                 0n,
                 0n,
                 { lastBlock: 9, feeToProtocolRate: 10_000, lastTimestamp: 5n, ratePerSec: RATE_PER_SEC, fullUtilizationRate: 1n },
-                { amount: 1_000n, shares: 1_000n },
-                { amount: 800n, shares: 800n },
+                // Previewed totals deliberately differ from getPairAccounting's (1,000 / 800): the
+                // lend APR must use these (utilization 25%), not the accounting ones (80%).
+                { amount: 2_000n, shares: 2_000n },
+                { amount: 500n, shares: 500n },
               ]);
         case "isInterestPaused":
           return script.paused === "fail" ? fail : ok(script.paused ?? false);
@@ -129,7 +131,7 @@ describe("useIsolatedPairs: previewAddInterest and isInterestPaused in the exist
     expect(result.current.pairs.find((x) => x.pair === PAIR_WETH_USDC)!.oracleBadData).toBe(false);
   });
 
-  it("exposes the live rate, the fee, the pause flag and the APRs from the previewed totals", () => {
+  it("exposes the live rate, the fee, the pause flag and the APRs from previewAddInterest's own totals", () => {
     const p = renderHook(() => useIsolatedPairs()).result.current.pairs[0];
     expect(p.ratePerSec).toBe(RATE_PER_SEC);
     expect(p.feeToProtocolRate).toBe(10_000n);
@@ -137,7 +139,11 @@ describe("useIsolatedPairs: previewAddInterest and isInterestPaused in the exist
     const borrowApr = p.borrowApr!;
     // ratePerSec × 31,536,000 / 1e18, exact (no float).
     expect(borrowApr.toString()).toBe("0.049999999994064");
-    expect(p.lendApr!.equals(borrowApr.mul("0.8").mul("0.9"))).toBe(true);
+    expect(p.lendApr!.equals(borrowApr.mul("0.25").mul("0.9"))).toBe(true);
+    expect(p.lendApr!.equals(borrowApr.mul("0.8").mul("0.9"))).toBe(false);
+    // The accounting fields still come from getPairAccounting.
+    expect(p.totalAssetAmount).toBe(1_000n);
+    expect(p.totalBorrowAmount).toBe(800n);
     expect(aprToApy(borrowApr).gt(borrowApr)).toBe(true);
   });
 

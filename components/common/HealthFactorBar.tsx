@@ -1,4 +1,4 @@
-import { formatHealth, formatLtvPercent, type HealthStatus, type IsolatedLtvResult } from "@/lib/risk";
+import { formatHealth, formatMaxLtvPercent, type HealthStatus, type IsolatedLtvResult } from "@/lib/risk";
 
 /**
  * Risk gauge. Status, text and fill all come from `formatHealth` (ui-usability-v1 spec §3.1):
@@ -34,7 +34,7 @@ export function HealthFactorBar(props: HealthFactorBarProps) {
   const footer = ltv
     ? props.maxLTV === undefined
       ? "Max LTV unavailable"
-      : `Liquidation above ${formatLtvPercent(props.maxLTV)} LTV`
+      : `Liquidation above ${formatMaxLtvPercent(props.maxLTV)} LTV`
     : "Liquidation at < 1.0";
 
   return (

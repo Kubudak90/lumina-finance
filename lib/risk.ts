@@ -35,8 +35,12 @@ const min = (a: bigint, b: bigint) => (a < b ? a : b);
 const sub0 = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
 const pow10 = (decimals: number) => 10n ** BigInt(decimals);
 
-/** WadRayMath.wadDiv (half up). Callers guarantee b > 0. */
-export function wadDiv(a: bigint, b: bigint): bigint {
+/**
+ * WadRayMath.wadDiv (half up), for the HF only. A zero divisor (no debt) gives Aave's "no debt"
+ * HF, type(uint256).max, instead of throwing.
+ */
+function wadDiv(a: bigint, b: bigint): bigint {
+  if (b <= 0n) return MAX_HEALTH_FACTOR;
   return (a * WAD + b / 2n) / b;
 }
 
@@ -191,32 +195,44 @@ export function borrowLimitUsed(data: CoreAccountData): BorrowLimitUsed {
  * HF < 1 ⇔ p·A < B, so p* = B / A and the sign partition below is complete.
  */
 export function coreLiquidationPrice(snapshot: CoreSnapshot, data: CoreAccountData): LiquidationPrice {
+  // Guarded here too, not only through accountData(): an eMode LT is never loaded (r2 #4).
+  if (snapshot.eMode === undefined) return { kind: "unavailable", reason: "missing-input" };
+  if (snapshot.eMode !== 0n) return { kind: "unavailable", reason: "emode" };
   if (data.totalDebtBase === 0n) return { kind: "none" };
   let weth: CoreReserve | undefined;
   let usdc: CoreReserve | undefined;
   for (const r of snapshot.reserves) {
+    if (r.supplied === undefined || r.borrowed === undefined) return { kind: "unavailable", reason: "missing-input" };
+    const held = r.supplied > 0n || r.borrowed > 0n;
     if (r.symbol === VOLATILE_SYMBOL) weth = r;
     else if (r.symbol === STABLE_SYMBOL) usdc = r;
-    else if ((r.supplied ?? 0n) > 0n || (r.borrowed ?? 0n) > 0n) return { kind: "unavailable", reason: "unknown-reserve" };
+    else if (held) return { kind: "unavailable", reason: "unknown-reserve" };
+    if (r.supplied > 0n) {
+      if (r.collateralEnabled === undefined) return { kind: "unavailable", reason: "missing-input" };
+      if (r.collateralEnabled && r.liquidationThreshold === undefined) return { kind: "unavailable", reason: "unknown-reserve" };
+    }
   }
-  // A in wei·bps; B in (USDC base units)·bps·price8. accountData() already required every held
-  // reserve's config and, where it matters, its price.
-  const cw = weth && (weth.supplied ?? 0n) > 0n && countsAsCollateral(weth) ? weth.supplied! : 0n;
+  // Collateral-enabled balance and its LT (both known after the checks above), or 0.
+  const collateralOf = (r: CoreReserve | undefined): [bigint, bigint] =>
+    r && r.supplied! > 0n && countsAsCollateral(r) ? [r.supplied!, r.liquidationThreshold!] : [0n, 0n];
+  // A in wei·bps; B in (USDC base units)·bps·price8.
+  const [cw, ltw] = collateralOf(weth);
   const dw = weth?.borrowed ?? 0n;
-  const A = cw * (weth?.liquidationThreshold ?? 0n) - dw * BPS;
-  const cu = usdc && (usdc.supplied ?? 0n) > 0n && countsAsCollateral(usdc) ? usdc.supplied! : 0n;
+  const A = cw * ltw - dw * BPS;
+  const [cu, ltu] = collateralOf(usdc);
   const du = usdc?.borrowed ?? 0n;
   let B = 0n;
   if (cu > 0n || du > 0n) {
     if (usdc?.price === undefined || usdc.price <= 0n) return { kind: "unavailable", reason: "missing-input" };
-    B = usdc.price * (du * BPS - cu * (usdc.liquidationThreshold ?? 0n));
+    B = usdc.price * (du * BPS - cu * ltu);
   }
 
   if ((A < 0n && B >= 0n) || (A === 0n && B > 0n)) return { kind: "now" };
   if (A >= 0n && B <= 0n) return { kind: "none" };
-  // p·A / 10^dw < B / 10^du  →  p* = B·10^dw / (A·10^du); A ≠ 0 here and both have one sign.
+  // p·A / 10^dw < B / 10^du  →  p* = B·10^dw / (A·10^du); A ≠ 0 and B ≠ 0 here, of one sign, so
+  // both reserves exist.
   const num = (B < 0n ? -B : B) * pow10(weth!.decimals);
-  const den = (A < 0n ? -A : A) * pow10(usdc?.decimals ?? 0);
+  const den = (A < 0n ? -A : A) * pow10(usdc!.decimals);
   const price = num / den;
   return A > 0n ? { kind: "below", price } : { kind: "above", price };
 }
@@ -274,8 +290,10 @@ export function applyCoreAction(snapshot: CoreSnapshot, action: CoreAction): Cor
       if (r.supplied === undefined) break;
       let collateralEnabled = r.collateralEnabled;
       // SupplyLogic: the first supply (aToken balance 0) enables collateral when the reserve LTV > 0.
+      // With LTV 0 nothing changes: an unreadable flag stays unreadable, never false (FE-07).
       if (x > 0n && r.supplied === 0n && collateralEnabled !== true) {
-        collateralEnabled = r.ltv === undefined ? undefined : r.ltv > 0n;
+        if (r.ltv === undefined) collateralEnabled = undefined;
+        else if (r.ltv > 0n) collateralEnabled = true;
       }
       next = { ...r, supplied: r.supplied + x, collateralEnabled };
       break;
@@ -615,10 +633,21 @@ export function formatHf(hf: bigint): string {
   return `${cents / 100n}.${pad2(cents % 100n)}`;
 }
 
-/** LTV in 1e5 units as a percent, floored to two decimals ("72.50%"). */
+/**
+ * A borrower's LTV (1e5 units) as a percent, rounded UP to hundredths, so a liquidatable 75.001%
+ * never reads "75.00%" next to a 75% max ("75.01%").
+ */
 export function formatLtvPercent(ltv: bigint): string {
-  const hundredths = ltv / 10n; // 1e5 = 100.00% → 1e4 hundredths of a percent
+  const hundredths = ltv <= 0n ? 0n : (ltv + 9n) / 10n; // 1e5 = 100.00% → 1e4 hundredths
   return `${hundredths / 100n}.${pad2(hundredths % 100n)}%`;
+}
+
+/** maxLTV (1e5 units) as an exact percent: two decimals, a third when needed ("75.00%", "75.001%"). */
+export function formatMaxLtvPercent(maxLTV: bigint): string {
+  const v = maxLTV < 0n ? 0n : maxLTV; // 1e5 = 100.000% → 1e5 thousandths
+  const frac = v % 1000n;
+  const decimals = frac % 10n === 0n ? pad2(frac / 10n) : frac.toString().padStart(3, "0");
+  return `${v / 1000n}.${decimals}%`;
 }
 
 export function hfStatus(hf: bigint): HealthStatus {
