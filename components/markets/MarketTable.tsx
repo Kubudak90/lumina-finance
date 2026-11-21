@@ -46,14 +46,14 @@ export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Asset</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Supply APY</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Borrow APY</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Total Supplied</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Total Borrowed</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Utilization</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">LTV</TableHead>
-            <TableHead className="px-6 text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Status</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Asset</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Supply APY</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Borrow APY</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Total Supplied</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Total Borrowed</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Utilization</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">LTV</TableHead>
+            <TableHead className="px-3 xl:px-6 h-auto py-3 whitespace-normal align-bottom text-[10px] text-muted-foreground uppercase font-mono tracking-wider">Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -75,7 +75,7 @@ export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
                 onClick={rowClick(href, onOpenMarket)}
                 data-testid="market-row"
               >
-                  <TableCell className="px-6 py-4">
+                  <TableCell className="px-3 xl:px-6 py-4 whitespace-normal">
                     <Link
                       href={href}
                       className="inline-flex items-center gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -87,22 +87,23 @@ export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
                       </div>
                     </Link>
                   </TableCell>
-                  <TableCell className="px-6 py-4 text-emerald-400 font-mono font-medium">{formatApy(coreApy(m.supplyRate))}</TableCell>
-                  <TableCell className="px-6 py-4 text-amber-400 font-mono font-medium">{formatApy(coreApy(m.borrowRate))}</TableCell>
-                  <TableCell className="px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalSupply, m.decimals, price))}</TableCell>
-                  <TableCell className="px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalBorrow, m.decimals, price))}</TableCell>
-                  <TableCell className="px-6 py-4">
+                  <TableCell className="px-3 xl:px-6 py-4 text-emerald-400 font-mono font-medium">{formatApy(coreApy(m.supplyRate))}</TableCell>
+                  <TableCell className="px-3 xl:px-6 py-4 text-amber-400 font-mono font-medium">{formatApy(coreApy(m.borrowRate))}</TableCell>
+                  <TableCell className="px-3 xl:px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalSupply, m.decimals, price))}</TableCell>
+                  <TableCell className="px-3 xl:px-6 py-4 font-mono text-foreground">{formatUsd(usdValue(m.totalBorrow, m.decimals, price))}</TableCell>
+                  <TableCell className="px-3 xl:px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-16 h-1.5 bg-border overflow-hidden">
+                      {/* Decorative bar from xl; the percentage next to it shows at every width. */}
+                      <div className="hidden xl:block w-16 h-1.5 bg-border overflow-hidden">
                         <div className="h-full bg-accent" style={{ width: `${util ?? 0}%` }} />
                       </div>
                       <span className="text-sm text-muted-foreground font-mono">{util === undefined ? "—" : `${util.toFixed(0)}%`}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="px-6 py-4 font-mono text-foreground">
+                  <TableCell className="px-3 xl:px-6 py-4 font-mono text-foreground">
                     {m.config && m.config.ltv > 0 ? `${(m.config.ltv / 100).toFixed(0)}%` : "—"}
                   </TableCell>
-                  <TableCell className="px-6 py-4">
+                  <TableCell className="px-3 xl:px-6 py-4">
                     {(() => {
                       // From the reserve config, not assumed.
                       const label = marketStatus(m);
