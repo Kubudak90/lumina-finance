@@ -1,6 +1,6 @@
 /**
- * Transaction errors → user-facing text (ui-usability-v1 spec §3.2). Replaces `parseErrorMessage`
- * (lib/errorMessages.ts), which stays until its callers move over.
+ * Transaction errors → user-facing text (ui-usability-v1 spec §3.2). Replaced `parseErrorMessage`
+ * (the old lib/errorMessages.ts, whose Aave table was shifted by one code; removed in U4).
  *
  * - Walks viem's error cause chain twice: first every level's revert bytes (`data.errorName`,
  *   `raw`, `signature`, RawContractError `data`, EIP-1193 `data.data` / `data.originalError.data`),

@@ -196,6 +196,45 @@ describe("#1 one follow-up at a time, bound to its account, chain and inputs", (
     expect(step(2).textContent).toMatch(/account changed/);
   });
 
+  it("closing the dialog during step 2's re-checks → nothing sent (U2 r2 minor 1)", async () => {
+    const view = renderSupply();
+    type("1.5");
+    await act(async () => fireEvent.click(button("Approve USDC")));
+    const release = holdReads();
+    await act(async () => setRead(USDC, "allowance", 1_500_000n));
+    await act(async () => mine(hashOf(1)));
+    expect(step(2).dataset.state).toBe("checking");
+    view.unmount();
+    await act(async () => release());
+    await act(async () => {});
+    expect(sent()).toEqual(["approve"]);
+  });
+
+  it("IsolatedWithdraw MAX: closing the dialog or switching chain while the balance is read sends nothing (U2 r2 minors 1, 2)", async () => {
+    fake.data.pair = pairInfo;
+    setRead(PAIR_USDC_WETH, "maxWithdraw", 100_000_000n);
+    chain.snapshots[lc(ALICE)] = [95_000_000n, 0n, 0n];
+    chain.maxRedeem = 95_000_000n;
+    // closed while reading
+    const view = render(<IsolatedWithdrawModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    fireEvent.click(button("MAX"));
+    let release = holdReads();
+    await act(async () => fireEvent.click(button("Withdraw USDC")));
+    view.unmount();
+    await act(async () => release());
+    await act(async () => {});
+    expect(sent()).toEqual([]);
+    // chain switched while reading
+    render(<IsolatedWithdrawModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    fireEvent.click(button("MAX"));
+    release = holdReads();
+    await act(async () => fireEvent.click(button("Withdraw USDC")));
+    await act(async () => update((f) => (f.chainId = 1)));
+    await act(async () => release());
+    await act(async () => {});
+    expect(sent()).toEqual([]);
+  });
+
   it("IsolatedWithdraw MAX: a second click while the share balance is read sends nothing more", async () => {
     fake.data.pair = pairInfo;
     setRead(PAIR_USDC_WETH, "maxWithdraw", 100_000_000n);

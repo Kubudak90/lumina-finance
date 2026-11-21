@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { bigintAt, resultAt, useLuminaReadContract, useLuminaReader, useLuminaWrite } from "@/hooks/chain";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
@@ -37,11 +37,19 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
   // intent it started with (review U2 r1 #1).
   const [checking, setChecking] = useState(false);
   const checkingRef = useRef(false);
-  const { address } = useAccount();
-  const liveRef = useRef({ address, withdrawAll });
-  useEffect(() => {
-    liveRef.current = { address, withdrawAll };
+  const { address, chainId } = useAccount();
+  // Updated at commit; `mounted` stops a MAX read that resolves after the dialog closed
+  // (review U2 r2, minors 1 and 2).
+  const liveRef = useRef({ address, chainId, withdrawAll, mounted: false });
+  useLayoutEffect(() => {
+    liveRef.current = { ...liveRef.current, address, chainId, withdrawAll };
   });
+  useEffect(() => {
+    liveRef.current.mounted = true;
+    return () => {
+      liveRef.current.mounted = false;
+    };
+  }, []);
   const readNow = useLuminaReader();
   const tx = useLuminaWrite();
   const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
@@ -86,6 +94,7 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
     if (checkingRef.current) return;
     checkingRef.current = true;
     setChecking(true);
+    const startChainId = chainId;
     try {
       // The whole share balance, and what the pair's liquidity lets out right now.
       const r = await readNow([
@@ -106,7 +115,8 @@ export function IsolatedWithdrawModal({ pair, onClose }: { pair: `0x${string}`; 
         return;
       }
       const live = liveRef.current;
-      if (!live.withdrawAll || live.address?.toLowerCase() !== address.toLowerCase()) {
+      if (!live.mounted) return; // the dialog was closed while the balance was read: send nothing
+      if (!live.withdrawAll || live.address?.toLowerCase() !== address.toLowerCase() || live.chainId !== startChainId) {
         setNotice("The account or the amount changed while your balance was read; nothing was sent.");
         return;
       }

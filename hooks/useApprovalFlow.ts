@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { ERC20_ABI } from "@/lib/abis";
@@ -19,6 +19,9 @@ import {
 } from "@/lib/approvalFlow";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
 import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
+
+/** Layout effect in the browser, plain effect during SSR (no server warning). */
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * The one place an ERC-20 approval is built (lib/scope.test.ts: no free-standing approve anywhere
@@ -125,11 +128,21 @@ export function useApprovalFlow<P>(options: {
   /** Binding of the follow-up that is running (one at a time), for `stale()`. */
   const runningBindingRef = useRef<FollowUpBinding | null>(null);
   const liveBindingRef = useRef<FollowUpBinding>({ account: address, chainId, paramsKey });
-  useEffect(() => {
+  // Updated at commit (layout effect), so a re-check that resolves right after an edit already sees
+  // the new binding; a passive effect would leave a post-commit window (review U2 r2, minor 1).
+  useIsomorphicLayoutEffect(() => {
     onProceedRef.current = options.onProceed;
     liveSessionRef.current = session;
     liveBindingRef.current = { account: address, chainId, paramsKey };
   });
+  // A follow-up whose dialog was closed while it re-checked must not open a wallet prompt.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // A change of the inputs, account or chain clears the session unless a flow is still active;
   // a change while the flow is active is a cancellation instead (decideFollowUp while the approval
@@ -195,6 +208,7 @@ export function useApprovalFlow<P>(options: {
    * null while it is current. Follow-ups call it right before the wallet prompt.
    */
   const stale = useCallback((): string | null => {
+    if (!mountedRef.current) return "the dialog was closed";
     const bound = runningBindingRef.current;
     return bound ? staleFollowUp(bound, liveBindingRef.current) : null;
   }, []);

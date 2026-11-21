@@ -17,7 +17,6 @@ import aaveErrors from "../test/fixtures/aave-errors.json";
 import pairErrors from "../test/fixtures/pair-errors.json";
 import reverts from "../test/fixtures/revert-data.json";
 import { ISOLATED_PAIR_ABI, POOL_ABI } from "./abis";
-import { parseErrorMessage } from "./errorMessages";
 import { AAVE_ERRORS, decodeRevert, describeTxError, type TxErrorContext } from "./txErrors";
 
 const ERROR_STRING_ABI = [{ type: "error", name: "Error", inputs: [{ name: "message", type: "string" }] }] as const;
@@ -424,8 +423,8 @@ describe("fallbacks", () => {
     expect(describeTxError({}, ctx())).toBe("Unknown error");
   });
 
-  it("parseErrorMessage is still exported and working until U2 moves its callers", () => {
-    expect(parseErrorMessage(new Error("User rejected the request."))).toBe("Transaction rejected by user");
-    expect(parseErrorMessage(null)).toBe("Unknown error");
+  it("covers what the removed parseErrorMessage did for a wallet rejection and a missing error", () => {
+    expect(describeTxError(new Error("User rejected the request."), { venue: "core", action: "borrow" })).toBe("Transaction rejected by user");
+    expect(describeTxError(null as unknown as Error, { venue: "core", action: "borrow" })).toBe("Unknown error");
   });
 });
