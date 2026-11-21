@@ -256,7 +256,7 @@ export default function LiquidationsPage() {
             value={searchAddress}
             onChange={(e) => setSearchAddress(e.target.value)}
             placeholder="0x... borrower address"
-            className="h-12 text-sm font-mono flex-1 bg-background border border-border px-4 text-foreground placeholder:text-muted-foreground focus:border-accent/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent transition-colors"
+            className="h-12 text-sm font-mono flex-1 bg-background border border-border px-4 text-foreground placeholder:text-muted-foreground focus:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent transition-colors"
           />
           <button
             className="h-12 px-6 bg-accent text-accent-foreground font-bold uppercase tracking-[0.2em] text-[10px] hover:bg-accent-hover shadow-cta transition-colors disabled:opacity-40 disabled:cursor-not-allowed"

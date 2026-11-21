@@ -181,6 +181,59 @@ describe("resolved theme and the system listener", () => {
     expect(html().hasAttribute("data-theme")).toBe(false);
   });
 
+  it("after hydration, re-applies a choice stored between the head script and hydration", async () => {
+    installMatchMedia(false);
+    const storage = installStorage({ [KEY]: "light" });
+    html().setAttribute("data-theme", "light"); // what the head script applied
+    storage.data.set(KEY, "dark"); // then changed, with no storage event reaching this page
+    const { provider } = await load();
+    render(
+      <provider.ThemeProvider>
+        <Probe useTheme={provider.useTheme} />
+      </provider.ThemeProvider>,
+    );
+    expect(probe()).toMatchObject({ preference: "dark", resolved: "dark" });
+    expect(html().getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("after hydration, removes a stale data-theme when the stored choice is system", async () => {
+    installMatchMedia(true);
+    installStorage({ [KEY]: "system" });
+    html().setAttribute("data-theme", "light");
+    const { provider } = await load();
+    render(
+      <provider.ThemeProvider>
+        <Probe useTheme={provider.useTheme} />
+      </provider.ThemeProvider>,
+    );
+    expect(html().hasAttribute("data-theme")).toBe(false);
+    expect(probe().resolved).toBe("dark");
+  });
+
+  it("re-applies and re-renders on a back/forward cache restore (pageshow persisted)", async () => {
+    installMatchMedia(false);
+    const storage = installStorage({ [KEY]: "light" });
+    const { provider } = await load();
+    render(
+      <provider.ThemeProvider>
+        <Probe useTheme={provider.useTheme} />
+      </provider.ThemeProvider>,
+    );
+    expect(html().getAttribute("data-theme")).toBe("light");
+    const pageshow = (persisted: boolean) => Object.defineProperty(new Event("pageshow"), "persisted", { value: persisted });
+
+    storage.data.set(KEY, "dark"); // changed by another tab while this page was in the bfcache
+    act(() => {
+      window.dispatchEvent(pageshow(false)); // an ordinary load: nothing to do
+    });
+    expect(html().getAttribute("data-theme")).toBe("light");
+    act(() => {
+      window.dispatchEvent(pageshow(true));
+    });
+    expect(html().getAttribute("data-theme")).toBe("dark");
+    expect(probe()).toMatchObject({ preference: "dark", resolved: "dark" });
+  });
+
   it("detaches the OS listener when the last subscriber leaves", async () => {
     const media = installMatchMedia(false);
     installStorage();

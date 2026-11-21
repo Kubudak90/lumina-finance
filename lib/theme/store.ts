@@ -6,8 +6,11 @@
  *   invalid stored value means "system".
  * - `resolved` ("light" | "dark") is the explicit choice, or the OS preference under "system". A live
  *   matchMedia listener re-renders on an OS change; it has no effect while an explicit theme is set.
- * - The DOM is only touched on a user choice (or a choice made in another tab), never from a render:
- *   the inline head script has already applied the stored choice before first paint.
+ * - The DOM is never touched from a render: the inline head script applies the stored choice before
+ *   first paint. Afterwards `<html data-theme>` is re-applied from storage when the first subscriber
+ *   attaches (after hydration: storage may have changed between the head script and hydration without
+ *   a `storage` event reaching this page), on a choice, on another tab's choice, and on a back/forward
+ *   cache restore.
  */
 import { DARK_SCHEME_QUERY, THEME_STORAGE_KEY, parsePreference, type ResolvedTheme, type ThemePreference } from "./theme";
 
@@ -62,8 +65,16 @@ export function writePreference(value: ThemePreference) {
   emit();
 }
 
+/** Re-reads the stored choice, puts it on <html> and re-renders subscribers. */
+function resync() {
+  applyPreference(readPreference());
+  emit();
+}
+
 function attach(): () => void {
   const cleanups: (() => void)[] = [];
+  // Subscribing happens in a commit effect, after hydration: safe to touch the DOM here.
+  applyPreference(readPreference());
   try {
     const media = window.matchMedia(DARK_SCHEME_QUERY);
     media.addEventListener("change", emit);
@@ -75,11 +86,17 @@ function attach(): () => void {
     // Another tab changed the choice (key null: storage was cleared).
     if (event.key !== null && event.key !== THEME_STORAGE_KEY) return;
     if (unsaved !== null) return;
-    applyPreference(readPreference());
-    emit();
+    resync();
   };
   window.addEventListener("storage", onStorage);
   cleanups.push(() => window.removeEventListener("storage", onStorage));
+  // Restored from the back/forward cache: the page kept its old state while another tab may have
+  // changed the choice.
+  const onPageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) resync();
+  };
+  window.addEventListener("pageshow", onPageShow);
+  cleanups.push(() => window.removeEventListener("pageshow", onPageShow));
   return () => {
     for (const cleanup of cleanups) cleanup();
   };

@@ -127,7 +127,9 @@ export default function MarketDetailPage() {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left column: more stats + rate curve */}
         <div className="space-y-4 animate-in-delay-2">
-          <div className="grid grid-cols-2 gap-4">
+          {/* Side by side only where a card is wide enough for a dollar total: from sm while the page is
+              one column, again from xl beside the actions card (at 1024 px each would be ~118 px). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-4">
             <StatCard label="Total Supplied" value={formatUsd(usdValue(totalSupply, market.decimals, price))} />
             <StatCard label="Total Borrowed" value={formatUsd(usdValue(totalBorrow, market.decimals, price))} />
           </div>

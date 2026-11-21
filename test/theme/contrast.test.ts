@@ -99,7 +99,39 @@ const EXTRA_PAIRS: Pair[] = [
   { group: "extra-ui", fg: "chart-axis", bg: "card", min: UI },
 ];
 
-const PAIRS = [...SPEC_PAIRS, ...EXTRA_PAIRS];
+/**
+ * Focus indicators as rendered (LT fix r1 #2, #3): the 2 px ring against what surrounds it (cards,
+ * modals, the page), the card-coloured ring offset that separates the ring from an accent fill
+ * (TxButton, the selector's checked option), and the accent focus border of the search inputs and
+ * the market links. The selector's checked option against its card.
+ */
+const FOCUS_PAIRS: Pair[] = [
+  { group: "focus", fg: "ring", bg: "card", min: UI },
+  { group: "focus", fg: "ring", bg: "background", min: UI },
+  { group: "focus", fg: "card", bg: "accent", min: UI },
+  { group: "focus", fg: "accent", bg: "card", min: UI },
+  { group: "focus", fg: "accent", bg: "background", min: UI },
+  { group: "selector", fg: "accent-foreground", bg: "accent", min: TEXT },
+  { group: "selector", fg: "accent", bg: "card", min: UI },
+  { group: "selector", fg: "text-dim", bg: "card", min: UI },
+];
+
+/**
+ * Skeletons (r1 #7). Loading placeholders convey no information, so WCAG 1.4.11's 3:1 does not apply;
+ * we require them to stay perceptible: >= 1.25:1 at full opacity and >= 1.1:1 at the animate-pulse
+ * trough (opacity 0.5), on the page and on cards. Text on --muted keeps 4.5:1.
+ */
+const SKELETON = 1.25;
+const SKELETON_TROUGH = 1.1;
+const SKELETON_PAIRS: Pair[] = [
+  { group: "skeleton", fg: "muted", bg: "background", min: SKELETON },
+  { group: "skeleton", fg: "muted", bg: "card", min: SKELETON },
+  { group: "skeleton", fg: over("muted", "background", 0.5), bg: "background", min: SKELETON_TROUGH },
+  { group: "skeleton", fg: over("muted", "card", 0.5), bg: "card", min: SKELETON_TROUGH },
+  { group: "skeleton", fg: "muted-foreground", bg: "muted", min: TEXT },
+];
+
+const PAIRS = [...SPEC_PAIRS, ...EXTRA_PAIRS, ...FOCUS_PAIRS, ...SKELETON_PAIRS];
 
 /**
  * Dark pairs below the threshold before the light theme existed, with that ratio (rounded down). Dark
@@ -120,6 +152,11 @@ const DARK_EXCEPTIONS: Record<string, number> = {
   "extra-text: destructive on destructive/0.2 over card": 4.03,
   // bg-white/30 dot of Unknown / Inactive markets (r1 #8); the status is also written next to it.
   "extra-ui: status-dot-neutral over card on card": 2.67,
+  // Skeletons (bg-muted) of the dark design, at full opacity and at the pulse trough.
+  "skeleton: muted on background": 1.21,
+  "skeleton: muted on card": 1.15,
+  "skeleton: muted/0.5 over background on background": 1.08,
+  "skeleton: muted/0.5 over card on card": 1.06,
 };
 
 function label(paint: Paint): string {
@@ -257,6 +294,7 @@ const TODAY: Record<string, string> = {
   "overlay-subtle": "rgba(255, 255, 255, 0.02)", // bg-white/[0.02]
   scrim: "rgba(0, 0, 0, 0.6)", // bg-black/60
   "dialog-scrim": "hsl(240 6% 4% / 0.8)", // bg-background/80
+  "sheet-scrim": "rgba(0, 0, 0, 0.1)", // bg-black/10 (SheetOverlay)
 };
 const TODAY_EFFECTS: Record<string, string> = {
   "text-glow": "0 0 10px rgba(176, 196, 255, 0.3)",

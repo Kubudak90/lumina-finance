@@ -169,7 +169,7 @@ describe("Tailwind config (spec §3.1)", () => {
   it("makes dark: follow the app theme, not only the OS", () => {
     expect(tailwindConfig.darkMode).toEqual([
       "variant",
-      ['@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) & }', '[data-theme="dark"] &'],
+      ['@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) & }', ':where([data-theme="dark"]) &'],
     ]);
   });
 
@@ -187,6 +187,7 @@ describe("Tailwind config (spec §3.1)", () => {
     expect(colors.overlay).toEqual({ DEFAULT: "var(--overlay)", subtle: "var(--overlay-subtle)" });
     expect(colors.scrim).toBe("var(--scrim)");
     expect(colors["dialog-scrim"]).toBe("var(--dialog-scrim)");
+    expect(colors["sheet-scrim"]).toBe("var(--sheet-scrim)");
     expect(colors["status-dot-neutral"]).toBe("var(--status-dot-neutral)");
     expect((colors.switch as Record<string, string>).track).toBe("var(--switch-track)");
     // No fixed colour remains in the config.

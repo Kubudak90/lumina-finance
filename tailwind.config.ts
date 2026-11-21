@@ -22,9 +22,14 @@ const config: Config = {
     "./providers/**/*.{js,ts,jsx,tsx}",
   ],
   // `dark:` follows the app theme: the OS dark preference unless Light is chosen, or an explicit Dark.
+  // The ancestors sit in :where() so a dark: utility keeps the plain utility's specificity (as under
+  // main's `media` strategy) and state classes such as focus-visible: and aria-invalid: still win.
   darkMode: [
     "variant",
-    ['@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) & }', '[data-theme="dark"] &'],
+    [
+      '@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) & }',
+      ':where([data-theme="dark"]) &',
+    ],
   ],
   theme: {
     extend: {
@@ -87,6 +92,7 @@ const config: Config = {
         },
         scrim: alpha("scrim"),
         "dialog-scrim": alpha("dialog-scrim"),
+        "sheet-scrim": alpha("sheet-scrim"),
       },
       boxShadow: {
         cta: "var(--cta-shadow)",

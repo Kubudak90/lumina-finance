@@ -16,8 +16,9 @@ const PREVIOUS_KEYS = new Set(["ArrowLeft", "ArrowUp"]);
 
 /**
  * System / Light / Dark as a compact icon-only radio group (spec ui-light-theme §3.3): arrow keys,
- * Home and End move and choose; one roving tab stop. Before hydration no option is checked (neutral
- * styling), so a stored Light or Dark never flashes "System".
+ * Home and End move and choose; one roving tab stop. The checked option is a solid accent fill (not a
+ * hue-only tint; forced colours paint it with Highlight, see globals.css). Before hydration no option
+ * is checked (neutral styling), so a stored Light or Dark never flashes "System".
  */
 export function ThemeSelector({ className = "" }: { className?: string }) {
   const { preference, mounted, setPreference } = useTheme();
@@ -45,7 +46,7 @@ export function ThemeSelector({ className = "" }: { className?: string }) {
     <div
       role="radiogroup"
       aria-label="Theme"
-      className={`inline-flex shrink-0 items-center border border-border bg-card p-0.5 ${className}`}
+      className={`theme-selector inline-flex shrink-0 items-center border border-border bg-card p-0.5 ${className}`}
     >
       {OPTIONS.map(({ value, label, icon: Icon }, index) => (
         <button
@@ -61,7 +62,7 @@ export function ThemeSelector({ className = "" }: { className?: string }) {
           tabIndex={index === tabStop ? 0 : -1}
           onClick={() => setPreference(value)}
           onKeyDown={(event) => onKeyDown(event, index)}
-          className="inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center text-text-dim transition-colors hover:text-foreground aria-checked:bg-accent/10 aria-checked:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center text-text-dim transition-colors hover:text-foreground aria-checked:bg-accent aria-checked:text-accent-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-transparent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
         >
           <Icon className="h-3.5 w-3.5" aria-hidden />
         </button>

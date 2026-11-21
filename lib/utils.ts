@@ -15,6 +15,8 @@ const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
       "outline-style": [{ outline: [""] }],
+      // The theme's CTA glows (tailwind.config boxShadow), so a later shadow-* replaces them.
+      shadow: [{ shadow: ["cta", "cta-lg"] }],
     },
   },
 })

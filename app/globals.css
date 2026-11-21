@@ -33,7 +33,7 @@
     --primary-foreground: 0 0% 100%;
     --secondary: 225 20% 92%;
     --secondary-foreground: 240 10% 8%;
-    --muted: 225 18% 93%;
+    --muted: 225 16% 86%;
     --muted-foreground: 225 10% 38%;
     --accent: 224.28 76.33% 48.04%;
     --accent-foreground: 0 0% 100%;
@@ -93,6 +93,7 @@
     --overlay-subtle: hsl(225 30% 15% / 0.03);
     --scrim: hsl(225 30% 8% / 0.45);
     --dialog-scrim: hsl(225 30% 8% / 0.4);
+    --sheet-scrim: hsl(225 30% 8% / 0.15);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -168,6 +169,7 @@
       --overlay-subtle: hsl(0 0% 100% / 0.02);
       --scrim: hsl(0 0% 0% / 0.6);
       --dialog-scrim: hsl(240 6% 4% / 0.8);
+      --sheet-scrim: hsl(0 0% 0% / 0.1);
     }
   }
   :root[data-theme="dark"] {
@@ -243,6 +245,7 @@
     --overlay-subtle: hsl(0 0% 100% / 0.02);
     --scrim: hsl(0 0% 0% / 0.6);
     --dialog-scrim: hsl(240 6% 4% / 0.8);
+    --sheet-scrim: hsl(0 0% 0% / 0.1);
   }
   body {
     @apply bg-background text-foreground;
@@ -331,6 +334,12 @@ input[type="number"] { -moz-appearance: textfield; }
   .toggle-thumb {
     forced-color-adjust: none;
     background-color: CanvasText;
+  }
+  /* The theme selector's checked option keeps a visible fill. */
+  .theme-selector [role="radio"][aria-checked="true"] {
+    forced-color-adjust: none;
+    background-color: Highlight;
+    color: HighlightText;
   }
 }
 
