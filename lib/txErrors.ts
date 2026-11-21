@@ -2,11 +2,13 @@
  * Transaction errors → user-facing text (ui-usability-v1 spec §3.2). Replaces `parseErrorMessage`
  * (lib/errorMessages.ts), which stays until its callers move over.
  *
- * - Walks viem's error cause chain: `ContractFunctionRevertedError` (`data.errorName`, `raw`,
- *   `reason`, `signature`), raw revert bytes on any level (including EIP-1193 payloads
- *   `data: { message, data }` and `data.originalError`), then the message forms
- *   ("…reverted with the following reason:\n59", "execution reverted: 59", "custom error 0x…"),
- *   all read by one text parser. A bare pair selector still names its error.
+ * - Walks viem's error cause chain twice: first every level's revert bytes (`data.errorName`,
+ *   `raw`, `signature`, RawContractError `data`, EIP-1193 `data.data` / `data.originalError.data`),
+ *   then every level's text (`reason` and the message forms "…reverted with the following
+ *   reason:\n59", "Execution reverted with reason: 59.", "execution reverted: 59", "custom error
+ *   0x…", incl. `data.message` / `data.originalError.message`), all read by one text parser. A
+ *   generic outer text never hides a specific revert deeper down. A bare pair selector still
+ *   names its error.
  * - Aave numeric reasons are read with the table below, rebuilt from lumina-core Errors.sol, and only
  *   for `venue === "core"`; pair reverts decode by name with the `error` entries of
  *   ISOLATED_PAIR_ABI.
@@ -235,17 +237,21 @@ function decodeData(data: Hex, venue: TxVenue): DecodedRevert | null {
 
 /**
  * The one parser for a textual revert, whether a structured `reason` or a capture from a message:
- * strips a leading "execution reverted:", then reads "custom error 0x…[: data]", raw hex,
- * "panic: … (0x11)", "reverted with reason string '…'", and last a plain reason (an Aave code on
- * the core venue). Null for an empty reason or a bare "execution reverted".
+ * unwraps viem's "Execution reverted with reason: X." and strips a leading "execution reverted:",
+ * then reads "custom error 0x…[: data]", raw hex, "panic: … (0x11)", "reverted with reason
+ * string '…'", and last a plain reason (an Aave code on the core venue). Null when nothing is
+ * left: a bare "execution reverted" / "execution reverted.", "… for an unknown reason.".
  */
 function parseRevertText(text: string, venue: TxVenue): DecodedRevert | null {
   let t = text.trim();
+  if (/^execution reverted for an unknown reason\.?$/i.test(t)) return null;
+  const viemReason = t.match(/^execution reverted with reason:\s*([\s\S]*?)\.?$/i);
+  if (viemReason) t = viemReason[1].trim();
   for (let before = ""; before !== t; ) {
     before = t;
-    t = t.replace(/^execution reverted:?\s*/i, "").trim();
+    t = t.replace(/^execution reverted(?::\s*|\.?$)/i, "").trim();
   }
-  if (!t) return null;
+  if (/^[.\s]*$/.test(t)) return null;
   const custom = t.match(/^custom error (0x[0-9a-fA-F]{8})(?::\s*(?:0x)?([0-9a-fA-F]*))?/i);
   if (custom) return decodeData(`${custom[1]}${custom[2] ?? ""}` as Hex, venue);
   if (isHex(t)) return decodeData(t, venue);
@@ -259,24 +265,20 @@ function parseRevertText(text: string, venue: TxVenue): DecodedRevert | null {
 /** An object field, when `v` is an object. */
 const field = (v: unknown, key: string): unknown => (v && typeof v === "object" ? (v as Record<string, unknown>)[key] : undefined);
 
-function fromStructured(e: ErrorLike, venue: TxVenue): DecodedRevert | null {
+/**
+ * Pass 1, one level: viem's ABI-decoded `data`, or revert bytes from `raw`, a RawContractError's
+ * `data`, an EIP-1193 payload (`data.data`, MetaMask's `data.originalError.data`) or `signature`.
+ */
+function fromBytes(e: ErrorLike, venue: TxVenue): DecodedRevert | null {
   const data = e.data as { errorName?: unknown; args?: unknown } | undefined;
   if (data && typeof data === "object" && typeof data.errorName === "string") {
-    // Decoded by viem with the call's ABI; re-decode raw bytes for an ABI that may lack the entry.
     return fromDecoded(data.errorName, Array.isArray(data.args) ? data.args : undefined, venue);
   }
-  // Revert bytes: viem's `raw`, a RawContractError's `data`, or an EIP-1193 payload
-  // (`data: { code, message, data }`, MetaMask's `data.originalError.data`).
-  for (const bytes of [e.raw, e.data, field(e.data, "data"), field(field(e.data, "originalError"), "data")]) {
+  for (const bytes of [e.raw, e.data, field(e.data, "data"), field(field(e.data, "originalError"), "data"), e.signature]) {
     if (!isHex(bytes)) continue;
     const d = decodeData(bytes, venue);
     if (d) return d;
   }
-  if (typeof e.reason === "string") {
-    const d = parseRevertText(e.reason, venue);
-    if (d) return d;
-  }
-  if (isHex(e.signature)) return decodeData(e.signature, venue) ?? { kind: "unknown", data: e.signature };
   return null;
 }
 
@@ -286,14 +288,16 @@ const MESSAGE_FORMS: readonly RegExp[] = [
   /reverted with the following reason:\s*\n?\s*([^\n]+)/,
   // viem: '… reverted with the following signature:\n0x345513d9'
   /reverted with the following signature:\s*\n?\s*(0x[0-9a-fA-F]{8})/,
+  // viem ExecutionRevertedError: 'Execution reverted with reason: 59.'
+  /(execution reverted with reason:[^\n]*)/i,
   // node / anvil: 'execution reverted: custom error 0xed27783c: 0000…'
   /(custom error 0x[0-9a-fA-F]{8}(?::\s*(?:0x)?[0-9a-fA-F]*)?)/i,
   // 'execution reverted: panic: arithmetic underflow or overflow (0x11)'
   /(panic:[^\n]*\(0x[0-9a-fA-F]+\))/i,
   // "reverted with reason string '59'"
   /(reverted with reason string\s*['"][^'"]+['"])/i,
-  // 'execution reverted: 59'
-  /execution reverted:?\s*([^\n]*)/i,
+  // 'execution reverted: 59' (the colon is required: not viem's 'Execution reverted with …')
+  /execution reverted:\s*([^\n]*)/i,
 ];
 
 /** Every message a level carries, including an EIP-1193 payload's. */
@@ -302,23 +306,42 @@ function messagesOf(e: ErrorLike): string[] {
   return texts.filter((t): t is string => typeof t === "string" && t.length > 0);
 }
 
-/** The revert inside a wallet / viem error, or null when the error is not a contract revert. */
+/** A result that names the revert: an Aave code, a custom error or a panic (not a plain text). */
+const isSpecific = (d: DecodedRevert) => d.kind === "aave" || d.kind === "custom" || d.kind === "panic";
+
+/**
+ * The revert inside a wallet / viem error, or null when the error is not a contract revert. Two
+ * passes over the WHOLE cause chain, so a generic outer text (viem's `reason` "Internal JSON-RPC
+ * error." from a MetaMask error) never hides the real revert deeper down:
+ * 1. bytes at every level; the first decoded revert wins (an unknown selector is kept as fallback);
+ * 2. text (`reason`, then every message) at every level; an Aave code, custom error or panic wins
+ *    at once, the first plain reason is only a fallback.
+ */
 export function decodeRevert(err: unknown, venue: TxVenue): DecodedRevert | null {
   const chain = causeChain(err);
+  let unknownBytes: DecodedRevert | null = null;
   for (const e of chain) {
-    const d = fromStructured(e, venue);
-    if (d) return d;
+    const d = fromBytes(e, venue);
+    if (d && d.kind !== "unknown") return d;
+    unknownBytes ??= d;
   }
+  let plainText: DecodedRevert | null = null;
   for (const e of chain) {
+    const found: (DecodedRevert | null)[] = [];
+    if (typeof e.reason === "string") found.push(parseRevertText(e.reason, venue));
     for (const text of messagesOf(e)) {
       for (const form of MESSAGE_FORMS) {
         const m = text.match(form);
-        const d = m ? parseRevertText(m[1], venue) : null;
-        if (d) return d;
+        if (m) found.push(parseRevertText(m[1], venue));
       }
     }
+    for (const d of found) {
+      if (!d) continue;
+      if (isSpecific(d)) return d;
+      plainText ??= d;
+    }
   }
-  return null;
+  return unknownBytes ?? plainText;
 }
 
 // =============================================================================================

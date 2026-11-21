@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { InternalRpcError, RawContractError, UserRejectedRequestError, encodeErrorResult, getContractError, type Abi, type Hex } from "viem";
+import {
+  ExecutionRevertedError,
+  InternalRpcError,
+  InvalidInputRpcError,
+  RawContractError,
+  RpcRequestError,
+  UserRejectedRequestError,
+  encodeErrorResult,
+  getContractError,
+  type Abi,
+  type BaseError,
+  type Hex,
+} from "viem";
+import { getCallError, getTransactionError } from "viem/utils";
 import aaveErrors from "../test/fixtures/aave-errors.json";
 import pairErrors from "../test/fixtures/pair-errors.json";
 import reverts from "../test/fixtures/revert-data.json";
@@ -300,6 +313,94 @@ describe("nested EIP-1193 payloads (Gemini r1 #3)", () => {
     expect(decodeRevert(original, "isolated")).toEqual({ kind: "custom", name: "ExceedsMaxOracleDeviation", args: [] });
     const originalMessage = { code: -32603, message: "Internal JSON-RPC error.", data: { originalError: { message: "execution reverted: custom error 0x75e595fa" } } };
     expect(decodeRevert(originalMessage, "isolated")).toMatchObject({ kind: "custom", name: "BorrowerSolvent" });
+  });
+});
+
+describe("viem's real wrapping of node and wallet errors (Gemini r2)", () => {
+  const STALE_BORROW = "Borrowing is paused until a fresh price is posted; repaying and adding collateral still work.";
+  const data59 = () => reverts.cases.find((c) => c.name === "core borrow, guard stale → 59")!.data as Hex;
+
+  /** writeContract: provider error → sendTransaction's getTransactionError → getContractError. */
+  const viaSend = (rpcError: BaseError, venue: "core" | "isolated") =>
+    getContractError(getTransactionError(rpcError, { account: null } as never), {
+      abi: (venue === "core" ? POOL_ABI : ISOLATED_PAIR_ABI) as unknown as Abi,
+      address: venue === "core" ? POOL : PAIR,
+      functionName: venue === "core" ? "borrow" : "borrowAsset",
+      args: [],
+    });
+  /** simulateContract: provider error → call's getCallError → getContractError. */
+  const viaCall = (rpcError: BaseError, venue: "core" | "isolated") =>
+    getContractError(getCallError(rpcError, {} as never), {
+      abi: (venue === "core" ? POOL_ABI : ISOLATED_PAIR_ABI) as unknown as Abi,
+      address: venue === "core" ? POOL : PAIR,
+      functionName: venue === "core" ? "borrow" : "borrowAsset",
+      args: [],
+    });
+  /** An HTTP RPC answering { code: -32000, message } (no data), as buildRequest wraps it. */
+  const nodeError = (message: string) =>
+    new InvalidInputRpcError(new RpcRequestError({ body: { method: "eth_call" }, error: { code: -32000, message }, url: "http://rpc.invalid" }));
+  /** MetaMask's EIP-1193 error, as buildRequest wraps it. */
+  const metaMask = (data: object) =>
+    new InternalRpcError(Object.assign(new Error("Internal JSON-RPC error."), { code: -32603, data }));
+
+  it("-32000 'execution reverted: 59' with no data (ExecutionRevertedError chain) → the guard message, send and call paths", () => {
+    for (const wrap of [viaSend, viaCall]) {
+      const err = wrap(nodeError("execution reverted: 59"), "core");
+      expect(err.shortMessage).toBe("Execution reverted with reason: 59.");
+      expect(decodeRevert(err, "core")).toMatchObject({ kind: "aave", code: "59" });
+      expect(describeTxError(err, ctx({ guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+    }
+  });
+
+  it("-32000 'execution reverted: custom error 0x345513d9' → the pair message", () => {
+    const err = viaSend(nodeError("execution reverted: custom error 0x345513d9"), "isolated");
+    expect(decodeRevert(err, "isolated")).toEqual({ kind: "custom", name: "ExceedsMaxOracleDeviation", args: [] });
+    expect(describeTxError(err, ctx({ venue: "isolated", guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+  });
+
+  it("a plain string reason through the same chain keeps its text", () => {
+    const err = viaSend(nodeError("execution reverted: low exchange rate is 0"), "isolated");
+    expect(describeTxError(err, ctx({ venue: "isolated" }))).toBe("Contract error: low exchange rate is 0");
+  });
+
+  it("bare 'execution reverted' / 'execution reverted.' keep the raw text, never 'Contract error: …'", () => {
+    const unknownReason = new ExecutionRevertedError({ message: "execution reverted" });
+    expect(decodeRevert(unknownReason, "core")).toBeNull();
+    expect(describeTxError(unknownReason, ctx())).toBe("Execution reverted for an unknown reason.");
+    expect(decodeRevert(new Error("execution reverted."), "core")).toBeNull();
+    expect(describeTxError(new Error("execution reverted."), ctx())).toBe("execution reverted.");
+    for (const message of ["execution reverted", "execution reverted."]) {
+      for (const wrap of [viaSend, viaCall]) {
+        const err = wrap(nodeError(message), "core");
+        expect(decodeRevert(err, "core"), message).toBeNull();
+        const text = describeTxError(err, ctx());
+        expect(text, message).not.toMatch(/^Contract error/);
+        expect(text, message).toBe(err.shortMessage);
+      }
+    }
+  });
+
+  it("MetaMask data.originalError.data bytes, through InternalRpcError and getContractError", () => {
+    const err = viaSend(metaMask({ originalError: { code: 3, data: "0x345513d9", message: "execution reverted" } }), "isolated");
+    // viem's own ContractFunctionRevertedError carries the wallet's generic text as its reason.
+    expect(err.shortMessage).toContain("Internal JSON-RPC error.");
+    expect(decodeRevert(err, "isolated")).toEqual({ kind: "custom", name: "ExceedsMaxOracleDeviation", args: [] });
+    expect(describeTxError(err, ctx({ venue: "isolated", guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+    const withBytes = viaSend(metaMask({ code: 3, message: "execution reverted: 59", data: data59() }), "core");
+    expect(describeTxError(withBytes, ctx({ guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+  });
+
+  it("MetaMask message-only payloads (data.message, data.originalError.message)", () => {
+    const err = viaSend(metaMask({ code: 3, message: "execution reverted: 59" }), "core");
+    expect(decodeRevert(err, "core")).toMatchObject({ kind: "aave", code: "59" });
+    expect(describeTxError(err, ctx({ guardStatus: "REFERENCE_STALE" }))).toBe(STALE_BORROW);
+    const original = viaSend(metaMask({ originalError: { code: 3, message: "execution reverted: custom error 0x75e595fa" } }), "isolated");
+    expect(describeTxError(original, ctx({ venue: "isolated", action: "liquidate" }))).toMatch(/borrower is solvent/);
+  });
+
+  it("a wallet error with no revert detail keeps the wallet's text as the last resort", () => {
+    const err = viaSend(metaMask({}), "core");
+    expect(describeTxError(err, ctx())).toBe("Contract error: Internal JSON-RPC error.");
   });
 });
 
