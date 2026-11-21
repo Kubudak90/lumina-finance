@@ -7,7 +7,6 @@ import { useLuminaWrite } from "@/hooks/chain";
 import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
-import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useGuardStatus } from "@/hooks/useGuardStatus";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { exactApproval } from "@/lib/approvals";
@@ -28,22 +27,22 @@ import { IsolatedRiskSummary, SummaryRow } from "@/components/tx/TxSummary";
 import { TxSteps } from "@/components/tx/TxSteps";
 import { TxDetails } from "@/components/tx/TxDetails";
 import { IsolatedAfterState, previewCall } from "@/components/tx/AfterStates";
-import { useIsolatedAccountRead } from "@/components/tx/reads";
+import { isolatedPositionKnown, useIsolatedAccountRead } from "@/components/tx/reads";
 import { formatToken } from "@/components/tx/format";
-import { isolatedSides } from "@/components/tx/isolated";
+import { isolatedOracleGate, isolatedSides } from "@/components/tx/isolated";
 
 type BorrowParams = { borrow: bigint; collateral: bigint };
 
 /**
- * Post collateral (exact approval) and borrow in one transaction. Everything risk-related — the
- * pair's rate, maxLTV, liquidity, the guard and the user's debt — is re-derived from the polled
- * data on every render and re-checked after the approval (Codex #8). MAX uses the pair's maxLTV and
- * oracle exchange rate with a 99% haircut (FE-05) and is "unavailable" when an input is missing.
+ * Post collateral (exact approval) and borrow in one transaction. The form's position (collateral,
+ * debt), the pair's rate, maxLTV, liquidity and borrow limit, the MAX and the price block all come
+ * from the modal's ONE stamped read, the same block as the summary (U4 review r1 #3); the block
+ * also holds while the polled pair info flags bad data, and the guard is polled. Everything is
+ * re-checked on-chain right before sending (Codex #8, Gemini r2 M3). MAX uses maxLTV and the
+ * oracle rate with a 99% haircut (FE-05) and is "unavailable" when an input is missing.
  */
 export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; onClose: () => void }) {
   const info = useIsolatedPair(pair);
-  const positionState = useIsolatedPosition(pair);
-  const position = positionState.position;
   const fresh = useIsolatedFreshReads();
   const guard = useGuardStatus();
   const [collateralInput, setCollateralInput] = useState("");
@@ -66,26 +65,28 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
   const parsedBorrow = borrowInput ? (safeParseUnits(borrowInput, assetDecimals) ?? 0n) : 0n;
   const collateralBalanceRaw = wallet.value;
 
-  // Position unknown (snapshot loading or failed) = collateral and debt unknown, never 0 (Gemini r2
-  // M4). Known with no position = none; known with a failed debt conversion = debt unknown.
-  const known = positionState.status === "known";
-  const currentCollateral = known ? (position?.collateralAmount ?? 0n) : undefined;
-  const currentDebt = known ? (position ? position.borrowedAssets : 0n) : undefined;
-  const rate = info?.exchangeRate;
-  const borrowBlocked = !guard.borrowAllowed || info?.oracleBadData !== false;
+  // The position from the modal's read: unknown (loading or failed) = collateral and debt unknown,
+  // never 0 (Gemini r2 M4); MAX and borrowing wait for it.
+  const known = isolatedPositionKnown(read);
+  const currentCollateral = known ? read.state.collateral : undefined;
+  const currentDebt = known ? read.state.debt : undefined;
+  const oracle = isolatedOracleGate(info?.oracleBadData, read);
+  const borrowBlocked = !guard.borrowAllowed || oracle !== "ok";
+  /** Blocked for a reason to explain (not just while the modal's read loads). */
+  const blockShown = !guard.borrowAllowed || oracle === "bad" || oracle === "unreadable";
 
   const maxFor = (extraCollateral: bigint) =>
     isolatedBorrowMaxFromReads({
       collateral: currentCollateral === undefined ? undefined : currentCollateral + extraCollateral,
       currentDebt,
-      exchangeRate: rate,
-      maxLtv: info?.maxLTV,
-      availableLiquidity: info?.availableLiquidity,
-      borrowLimit: info?.borrowLimit,
-      totalBorrow: info?.totalBorrowAmount,
+      exchangeRate: read.state.exchangeRate,
+      maxLtv: read.state.maxLTV,
+      availableLiquidity: read.availableLiquidity,
+      borrowLimit: read.borrowLimit,
+      totalBorrow: read.state.totalBorrow?.amount,
     });
   const maxBorrow = maxFor(parsedCollateral);
-  const maxLtvPercent = info?.maxLTV === undefined ? "—" : formatMaxLtvPercent(info.maxLTV);
+  const maxLtvPercent = read.state.maxLTV === undefined ? "—" : formatMaxLtvPercent(read.state.maxLTV);
   const overMax = maxBorrow !== null && parsedBorrow > maxBorrow;
   const insufficientCollateral = collateralBalanceRaw !== undefined && parsedCollateral > collateralBalanceRaw;
 
@@ -193,9 +194,9 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
         <TxForm title={`Borrow ${assetSymbol} (collateral: ${collateralSymbol})`}>
           <GuardNotice venue="isolated" />
           {/* The guard is OK but the pair oracle blocks: GuardNotice says nothing, so say why (r1 #7). */}
-          {borrowBlocked && guard.borrowAllowed && (
+          {guard.borrowAllowed && (oracle === "bad" || oracle === "unreadable") && (
             <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
-              {info?.oracleBadData === undefined
+              {oracle === "unreadable"
                 ? "The pair oracle cannot be read right now; borrowing is disabled until it can."
                 : "The pair oracle flags its price as bad data; borrowing is disabled until it recovers."}{" "}
               {GUARD_BLOCKED_NOTE.isolated}
@@ -213,9 +214,11 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
             onChange={setCollateralInput}
             ariaLabel="Collateral"
           >
-            {positionState.status === "unknown" && (
+            {!known && (
               <p className="text-xs text-amber-400 mt-1" data-testid="position-unknown">
-                Your position in this pair could not be read; MAX and borrowing are unavailable until it loads.
+                {read.settled
+                  ? "Your position in this pair could not be read; MAX and borrowing are unavailable until it loads."
+                  : "Reading your position in this pair; MAX and borrowing are unavailable until it loads."}
               </p>
             )}
             {currentCollateral !== undefined && currentCollateral > 0n && (
@@ -285,9 +288,9 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
             isChecking={flow.isChecking}
-            disabled={!address || !info || parsedBorrow === 0n || insufficientCollateral || overMax || maxBorrow === null || borrowBlocked}
+            disabled={!address || !info || !known || parsedBorrow === 0n || insufficientCollateral || overMax || maxBorrow === null || borrowBlocked}
           >
-            {borrowBlocked ? "Borrowing blocked" : needsCollateralApproval ? `Approve ${collateralSymbol}` : `Borrow ${assetSymbol}`}
+            {blockShown ? "Borrowing blocked" : needsCollateralApproval ? `Approve ${collateralSymbol}` : `Borrow ${assetSymbol}`}
           </TxButton>
 
           <TxDetails
@@ -295,7 +298,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
           >
             <SummaryRow
               label="Pair liquidity"
-              before={info?.availableLiquidity === undefined ? "unavailable" : formatToken(info.availableLiquidity, assetDecimals, assetSymbol)}
+              before={formatToken(read.availableLiquidity, assetDecimals, assetSymbol)}
             />
           </TxDetails>
         </TxForm>

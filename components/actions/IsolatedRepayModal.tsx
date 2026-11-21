@@ -7,7 +7,6 @@ import { useLuminaReadContract, useLuminaWrite } from "@/hooks/chain";
 import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
-import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { hasExecutionHeadroom, planIsolatedRepay, repayHeadroom, walletBoundedShares } from "@/lib/approvals";
 import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
@@ -25,7 +24,7 @@ import { IsolatedRiskSummary } from "@/components/tx/TxSummary";
 import { TxSteps } from "@/components/tx/TxSteps";
 import { TxDetails } from "@/components/tx/TxDetails";
 import { IsolatedAfterState, previewCall } from "@/components/tx/AfterStates";
-import { useIsolatedAccountRead } from "@/components/tx/reads";
+import { isolatedPositionKnown, useIsolatedAccountRead } from "@/components/tx/reads";
 import { formatAmount, formatToken } from "@/components/tx/format";
 import { isolatedSides } from "@/components/tx/isolated";
 
@@ -42,13 +41,13 @@ const CTX: TxErrorContext = { venue: "isolated", action: "repay" };
  * - Wallet and allowance must hold the execution headroom ceil(value × 1.0005) + 1 before sending;
  *   a short wallet is offered the largest share repay it covers (Gemini r2 C1/M1).
  * - Typed shares above the borrow shares are refused (M2).
+ * - The form's shares, debt, MAX and wallet offer come from the modal's ONE stamped read, the
+ *   same block as the summary (U4 review r1 #3).
  * - Right before sending, the position, allowance, wallet and share value are read from the chain,
  *   not the poll cache, and the repay is re-planned from them (M3).
  */
 export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onClose: () => void }) {
   const info = useIsolatedPair(pair);
-  const positionState = useIsolatedPosition(pair);
-  const position = positionState.position;
   const [amount, setAmount] = useState("");
   const [intent, setIntent] = useState<Intent>({ kind: "amount" });
   const [submittedAll, setSubmittedAll] = useState(false);
@@ -59,12 +58,15 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const asset = info?.asset;
   const assetSymbol = info?.assetSymbol ?? "";
   const assetDecimals = info?.assetDecimals ?? 18;
-  const borrowedShares = position?.borrowedShares ?? 0n;
-  const borrowedAmount = position?.borrowedAssets;
   const wallet = useWalletBalance(asset);
   const tx = useLuminaWrite();
   const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
   const sides = isolatedSides(info);
+  // The position from the modal's read (unknown while it loads or if it failed: repaying waits).
+  const positionKnown = isolatedPositionKnown(read);
+  const borrowedShares = read.state.borrowedShares ?? 0n;
+  const borrowedAmount = positionKnown ? read.state.debt : undefined;
+  const totalBorrow = read.state.totalBorrow;
 
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
   const shownAmount = intent.kind === "all" && borrowedAmount !== undefined ? formatUnits(borrowedAmount, assetDecimals) : amount;
@@ -99,9 +101,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const walletRaw = wallet.value;
   const walletShort = plan !== null && walletRaw !== undefined && walletRaw < repayHeadroom(plan.assetValue);
   const offerShares =
-    walletShort && walletRaw !== undefined && info?.totalBorrowAmount !== undefined && info.totalBorrowShares !== undefined
-      ? walletBoundedShares(walletRaw, { amount: info.totalBorrowAmount, shares: info.totalBorrowShares }, borrowedShares)
-      : 0n;
+    walletShort && walletRaw !== undefined && totalBorrow !== undefined ? walletBoundedShares(walletRaw, totalBorrow, borrowedShares) : 0n;
 
   const repayRequest = (sharesArg: bigint) => ({
     address: pair,
@@ -208,8 +208,12 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
       ) : (
         <TxForm title={`Repay ${assetSymbol}`}>
           <p className="text-sm text-muted-foreground">Pay back {assetSymbol} to settle your debt in this isolated pair.</p>
-          {positionState.status === "unknown" && (
-            <p className="text-xs text-amber-400">Your position could not be read; repaying is disabled until it loads.</p>
+          {!positionKnown && (
+            <p className="text-xs text-amber-400" data-testid="position-unknown">
+              {read.settled
+                ? "Your position could not be read; repaying is disabled until it loads."
+                : "Reading your position; repaying is disabled until it loads."}
+            </p>
           )}
           <AmountField
             label="Amount"
@@ -289,7 +293,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
             isSimulating={tx.isSimulating || flow.isSimulating}
             isConfirming={tx.isConfirming || flow.isConfirming || flow.awaitingApproval}
             isChecking={flow.isChecking}
-            disabled={!address || positionState.status !== "known" || !plan || walletRaw === undefined || walletShort || overShares}
+            disabled={!address || !positionKnown || !plan || walletRaw === undefined || walletShort || overShares}
           >
             {needsApproval ? `Approve ${assetSymbol}` : `Repay ${assetSymbol}`}
           </TxButton>

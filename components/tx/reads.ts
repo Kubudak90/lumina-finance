@@ -101,6 +101,12 @@ export interface IsolatedAccountRead {
   /** Lent amount (asset shares at the previewed totalAsset, rounded down, as toAssetAmount). */
   lent: bigint | undefined;
   assetShares: bigint | undefined;
+  /**
+   * The pair's limits from the SAME block (U4 review r1 #3): free liquidity (previewed totalAsset −
+   * totalBorrow, floored at 0) and borrowLimit, so a modal's MAX never mixes blocks.
+   */
+  availableLiquidity: bigint | undefined;
+  borrowLimit: bigint | undefined;
   stamp: BlockStamp | undefined;
   failed: boolean;
   settled: boolean;
@@ -110,7 +116,7 @@ export interface IsolatedAccountRead {
 const isBigints = (v: unknown, n: number): v is readonly bigint[] =>
   Array.isArray(v) && v.length >= n && v.slice(0, n).every((x) => typeof x === "bigint");
 
-/** Parse [stamp ×2, getUserSnapshot, getPairAccounting, maxLTV, getPrices] (exported for tests). */
+/** Parse [stamp ×2, getUserSnapshot, getPairAccounting, maxLTV, getPrices, borrowLimit] (exported for tests). */
 export function parseIsolatedAccount(results: readonly CallResult[] | undefined): Omit<IsolatedAccountRead, "failed" | "settled" | "refetch"> {
   const snap = resultAt<unknown>(results, 2);
   const acc = resultAt<unknown>(results, 3);
@@ -137,14 +143,25 @@ export function parseIsolatedAccount(results: readonly CallResult[] | undefined)
     },
     lent,
     assetShares,
+    availableLiquidity:
+      totalAsset && totalBorrow ? (totalAsset.amount > totalBorrow.amount ? totalAsset.amount - totalBorrow.amount : 0n) : undefined,
+    borrowLimit: bigintAt(results, 6),
     stamp: readStamp(results),
   };
 }
 
+/** The account's position in the read is known (snapshot and its debt conversion both read). */
+export function isolatedPositionKnown(read: Pick<IsolatedAccountRead, "state">): boolean {
+  const { debt, collateral, borrowedShares } = read.state;
+  return debt !== undefined && collateral !== undefined && borrowedShares !== undefined;
+}
+
 /**
- * `account`'s position in `pair`, its totals, maxLTV and the dual oracle's rate in one stamped
- * multicall: the before-state of an isolated summary and, after a receipt, the after-state.
- * Existing view functions only (getUserSnapshot, getPairAccounting, maxLTV, getPrices).
+ * `account`'s position in `pair`, its totals, maxLTV, borrowLimit and the dual oracle's rate in one
+ * stamped multicall: the before-state of an isolated summary and, after a receipt, the
+ * after-state. The borrower modals also take their form values, MAX and price block from it, so
+ * the form and the summary always describe one block (U4 review r1 #3). Existing view functions
+ * only (getUserSnapshot, getPairAccounting, maxLTV, getPrices, borrowLimit).
  */
 export function useIsolatedAccountRead(
   pair: `0x${string}` | null | undefined,
@@ -161,6 +178,7 @@ export function useIsolatedAccountRead(
             { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "getPairAccounting" },
             { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "maxLTV" },
             { address: dualOracle, abi: DUAL_ORACLE_ABI, functionName: "getPrices" },
+            { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "borrowLimit" },
           ]
         : [],
     [pair, dualOracle, account],

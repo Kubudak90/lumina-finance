@@ -222,6 +222,8 @@ describe("IsolatedRemoveCollateral: blocked like IsolatedBorrow while in debt", 
     chain.guardStatus = 4;
     fake.data.pair = { ...pairInfo, oracleBadData: true };
     fake.data.positionState = isolatedPosition(0n);
+    // The modal reads the position from the chain (U4 r1 #3): the chain has no debt either.
+    chain.snapshots[lc(ALICE)] = [0n, 0n, 10n ** 18n];
     render(<IsolatedRemoveCollateralModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
     type("Amount", "0.1");
     expect(button("Remove WETH").disabled).toBe(false);

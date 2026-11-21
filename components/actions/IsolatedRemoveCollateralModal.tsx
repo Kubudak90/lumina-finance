@@ -5,10 +5,9 @@ import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useLuminaWrite } from "@/hooks/chain";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
-import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
 import { useGuardStatus } from "@/hooks/useGuardStatus";
 import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
-import { aprToApy, isolatedPreview } from "@/lib/risk";
+import { aprToApy, formatHealth, isolatedPreview } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
 import { safeParseUnits } from "@/lib/format";
@@ -19,9 +18,9 @@ import { AmountField, TxDialog, TxForm, TxSuccess, useTxErrorToast, useTxSuccess
 import { IsolatedRiskSummary } from "@/components/tx/TxSummary";
 import { TxDetails } from "@/components/tx/TxDetails";
 import { IsolatedAfterState, previewCall } from "@/components/tx/AfterStates";
-import { useIsolatedAccountRead } from "@/components/tx/reads";
+import { isolatedPositionKnown, useIsolatedAccountRead } from "@/components/tx/reads";
 import { formatToken } from "@/components/tx/format";
-import { isolatedSides } from "@/components/tx/isolated";
+import { isolatedOracleGate, isolatedSides } from "@/components/tx/isolated";
 
 interface Props {
   pair: `0x${string}`;
@@ -32,21 +31,15 @@ interface Props {
  * Borrower-side collateral release — calls LightlendPair.removeCollateral(amount, receiver).
  * Reverts if the resulting position becomes insolvent. While in debt it is guard-gated like a
  * borrow (spec §3.2, r2 #6): blocked when the price guard blocks borrows OR the pair oracle is
- * unreadable / flags bad data, with a notice explaining which.
+ * unreadable / flags bad data, with a notice explaining which. The posted collateral, the debt,
+ * MAX and the price block come from the modal's ONE stamped read, the same block as the summary;
+ * the block also holds while the polled pair info flags bad data (U4 review r1 #3).
  */
 export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
-  // Live pair and position data on every render (Codex #8).
   const info = useIsolatedPair(pair);
-  const positionState = useIsolatedPosition(pair);
-  const position = positionState.position;
-  const positionKnown = positionState.status === "known";
   const guard = useGuardStatus();
   const collateralSymbol = info?.collateralSymbol ?? "";
   const collateralDecimals = info?.collateralDecimals ?? 18;
-  const collateralAmount = position?.collateralAmount ?? 0n;
-  const hasDebt = (position?.borrowedShares ?? 0n) > 0n;
-  // Pair oracle bad data (price guard tripped): removal while in debt reverts.
-  const oracleBadData = info?.oracleBadData;
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
   const ctx: TxErrorContext = { venue: "isolated", action: "removeCollateral", guardStatus: guard.key };
@@ -54,10 +47,18 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   const tx = useLuminaWrite();
   const read = useIsolatedAccountRead(pair, info?.dualOracle, address);
   const sides = isolatedSides(info);
+  // The position from the modal's read (unknown while it loads or if it failed: removal waits).
+  const positionKnown = isolatedPositionKnown(read);
+  const collateralAmount = read.state.collateral ?? 0n;
+  const hasDebt = (read.state.borrowedShares ?? 0n) > 0n;
+  // Pair oracle bad data (price guard tripped): removal while in debt reverts.
+  const oracle = isolatedOracleGate(info?.oracleBadData, read);
   // Aligned with IsolatedBorrowModal: the guard OR the pair oracle blocks it while in debt.
-  const blocked = hasDebt && (!guard.borrowAllowed || oracleBadData !== false);
+  const blocked = hasDebt && (!guard.borrowAllowed || oracle !== "ok");
   // The guard is OK but the pair oracle is unreadable or flags bad data: GuardNotice says nothing.
-  const oracleOnlyBlock = blocked && guard.borrowAllowed;
+  const oracleOnlyBlock = hasDebt && guard.borrowAllowed && (oracle === "bad" || oracle === "unreadable");
+  /** Blocked for a reason to explain (not just while the modal's read loads). */
+  const blockShown = hasDebt && (!guard.borrowAllowed || oracle === "bad" || oracle === "unreadable");
 
   const parsed = amount ? (safeParseUnits(amount, collateralDecimals) ?? 0n) : 0n;
   const overMax = parsed > collateralAmount;
@@ -78,6 +79,10 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
   };
 
   const preview = parsed > 0n && sides ? isolatedPreview(read.state, { kind: "removeCollateral", amount: parsed }, sides) : null;
+  // The summary (same read) says this removal leaves the position liquidatable: the pair would
+  // revert it (Insolvent), so it is not offered (U4 review r1 #3: no send the summary warns against).
+  const afterLiquidatable =
+    preview !== null && formatHealth({ kind: "ltv", ltv: preview.after.ltv, maxLTV: preview.after.maxLTV }).status === "liquidatable";
 
   return (
     <TxDialog onClose={onClose}>
@@ -90,7 +95,7 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
           {hasDebt && <GuardNotice venue="isolated" />}
           {oracleOnlyBlock && (
             <p className="text-xs text-amber-400" data-testid="oracle-block-notice">
-              {oracleBadData === undefined
+              {oracle === "unreadable"
                 ? "The pair oracle cannot be read right now; removing collateral while in debt is disabled until it can."
                 : "The pair oracle flags its price as bad data; removing collateral while in debt is disabled until it recovers."}{" "}
               {GUARD_BLOCKED_NOTE.isolated}
@@ -109,6 +114,11 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
             maxDisabled={!positionKnown || collateralAmount === 0n}
           >
             {overMax && <p className="text-xs text-destructive mt-1">Exceeds posted collateral</p>}
+            {!overMax && afterLiquidatable && (
+              <p className="text-xs text-destructive mt-1" data-testid="remove-insolvent">
+                More than the position can release: it would be above the pair&apos;s max LTV
+              </p>
+            )}
             {!preview && (
               <div className="mt-1">
                 <FreshnessStamp stamp={read.stamp} label="Position" />
@@ -132,9 +142,9 @@ export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
             isPending={tx.isPending}
             isSimulating={tx.isSimulating}
             isConfirming={tx.isConfirming}
-            disabled={!address || !positionKnown || parsed === 0n || overMax || blocked}
+            disabled={!address || !positionKnown || parsed === 0n || overMax || afterLiquidatable || blocked}
           >
-            {blocked ? "Removal blocked" : `Remove ${collateralSymbol}`}
+            {blockShown ? "Removal blocked" : `Remove ${collateralSymbol}`}
           </TxButton>
 
           <TxDetails calls={parsed > 0n ? [previewCall(removeRequest())] : []} />
