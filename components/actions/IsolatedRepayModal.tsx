@@ -278,7 +278,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
             action={tx}
             ctx={CTX}
           />
-          {needsApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleRepay}
@@ -290,9 +290,7 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
             {needsApproval ? `Approve ${assetSymbol}` : `Repay ${assetSymbol}`}
           </TxButton>
 
-          <TxDetails calls={plan ? [needsApproval ? flow.describeApprove(plan.approve) : null, previewCall(repayRequest(plan.shares))] : []}>
-            {!needsApproval && allowanceNote}
-          </TxDetails>
+          <TxDetails calls={plan ? [needsApproval ? flow.describeApprove(plan.approve) : null, previewCall(repayRequest(plan.shares))] : []} />
         </TxForm>
       )}
     </TxDialog>

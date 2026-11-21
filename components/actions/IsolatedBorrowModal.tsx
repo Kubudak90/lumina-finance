@@ -268,7 +268,7 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
             action={tx}
             ctx={ctx}
           />
-          {needsCollateralApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleBorrow}
@@ -287,7 +287,6 @@ export function IsolatedBorrowModal({ pair, onClose }: { pair: `0x${string}`; on
               label="Pair liquidity"
               before={info?.availableLiquidity === undefined ? "unavailable" : formatToken(info.availableLiquidity, assetDecimals, assetSymbol)}
             />
-            {!needsCollateralApproval && allowanceNote}
           </TxDetails>
         </TxForm>
       )}

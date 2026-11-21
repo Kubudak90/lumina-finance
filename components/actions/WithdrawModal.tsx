@@ -11,6 +11,7 @@ import { POOL_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
 import { useLuminaWrite } from "@/hooks/chain";
 import { TxButton } from "@/components/common/TxButton";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import { AmountField, TxDialog, TxForm, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
 import { CoreRiskSummary } from "@/components/tx/TxSummary";
 import { TxDetails } from "@/components/tx/TxDetails";
@@ -102,6 +103,11 @@ export function WithdrawModal({ asset, symbol, decimals, onClose }: WithdrawModa
             {overSupplied && <p className="text-xs text-destructive mt-1">Amount exceeds supplied balance</p>}
             {liquidity !== undefined && effectiveAmount > liquidity && (
               <p className="text-xs text-amber-500 mt-1">Exceeds the reserve&apos;s available liquidity</p>
+            )}
+            {!preview && (
+              <div className="mt-1">
+                <FreshnessStamp stamp={core.stamp} label="Position" />
+              </div>
             )}
           </AmountField>
 

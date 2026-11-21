@@ -136,7 +136,7 @@ export function IsolatedLendModal({ pair, onClose }: { pair: `0x${string}`; onCl
             action={tx}
             ctx={CTX}
           />
-          {needsApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleLend}
@@ -148,9 +148,7 @@ export function IsolatedLendModal({ pair, onClose }: { pair: `0x${string}`; onCl
             {needsApproval ? `Approve ${assetSymbol}` : `Lend ${assetSymbol}`}
           </TxButton>
 
-          <TxDetails calls={parsed > 0n ? [needsApproval ? flow.describeApprove(parsed) : null, previewCall(depositRequest(parsed))] : []}>
-            {!needsApproval && allowanceNote}
-          </TxDetails>
+          <TxDetails calls={parsed > 0n ? [needsApproval ? flow.describeApprove(parsed) : null, previewCall(depositRequest(parsed))] : []} />
         </TxForm>
       )}
     </TxDialog>

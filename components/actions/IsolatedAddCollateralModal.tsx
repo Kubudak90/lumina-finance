@@ -150,7 +150,7 @@ export function IsolatedAddCollateralModal({ pair, onClose }: { pair: `0x${strin
             action={tx}
             ctx={CTX}
           />
-          {needsApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleAdd}
@@ -162,9 +162,7 @@ export function IsolatedAddCollateralModal({ pair, onClose }: { pair: `0x${strin
             {needsApproval ? `Approve ${collateralSymbol}` : `Add ${collateralSymbol}`}
           </TxButton>
 
-          <TxDetails calls={parsed > 0n ? [needsApproval ? flow.describeApprove(parsed) : null, previewCall(addRequest(parsed))] : []}>
-            {!needsApproval && allowanceNote}
-          </TxDetails>
+          <TxDetails calls={parsed > 0n ? [needsApproval ? flow.describeApprove(parsed) : null, previewCall(addRequest(parsed))] : []} />
         </TxForm>
       )}
     </TxDialog>

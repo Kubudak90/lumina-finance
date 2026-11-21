@@ -250,7 +250,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
             action={tx}
             ctx={CTX}
           />
-          {needsApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleRepay}
@@ -262,9 +262,7 @@ export function RepayModal({ asset, symbol, decimals, onClose }: RepayModalProps
             {needsApproval ? `Approve ${symbol}` : `Repay ${symbol}`}
           </TxButton>
 
-          <TxDetails calls={plan ? [needsApproval ? flow.describeApprove(plan.approve) : null, previewCall(repayRequest(plan.amountArg))] : []}>
-            {!needsApproval && allowanceNote}
-          </TxDetails>
+          <TxDetails calls={plan ? [needsApproval ? flow.describeApprove(plan.approve) : null, previewCall(repayRequest(plan.amountArg))] : []} />
         </TxForm>
       )}
     </TxDialog>

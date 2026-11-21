@@ -6,6 +6,7 @@
  * (c) liquidation for Liquidate / IsolatedLiquidate — from the real risk maths, with the gauge
  * showing the AFTER value.
  */
+import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ALICE, fake, resetFake, setRead, useFakeVersion } from "../support/fakeChain";
@@ -272,3 +273,33 @@ describe("profile (c), liquidation: debt repaid and the borrower's remaining pos
     expect(within(summary()).queryByRole("meter")).toBeNull();
   });
 });
+
+describe("context: FreshnessStamp in every risk-changing modal, GuardNotice only in the guard-gated ones", () => {
+  const riskModals: Array<[string, () => ReactElement]> = [
+    ["Supply", () => <SupplyModal asset={WETH} symbol="WETH" decimals={18} onClose={() => {}} />],
+    ["Withdraw", () => <WithdrawModal asset={WETH} symbol="WETH" decimals={18} onClose={() => {}} />],
+    ["Borrow", () => <BorrowModal asset={USDC} symbol="USDC" decimals={6} onClose={() => {}} />],
+    ["Repay", () => <RepayModal asset={USDC} symbol="USDC" decimals={6} onClose={() => {}} />],
+    ["EnableCollateral", () => <EnableCollateralModal asset={WETH} symbol="WETH" currentlyEnabled onClose={() => {}} />],
+    ["IsolatedBorrow", () => <IsolatedBorrowModal pair={PAIR_USDC_WETH} onClose={() => {}} />],
+    ["IsolatedRepay", () => <IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />],
+    ["IsolatedAddCollateral", () => <IsolatedAddCollateralModal pair={PAIR_USDC_WETH} onClose={() => {}} />],
+    ["IsolatedRemoveCollateral", () => <IsolatedRemoveCollateralModal pair={PAIR_USDC_WETH} onClose={() => {}} />],
+  ];
+
+  it.each(riskModals)("%s shows when its position data was read", (_name, element) => {
+    render(element());
+    expect(screen.getByText(/Position: as of block 100/)).toBeTruthy();
+  });
+
+  it("with the guard blocking, only Borrow, IsolatedBorrow and IsolatedRemoveCollateral (in debt) show GuardNotice", () => {
+    chain.guardStatus = 4; // REFERENCE_STALE
+    const withNotice = new Set(["Borrow", "IsolatedBorrow", "IsolatedRemoveCollateral"]);
+    for (const [name, element] of riskModals) {
+      const view = render(element());
+      expect(screen.queryByText(/Borrow status: REFERENCE_STALE/) !== null, name).toBe(withNotice.has(name));
+      view.unmount();
+    }
+  });
+});
+

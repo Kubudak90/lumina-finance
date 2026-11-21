@@ -240,7 +240,7 @@ export function LiquidateModal({
             action={tx}
             ctx={CTX}
           />
-          {needsApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleLiquidate}
@@ -254,9 +254,7 @@ export function LiquidateModal({
 
           <TxDetails
             calls={parsedAmount > 0n ? [needsApproval ? flow.describeApprove(parsedAmount) : null, previewCall(liquidationRequest(parsedAmount))] : []}
-          >
-            {!needsApproval && allowanceNote}
-          </TxDetails>
+          />
         </TxForm>
       )}
     </TxDialog>

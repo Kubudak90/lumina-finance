@@ -309,7 +309,7 @@ export function IsolatedLiquidateModal({
             action={tx}
             ctx={CTX}
           />
-          {approvalNeeded && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleLiquidate}
@@ -339,9 +339,7 @@ export function IsolatedLiquidateModal({
                   ]
                 : []
             }
-          >
-            {!approvalNeeded && allowanceNote}
-          </TxDetails>
+          />
         </TxForm>
       )}
     </TxDialog>

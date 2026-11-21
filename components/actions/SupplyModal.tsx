@@ -16,6 +16,7 @@ import { useApprovalFlow } from "@/hooks/useApprovalFlow";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { PostTxAllowance } from "@/components/common/PostTxAllowance";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import { TxButton } from "@/components/common/TxButton";
 import { AmountField, TxDialog, TxForm, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
 import { CoreRiskSummary } from "@/components/tx/TxSummary";
@@ -118,6 +119,11 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
             maxDisabled={balance === undefined}
           >
             {overBalance && <p className="text-xs text-destructive mt-1">Insufficient balance</p>}
+            {!preview && (
+              <div className="mt-1">
+                <FreshnessStamp stamp={core.stamp} label="Position" />
+              </div>
+            )}
           </AmountField>
 
           {preview && (
@@ -140,7 +146,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
             action={tx}
             ctx={CTX}
           />
-          {needsApproval && allowanceNote}
+          {allowanceNote}
 
           <TxButton
             onClick={handleSupply}
@@ -158,9 +164,7 @@ export function SupplyModal({ asset, symbol, decimals, onClose }: SupplyModalPro
                 ? [needsApproval ? flow.describeApprove(parsedAmount) : null, previewCall(supplyRequest(parsedAmount))]
                 : []
             }
-          >
-            {!needsApproval && allowanceNote}
-          </TxDetails>
+          />
         </TxForm>
       )}
     </TxDialog>
