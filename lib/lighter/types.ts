@@ -8,6 +8,8 @@ export type LighterAccountExistence =
   | "Creating"
   | "Exists";
 
+import type { ReadOnlyAccountExistence } from "./existence";
+
 export type LighterBalance = {
   symbol: string;
   displayAmount: number;
@@ -37,7 +39,8 @@ export type LighterSnapshot = {
   l1ChainId: number | null;
   onOfficialL1: boolean;
   accountIndex: number;
-  existence: LighterAccountExistence;
+  /** Read-only state; an existing account is "ReadOnly" (authenticated data unavailable). */
+  existence: ReadOnlyAccountExistence;
   authenticated: boolean;
   wsConnected: boolean;
   wsSessionId: string | null;

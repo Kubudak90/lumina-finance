@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-import { useSimulatedWrite } from "@/hooks/useSimulatedWrite";
-import { txExplorerUrl } from "@/lib/explorer";
+import { useLuminaWrite } from "@/hooks/chain";
+import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
+import { useIsolatedPosition } from "@/hooks/useUserIsolatedPositions";
+import { explorerToastAction } from "@/lib/explorer";
+import { GUARD_BLOCKED_NOTE } from "@/lib/guard";
 import { toast } from "sonner";
 import { TxButton } from "@/components/common/TxButton";
 import { ISOLATED_PAIR_ABI } from "@/lib/abis";
@@ -16,9 +19,6 @@ import { parseErrorMessage } from "@/lib/errorMessages";
 
 interface Props {
   pair: `0x${string}`;
-  collateralSymbol: string;
-  collateralDecimals: number;
-  collateralAmount: bigint; // user's current collateral
   onClose: () => void;
 }
 
@@ -26,17 +26,23 @@ interface Props {
  * Borrower-side collateral release — calls LightlendPair.removeCollateral(amount, receiver).
  * Reverts if the resulting position becomes insolvent.
  */
-export function IsolatedRemoveCollateralModal({
-  pair,
-  collateralSymbol,
-  collateralDecimals,
-  collateralAmount,
-  onClose,
-}: Props) {
+export function IsolatedRemoveCollateralModal({ pair, onClose }: Props) {
+  // Live pair and position data on every render (Codex #8).
+  const info = useIsolatedPair(pair);
+  const positionState = useIsolatedPosition(pair);
+  const position = positionState.position;
+  const positionKnown = positionState.status === "known";
+  const collateralSymbol = info?.collateralSymbol ?? "";
+  const collateralDecimals = info?.collateralDecimals ?? 18;
+  const collateralAmount = position?.collateralAmount ?? 0n;
+  const hasDebt = (position?.borrowedShares ?? 0n) > 0n;
+  // Pair oracle bad data (price guard tripped): removal while in debt reverts.
+  const oracleBadData = info?.oracleBadData;
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
 
-  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useSimulatedWrite();
+  const { send, hash, isPending, isConfirming, isSuccess, error, isSimulating } = useLuminaWrite();
+  const blocked = hasDebt && oracleBadData !== false;
 
   const parsed = amount ? (safeParseUnits(amount, collateralDecimals) ?? 0n) : 0n;
   const maxFmt = formatUnits(collateralAmount, collateralDecimals);
@@ -54,7 +60,7 @@ export function IsolatedRemoveCollateralModal({
     if (isSuccess && hash) {
       toast.success("Collateral removed", {
         description: `Removed ${amount} ${collateralSymbol}`,
-        action: { label: "View", onClick: () => window.open(txExplorerUrl(hash), "_blank") },
+        action: explorerToastAction(hash, "View"),
       });
     }
   }, [isSuccess, hash, amount, collateralSymbol]);
@@ -117,12 +123,19 @@ export function IsolatedRemoveCollateralModal({
                 </div>
                 {overMax && <p className="text-xs text-destructive mt-1">Exceeds posted collateral</p>}
               </div>
+              {blocked && (
+                <p className="text-xs text-amber-400">
+                  {oracleBadData === undefined
+                    ? "Pair oracle status unknown; removing collateral while in debt is disabled."
+                    : `The price guard blocks borrows on this pair. ${GUARD_BLOCKED_NOTE.isolated}`}
+                </p>
+              )}
               <TxButton
                 onClick={handleRemove}
                 isPending={isPending}
                 isSimulating={isSimulating}
                 isConfirming={isConfirming}
-                disabled={!address || parsed === 0n || overMax}
+                disabled={!address || !positionKnown || parsed === 0n || overMax || blocked}
               >
                 Remove {collateralSymbol}
               </TxButton>

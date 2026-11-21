@@ -60,7 +60,11 @@ export function combinePortfolio(
   };
 }
 
-export type FreshnessStatus = "live" | "stale" | "offline" | "unknown";
+/**
+ * Freshness from data age, never from mere presence (FE-07). "fresh" needs a positive age signal:
+ * a recent block timestamp (Lumina) or a recent websocket pong (Lighter).
+ */
+export type FreshnessStatus = "fresh" | "stale" | "offline" | "unknown";
 
 export function lighterFreshness(
   wsConnected: boolean,
@@ -69,13 +73,26 @@ export function lighterFreshness(
   staleAfterMs = 15_000
 ): FreshnessStatus {
   if (!wsConnected && lastPongAt == null) return "offline";
-  if (lastPongAt != null && now - lastPongAt > staleAfterMs) return "stale";
-  if (wsConnected) return "live";
-  return "stale";
+  // Connected but never answered a ping: no evidence the stream is current.
+  if (lastPongAt == null) return "unknown";
+  if (now - lastPongAt > staleAfterMs) return "stale";
+  return wsConnected ? "fresh" : "stale";
 }
 
-export function luminaFreshness(hasOnChain: boolean, hasPrices: boolean): FreshnessStatus {
-  if (!hasOnChain && !hasPrices) return "unknown";
-  if (!hasOnChain || !hasPrices) return "stale";
-  return "live";
+/** Seconds between the block a read was taken at and `nowMs` (clamped at 0), or null. */
+export function blockAgeSeconds(blockTimestampSec: bigint | number | undefined, nowMs: number): number | null {
+  if (blockTimestampSec === undefined || nowMs <= 0) return null;
+  const age = Math.floor(nowMs / 1000) - Number(blockTimestampSec);
+  return age > 0 ? age : 0;
+}
+
+/** Lumina on-chain data: fresh while the block it was read at is at most `staleAfterSec` old. */
+export function chainFreshness(
+  blockTimestampSec: bigint | number | undefined,
+  nowMs: number,
+  staleAfterSec: number
+): FreshnessStatus {
+  const age = blockAgeSeconds(blockTimestampSec, nowMs);
+  if (age === null) return "unknown";
+  return age <= staleAfterSec ? "fresh" : "stale";
 }

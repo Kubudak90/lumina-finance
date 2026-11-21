@@ -12,12 +12,17 @@ import { IsolatedPositionsTable } from "@/components/portfolio/IsolatedPositions
 import { FreshnessBadge } from "@/components/portfolio/FreshnessBadge";
 import { useUserPosition } from "@/hooks/useUserPosition";
 import { useUserIsolatedPositions } from "@/hooks/useUserIsolatedPositions";
-import { usePrices } from "@/hooks/usePrices";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
-import { useReserveConfig } from "@/hooks/useReserveConfig";
 import { getMarketBySymbol, type MarketConfig } from "@/lib/constants";
 import { formatPercent } from "@/lib/format";
-import { luminaFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
+import { formatUsd, usdValue } from "@/lib/prices";
+import { coreLegsUsd, isolatedLegsUsd, oldestStamp } from "@/lib/valuation";
+import { chainFreshness, type LuminaLegs } from "@/lib/portfolio/combine";
+import { useFreshnessNow } from "@/lib/portfolio/clock";
+import { STALE_AFTER_SECONDS } from "@/lib/queryPolicy";
+import { NETWORK_NAME } from "@/lib/chains";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
 
@@ -31,12 +36,19 @@ const LighterPortfolioEmbed = dynamic(
 
 export default function PortfolioPage() {
   const { isConnected } = useAccount();
-  const { positions, accountData, isLoading: positionsLoading } = useUserPosition();
-  const { positions: isolatedPositions, isLoading: isolatedLoading } = useUserIsolatedPositions();
+  const { positions, accountData, stamp, isLoading: positionsLoading } = useUserPosition();
+  const {
+    positions: isolatedPositions,
+    incomplete: isolatedIncomplete,
+    stamp: isolatedStamp,
+    conversionStamp,
+    pairsStamp,
+    isLoading: isolatedLoading,
+  } = useUserIsolatedPositions();
   const healthFactor = accountData?.healthFactor;
-  const { data: prices } = usePrices();
+  const { priceOf, stamp: priceStamp } = useOraclePrices();
   const { markets } = useAllMarkets();
-  const { getConfig } = useReserveConfig();
+  const now = useFreshnessNow();
   const [modal, setModal] = useState<{ type: "withdraw" | "repay"; market: MarketConfig } | null>(null);
 
   if (!isConnected) {
@@ -57,72 +69,70 @@ export default function PortfolioPage() {
     );
   }
 
-  const totalSuppliedUsd = positions.reduce((acc, p) => {
-    const price = prices?.[p.symbol] ?? 0;
-    return acc + Number(formatUnits(p.supplied, p.decimals)) * price;
-  }, 0);
+  // FE-06: core legs priced by AaveOracle.getAssetPrice (keyed by asset address); isolated
+  // collateral converted through the pair oracle's exchange rate in one division. A failed read
+  // makes the affected total unavailable (Codex #9).
+  const core = coreLegsUsd(positions, priceOf);
+  // Loading or a failed snapshot read = isolated legs unavailable, never $0 (Gemini r2 M4).
+  const iso = isolatedLegsUsd(isolatedPositions, priceOf, isolatedIncomplete || isolatedLoading);
+  const totalSuppliedUsd = core.supplied;
+  const totalBorrowedUsd = core.borrowed;
+  const isolatedSupplyUsd = iso.supply;
+  const isolatedDebtUsd = iso.debt;
+  const isolatedCollateralTotal = iso.collateral;
+  // Each valuation is as old as the oldest read it combines.
+  const poolValuationStamp = oldestStamp([stamp, priceStamp]);
+  const isolatedValuationStamp = oldestStamp([isolatedStamp, conversionStamp, pairsStamp, priceStamp]);
 
-  const totalBorrowedUsd = positions.reduce((acc, p) => {
-    const price = prices?.[p.symbol] ?? 0;
-    return acc + Number(formatUnits(p.borrowed, p.decimals)) * price;
-  }, 0);
+  const legs = [totalSuppliedUsd, totalBorrowedUsd, isolatedSupplyUsd, isolatedDebtUsd, isolatedCollateralTotal];
+  // The unified Lighter view needs every leg; it gets nothing rather than a silently wrong total.
+  const lumina: LuminaLegs | null = legs.every((v) => v !== undefined)
+    ? {
+        poolSupplyUsd: totalSuppliedUsd!,
+        poolDebtUsd: totalBorrowedUsd!,
+        isolatedSupplyUsd: isolatedSupplyUsd!,
+        isolatedDebtUsd: isolatedDebtUsd!,
+        isolatedCollateralUsd: isolatedCollateralTotal!,
+      }
+    : null;
 
-  const isolatedSupplyUsd = isolatedPositions.reduce((acc, p) => {
-    const price = prices?.[p.assetSymbol] ?? 0;
-    return acc + Number(formatUnits(p.suppliedAssets, p.assetDecimals)) * price;
-  }, 0);
-  const isolatedDebtUsd = isolatedPositions.reduce((acc, p) => {
-    const price = prices?.[p.assetSymbol] ?? 0;
-    return acc + Number(formatUnits(p.borrowedAssets, p.assetDecimals)) * price;
-  }, 0);
-  const isolatedCollateralUsd = isolatedPositions.reduce((acc, p) => {
-    const price = prices?.[p.collateralSymbol] ?? 0;
-    return acc + Number(formatUnits(p.collateralAmount, p.collateralDecimals)) * price;
-  }, 0);
-
-  const lumina: LuminaLegs = {
-    poolSupplyUsd: totalSuppliedUsd,
-    poolDebtUsd: totalBorrowedUsd,
-    isolatedSupplyUsd,
-    isolatedDebtUsd,
-    isolatedCollateralUsd,
-  };
-
-  const netWorth = totalSuppliedUsd - totalBorrowedUsd;
-  const luminaStatus = luminaFreshness(Boolean(accountData), Boolean(prices));
+  const netWorth =
+    totalSuppliedUsd !== undefined && totalBorrowedUsd !== undefined ? totalSuppliedUsd - totalBorrowedUsd : undefined;
+  const luminaStatus = chainFreshness(poolValuationStamp?.timestamp, now, STALE_AFTER_SECONDS);
+  const isolatedStatus = chainFreshness(isolatedValuationStamp?.timestamp, now, STALE_AFTER_SECONDS);
 
   const supplies = positions
-    .filter((p) => p.supplied > 0n)
+    .filter((p): p is typeof p & { supplied: bigint } => p.supplied !== undefined && p.supplied > 0n)
     .map((p) => {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
         symbol: p.symbol,
         balance: formatUnits(p.supplied, p.decimals),
-        value: `$${(Number(formatUnits(p.supplied, p.decimals)) * (prices?.[p.symbol] ?? 0)).toFixed(2)}`,
+        value: formatUsd(usdValue(p.supplied, p.decimals, priceOf(p.asset))),
         apy: mInfo ? formatPercent(mInfo.supplyRate) : "—",
       };
     });
 
   const borrows = positions
-    .filter((p) => p.borrowed > 0n)
+    .filter((p): p is typeof p & { borrowed: bigint } => p.borrowed !== undefined && p.borrowed > 0n)
     .map((p) => {
       const mInfo = markets.find((m) => m.symbol === p.symbol);
       return {
         symbol: p.symbol,
         debt: formatUnits(p.borrowed, p.decimals),
-        value: `$${(Number(formatUnits(p.borrowed, p.decimals)) * (prices?.[p.symbol] ?? 0)).toFixed(2)}`,
+        value: formatUsd(usdValue(p.borrowed, p.decimals, priceOf(p.asset))),
         apy: mInfo ? formatPercent(mInfo.borrowRate) : "—",
       };
     });
 
   const collateral = positions
-    .filter((p) => p.collateral > 0n)
+    .filter((p): p is typeof p & { collateral: bigint } => p.collateral !== undefined && p.collateral > 0n)
     .map((p) => {
-      const cfg = getConfig(p.symbol);
+      const cfg = markets.find((m) => m.asset.toLowerCase() === p.asset.toLowerCase())?.config;
       return {
         symbol: p.symbol,
         amount: formatUnits(p.collateral, p.decimals),
-        value: `$${(Number(formatUnits(p.collateral, p.decimals)) * (prices?.[p.symbol] ?? 0)).toFixed(2)}`,
+        value: formatUsd(usdValue(p.collateral, p.decimals, priceOf(p.asset))),
         ltv: cfg ? `${(cfg.ltv / 100).toFixed(0)}%` : "—",
       };
     });
@@ -132,13 +142,9 @@ export default function PortfolioPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 animate-in">
         <h1 className="text-4xl font-bold tracking-tighter uppercase glow-text">Portfolio</h1>
         <div className="flex flex-wrap items-center gap-3">
-          <FreshnessBadge source="Lumina pool" status={luminaStatus} detail="Base Sepolia" />
-          <FreshnessBadge
-            source="Isolated"
-            status={isolatedLoading ? "unknown" : luminaStatus}
-            detail="on-chain"
-          />
-          {healthFactor && (
+          <FreshnessBadge source="Lumina pool" status={luminaStatus} detail={NETWORK_NAME} />
+          <FreshnessBadge source="Isolated" status={isolatedStatus} detail="on-chain" />
+          {healthFactor !== undefined && (
             <div className="w-64">
               <HealthFactorBar healthFactor={healthFactor} />
             </div>
@@ -146,25 +152,34 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      <LighterPortfolioEmbed lumina={lumina} />
+      <div className="flex flex-wrap gap-4">
+        <FreshnessStamp stamp={poolValuationStamp} label="Pool valuation" />
+        <FreshnessStamp stamp={isolatedValuationStamp} label="Isolated valuation" />
+      </div>
+
+      {lumina ? (
+        <LighterPortfolioEmbed lumina={lumina} />
+      ) : (
+        <p className="text-sm text-text-dim">Unified view unavailable until every on-chain price has loaded.</p>
+      )}
 
       <div className="grid md:grid-cols-3 gap-4 animate-in">
         <div className="technical-border bg-card p-4">
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Total Supplied</div>
           <div className="text-2xl font-bold font-mono tracking-tight text-foreground">
-            ${totalSuppliedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatUsd(totalSuppliedUsd)}
           </div>
         </div>
         <div className="technical-border bg-card p-4">
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Total Borrowed</div>
           <div className="text-2xl font-bold font-mono tracking-tight text-foreground">
-            ${totalBorrowedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatUsd(totalBorrowedUsd)}
           </div>
         </div>
         <div className="technical-border bg-card p-4">
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">Pool net</div>
-          <div className={`text-2xl font-bold font-mono tracking-tight ${netWorth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            ${netWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className={`text-2xl font-bold font-mono tracking-tight ${netWorth === undefined || netWorth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {formatUsd(netWorth)}
           </div>
         </div>
       </div>
@@ -224,6 +239,10 @@ export default function PortfolioPage() {
         <div className="p-4">
           {isolatedLoading ? (
             <p className="text-sm text-muted-foreground">Loading isolated pairs…</p>
+          ) : isolatedIncomplete ? (
+            <p className="text-sm text-amber-400" data-testid="isolated-unavailable">
+              Isolated positions unavailable: a position read failed, so totals are not shown.
+            </p>
           ) : (
             <IsolatedPositionsTable positions={isolatedPositions} />
           )}

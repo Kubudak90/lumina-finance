@@ -13,5 +13,47 @@ export default defineConfig([
       "react-hooks/immutability": "warn",
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "public/lighter/**"]),
+  {
+    // FE-03: contract reads/writes go through hooks/chain, which pins every call to chain 19529.
+    files: ["**/*.{ts,tsx,js,jsx,mjs}"],
+    ignores: ["hooks/chain/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "wagmi",
+              importNames: [
+                "useReadContract",
+                "useReadContracts",
+                "usePublicClient",
+                "useWriteContract",
+                "useSimulateContract",
+                "useWaitForTransactionReceipt",
+                "useWalletClient",
+                "useSendTransaction",
+                "useBlockNumber",
+                "useBalance",
+              ],
+              message: "Use the chain-pinned wrappers in @/hooks/chain.",
+            },
+            { name: "wagmi/actions", message: "Use the chain-pinned wrappers in @/hooks/chain." },
+            { name: "wagmi/chains", message: "The lending app has one chain: lib/chains.ts." },
+          ],
+        },
+      ],
+    },
+  },
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "public/lighter/**",
+    // Local git worktrees (gitignored); each is linted in its own checkout.
+    ".worktrees/**",
+    // Vendored byte-identical from lumina-monorepo; linted there.
+    "deployments/index.mjs",
+  ]),
 ]);

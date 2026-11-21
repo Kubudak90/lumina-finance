@@ -3,13 +3,16 @@ import { QUERY, defaultQueryClientOptions } from "./queryPolicy";
 import { describeWrite } from "./txPreview";
 
 describe("query policy", () => {
-  it("does not poll user reads on a global interval", () => {
-    expect(QUERY.user.refetchInterval).toBe(false);
-    expect(defaultQueryClientOptions().queries.refetchInterval).toBe(false);
+  it("polls positions, HF, allowances and prices every 15 s (FE-07)", () => {
+    expect(QUERY.user.refetchInterval).toBe(15_000);
+    expect(QUERY.prices.refetchInterval).toBe(15_000);
+    expect(QUERY.user.refetchInterval).toBeGreaterThanOrEqual(15_000);
+    expect(QUERY.user.refetchInterval).toBeLessThanOrEqual(30_000);
   });
 
-  it("polls markets slower than the old 15s global timer", () => {
-    expect(QUERY.market.refetchInterval).toBeGreaterThan(15_000);
+  it("has no global interval: each read picks its policy", () => {
+    expect(defaultQueryClientOptions().queries.refetchInterval).toBe(false);
+    expect(QUERY.market.refetchInterval).toBeGreaterThan(QUERY.user.refetchInterval);
     expect(QUERY.config.refetchInterval).toBe(60_000);
   });
 });

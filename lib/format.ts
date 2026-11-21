@@ -1,27 +1,10 @@
 import { formatUnits, parseUnits, getAddress } from "viem";
 
-export function formatUsd(value: bigint, decimals = 18): string {
-  const num = Number(formatUnits(value, decimals));
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: num < 1 ? 4 : 2,
-  }).format(num);
-}
+/** Aave returns type(uint256).max as the health factor of an account without debt. */
+export const MAX_HEALTH_FACTOR = (1n << 256n) - 1n;
 
-/** Format a token amount (bigint, 18 decimals) to USD using a price multiplier */
-export function formatTokenToUsd(value: bigint, price: number, decimals = 18): string {
-  const num = Number(formatUnits(value, decimals)) * price;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: num < 1 ? 4 : 2,
-  }).format(num);
-}
-
-export function formatPercent(rateBigInt: bigint): string {
+export function formatPercent(rateBigInt: bigint | undefined): string {
+  if (rateBigInt === undefined) return "—";
   // Aave V3 rates are in RAY format (1e27). Divide by 1e25 to get a percentage.
   // e.g., 4e25 = 4%
   const pct = Number(rateBigInt) / 1e25;
@@ -71,7 +54,7 @@ export function checksumAddress(address: string): `0x${string}` {
 }
 
 export function formatHealthFactor(hf: bigint): string {
-  if (hf === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) return "∞";
+  if (hf === MAX_HEALTH_FACTOR) return "∞";
   const num = Number(formatUnits(hf, 18));
   return num.toFixed(2);
 }

@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { NetworkGuard } from "@/components/layout/NetworkGuard";
+import { RpcChainBanner } from "@/components/layout/RpcChainBanner";
 import { SidebarProvider } from "@/providers/SidebarProvider";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -9,6 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* NetworkGuard is placed outside SidebarProvider so that the network
           mismatch warning renders independently of the sidebar state and is
           always visible regardless of sidebar open/close transitions. */}
+      <RpcChainBanner />
       <NetworkGuard />
       <SidebarProvider>
         <div className="flex min-h-screen">

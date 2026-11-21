@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 
-const TICK_MS = 5_000;
+const TICK_MS = 1_000;
 
 let clock = 0;
 const listeners = new Set<() => void>();

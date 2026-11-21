@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { WalletButton } from "@/components/common/WalletButton";
+import { NETWORK_NAME } from "@/lib/chains";
 import {
   Zap,
   ArrowRight,
@@ -20,7 +21,7 @@ const FEATURES = [
   {
     icon: Layers,
     title: "Borrow Against Collateral",
-    description: "Leverage your assets by borrowing against them. Variable rates, no fixed terms.",
+    description: "Borrow against your collateral, in the shared pool or in isolated pairs. Variable rates, no fixed terms.",
   },
   {
     icon: Shield,
@@ -29,16 +30,16 @@ const FEATURES = [
   },
   {
     icon: Zap,
-    title: "Powered by Lighter",
-    description: "Ultra-fast execution on Lighter's ZK rollup. Low fees, instant finality.",
+    title: "Lighter-native prices",
+    description: "Collateral is priced from Lighter Core index prices, cross-checked by an independent keeper.",
   },
 ];
 
 const STATS = [
   { label: "Protocol", value: "Aave V3" },
-  { label: "Chain", value: "Lighter" },
-  { label: "Markets", value: "USDC, LIT" },
-  { label: "Status", value: "Testnet" },
+  { label: "Chain", value: NETWORK_NAME },
+  { label: "Markets", value: "WETH, USDC" },
+  { label: "Status", value: "Devnet" },
 ];
 
 export default function LandingPage() {
@@ -71,7 +72,7 @@ export default function LandingPage() {
           <div className="max-w-3xl mx-auto text-center space-y-8">
             <div className="inline-flex items-center gap-2 border border-accent/30 bg-accent/5 px-4 py-1.5 text-[10px] font-mono uppercase tracking-widest text-accent">
               <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-              Live on Base Sepolia Testnet
+              {NETWORK_NAME}
             </div>
 
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter leading-[0.9]">
@@ -81,8 +82,8 @@ export default function LandingPage() {
             </h1>
 
             <p className="text-lg md:text-xl text-text-dim max-w-xl mx-auto leading-relaxed">
-              Supply, borrow, and loop on Base Sepolia, with Lighter portfolio
-              and hedging as a separate trading domain.
+              Supply and borrow on {NETWORK_NAME}, with your Lighter trading
+              portfolio shown alongside.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -92,12 +93,6 @@ export default function LandingPage() {
               >
                 Launch App
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-              <Link
-                href="/faucet"
-                className="flex items-center gap-2 h-12 px-8 border border-accent/30 text-accent text-xs font-bold uppercase tracking-[0.2em] hover:bg-accent/10 transition-colors"
-              >
-                Get Test Tokens
               </Link>
             </div>
           </div>
@@ -169,8 +164,7 @@ export default function LandingPage() {
             Start Earning Today
           </h2>
           <p className="text-text-dim mb-8 max-w-md mx-auto">
-            Connect your wallet, get test tokens from the faucet, and experience
-            the future of lending on Lighter.
+            Connect your wallet on {NETWORK_NAME} and start lending.
           </p>
           <Link
             href="/dashboard"

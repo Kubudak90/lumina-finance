@@ -80,34 +80,7 @@ export const POOL_ABI = [
     ],
     outputs: [],
   },
-  {
-    name: "flashLoanSimple",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "receiverAddress", type: "address" },
-      { name: "asset", type: "address" },
-      { name: "amount", type: "uint256" },
-      { name: "params", type: "bytes" },
-      { name: "referralCode", type: "uint16" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "setUserEMode",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "categoryId", type: "uint8" }],
-    outputs: [],
-  },
   // --- View functions ---
-  {
-    name: "getUserEMode",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "user", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
   {
     name: "getReservesList",
     type: "function",
@@ -176,23 +149,11 @@ export const POOL_ABI = [
     ],
   },
   {
-    name: "getEModeCategoryData",
+    name: "getVirtualUnderlyingBalance",
     type: "function",
     stateMutability: "view",
-    inputs: [{ name: "id", type: "uint8" }],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        components: [
-          { name: "ltv", type: "uint16" },
-          { name: "liquidationThreshold", type: "uint16" },
-          { name: "liquidationBonus", type: "uint16" },
-          { name: "priceSource", type: "address" },
-          { name: "label", type: "string" },
-        ],
-      },
-    ],
+    inputs: [{ name: "asset", type: "address" }],
+    outputs: [{ name: "", type: "uint128" }],
   },
 ] as const;
 
@@ -277,26 +238,6 @@ export const ATOKEN_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
   },
-  {
-    name: "approve",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    name: "allowance",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "owner", type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-  },
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -330,46 +271,6 @@ export const VARIABLE_DEBT_TOKEN_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "address" }],
-  },
-  {
-    name: "approveDelegation",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "delegatee", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "borrowAllowance",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "fromUser", type: "address" },
-      { name: "toUser", type: "address" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// LightlendPairRegistry (isolated lending registry)
-// -----------------------------------------------------------------------------
-export const ISOLATED_REGISTRY_ABI = [
-  {
-    name: "getAllPairAddresses",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address[]" }],
-  },
-  {
-    name: "deployedPairsLength",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
 
@@ -483,6 +384,33 @@ export const ISOLATED_PAIR_ABI = [
     ],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    name: "maxRedeem",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "_owner", type: "address" }],
+    outputs: [{ name: "_maxShares", type: "uint256" }],
+  },
+  {
+    name: "getPairAccounting",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "_totalAssetAmount", type: "uint128" },
+      { name: "_totalAssetShares", type: "uint128" },
+      { name: "_totalBorrowAmount", type: "uint128" },
+      { name: "_totalBorrowShares", type: "uint128" },
+      { name: "_totalCollateral", type: "uint256" },
+    ],
+  },
+  {
+    name: "borrowLimit",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
   // --- Mutative ---
   {
     name: "withdraw",
@@ -567,233 +495,6 @@ export const ISOLATED_PAIR_ABI = [
       { name: "_borrower", type: "address" },
     ],
     outputs: [{ name: "_collateralForLiquidator", type: "uint256" }],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// PoolConfigurator (admin ops: E-Mode categories, asset configs)
-// -----------------------------------------------------------------------------
-export const POOL_CONFIGURATOR_ABI = [
-  {
-    name: "setEModeCategory",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "categoryId", type: "uint8" },
-      { name: "ltv", type: "uint16" },
-      { name: "liquidationThreshold", type: "uint16" },
-      { name: "liquidationBonus", type: "uint16" },
-      { name: "label", type: "string" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "setAssetCollateralInEMode",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "asset", type: "address" },
-      { name: "categoryId", type: "uint8" },
-      { name: "allowed", type: "bool" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "setAssetBorrowableInEMode",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "asset", type: "address" },
-      { name: "categoryId", type: "uint8" },
-      { name: "borrowable", type: "bool" },
-    ],
-    outputs: [],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// ACLManager
-// -----------------------------------------------------------------------------
-export const ACL_MANAGER_ABI = [
-  { name: "isPoolAdmin", type: "function", stateMutability: "view", inputs: [{ name: "admin", type: "address" }], outputs: [{ name: "", type: "bool" }] },
-  { name: "isRiskAdmin", type: "function", stateMutability: "view", inputs: [{ name: "admin", type: "address" }], outputs: [{ name: "", type: "bool" }] },
-  { name: "isAssetListingAdmin", type: "function", stateMutability: "view", inputs: [{ name: "admin", type: "address" }], outputs: [{ name: "", type: "bool" }] },
-] as const;
-
-// -----------------------------------------------------------------------------
-// LightlendPairDeployer (deploys new isolated pairs)
-// -----------------------------------------------------------------------------
-export const ISOLATED_DEPLOYER_ABI = [
-  {
-    name: "deploy",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "_configData", type: "bytes" }],
-    outputs: [{ name: "_pairAddress", type: "address" }],
-  },
-  {
-    name: "amountToSeed",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "lightlendWhitelistAddress",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    name: "deployedPairsLength",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// LightlendWhitelist (whitelist for isolated pair deployers)
-// -----------------------------------------------------------------------------
-export const ISOLATED_WHITELIST_ABI = [
-  {
-    name: "lightlendDeployerWhitelist",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ name: "", type: "bool" }],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// AssetListingProxy (forwards Aave V3 ConfigEngine.listAssets via delegatecall)
-// -----------------------------------------------------------------------------
-export const ASSET_LISTING_PROXY_ABI = [
-  {
-    name: "listAssets",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      {
-        name: "context",
-        type: "tuple",
-        components: [
-          { name: "networkName", type: "string" },
-          { name: "networkAbbreviation", type: "string" },
-        ],
-      },
-      {
-        name: "listings",
-        type: "tuple[]",
-        components: [
-          { name: "asset", type: "address" },
-          { name: "assetSymbol", type: "string" },
-          { name: "priceFeed", type: "address" },
-          {
-            name: "rateStrategyParams",
-            type: "tuple",
-            components: [
-              { name: "optimalUsageRatio", type: "uint256" },
-              { name: "baseVariableBorrowRate", type: "uint256" },
-              { name: "variableRateSlope1", type: "uint256" },
-              { name: "variableRateSlope2", type: "uint256" },
-            ],
-          },
-          { name: "enabledToBorrow", type: "uint256" },
-          { name: "borrowableInIsolation", type: "uint256" },
-          { name: "withSiloedBorrowing", type: "uint256" },
-          { name: "flashloanable", type: "uint256" },
-          { name: "ltv", type: "uint256" },
-          { name: "liqThreshold", type: "uint256" },
-          { name: "liqBonus", type: "uint256" },
-          { name: "reserveFactor", type: "uint256" },
-          { name: "supplyCap", type: "uint256" },
-          { name: "borrowCap", type: "uint256" },
-          { name: "debtCeiling", type: "uint256" },
-          { name: "liqProtocolFee", type: "uint256" },
-        ],
-      },
-    ],
-    outputs: [],
-  },
-  {
-    name: "owner",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// Looping (Lumina leveraged-position contract)
-// -----------------------------------------------------------------------------
-export const LOOPING_ABI = [
-  {
-    name: "openPosition",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "_pool", type: "address" },
-      { name: "_swapper", type: "address" },
-      { name: "_debtAsset", type: "address" },
-      { name: "_yieldAsset", type: "address" },
-      { name: "_initialAmount", type: "uint256" },
-      { name: "_flashloanAmount", type: "uint256" },
-      { name: "_minAmountOut", type: "uint256" },
-      { name: "_path", type: "address[]" },
-      { name: "_startWithYield", type: "bool" },
-      { name: "_minInitialAmountOut", type: "uint256" },
-      { name: "_deadline", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "closePosition",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "_pool", type: "address" },
-      { name: "_swapper", type: "address" },
-      { name: "_debtAsset", type: "address" },
-      { name: "_yieldAsset", type: "address" },
-      { name: "_flashloanAmount", type: "uint256" },
-      { name: "_minAmountOut", type: "uint256" },
-      { name: "_path", type: "address[]" },
-      { name: "_withdrawAmount", type: "uint256" },
-      { name: "_deadline", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "pools",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    name: "swappers",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    name: "referralAddress",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    name: "owner",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
   },
 ] as const;
 
@@ -902,89 +603,29 @@ export const DATA_PROVIDER_ABI = [
       },
     ],
   },
-] as const;
-
-// -----------------------------------------------------------------------------
-// RewardsController
-// -----------------------------------------------------------------------------
-export const REWARDS_CONTROLLER_ABI = [
   {
-    name: "claimAllRewards",
+    name: "getReserveCaps",
     type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "assets", type: "address[]" },
-      { name: "to", type: "address" },
-    ],
+    stateMutability: "view",
+    inputs: [{ name: "asset", type: "address" }],
     outputs: [
-      { name: "rewardsList", type: "address[]" },
-      { name: "claimedAmounts", type: "uint256[]" },
+      { name: "borrowCap", type: "uint256" },
+      { name: "supplyCap", type: "uint256" },
     ],
   },
   {
-    name: "getUserRewards",
+    name: "getTotalDebt",
     type: "function",
     stateMutability: "view",
-    inputs: [
-      { name: "assets", type: "address[]" },
-      { name: "user", type: "address" },
-      { name: "reward", type: "address" },
-    ],
+    inputs: [{ name: "asset", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
   {
-    name: "getRewardsList",
+    name: "getPaused",
     type: "function",
     stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address[]" }],
-  },
-  {
-    name: "getAllUserRewards",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "assets", type: "address[]" },
-      { name: "user", type: "address" },
-    ],
-    outputs: [
-      { name: "rewardsList", type: "address[]" },
-      { name: "unclaimedAmounts", type: "uint256[]" },
-    ],
-  },
-] as const;
-
-// -----------------------------------------------------------------------------
-// DefaultReserveInterestRateStrategy (Aave V3)
-// -----------------------------------------------------------------------------
-export const INTEREST_RATE_STRATEGY_ABI = [
-  {
-    name: "getBaseVariableBorrowRate",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "getVariableRateSlope1",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "getVariableRateSlope2",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "OPTIMAL_USAGE_RATIO",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
+    inputs: [{ name: "asset", type: "address" }],
+    outputs: [{ name: "isPaused", type: "bool" }],
   },
 ] as const;
 
@@ -1049,5 +690,99 @@ export const ERC20_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// DefaultReserveInterestRateStrategyV2 (Aave v3.2): per-reserve parameters, in ray
+// -----------------------------------------------------------------------------
+export const INTEREST_RATE_STRATEGY_V2_ABI = [
+  {
+    name: "getBaseVariableBorrowRate",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "reserve", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "getVariableRateSlope1",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "reserve", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "getVariableRateSlope2",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "reserve", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "getOptimalUsageRatio",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "reserve", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// LuminaPriceGuard (lumina-oracle contracts/lighter/LuminaPriceGuard.sol)
+// -----------------------------------------------------------------------------
+export const PRICE_GUARD_ABI = [
+  {
+    name: "borrowStatus",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "status", type: "uint8" },
+      { name: "marketId", type: "uint16" },
+    ],
+  },
+  {
+    name: "isBorrowAllowed",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// LighterDualOracle (isolated pair oracle): rate = collateral per asset x 1e18
+// -----------------------------------------------------------------------------
+export const DUAL_ORACLE_ABI = [
+  {
+    name: "getPrices",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "isBadData", type: "bool" },
+      { name: "priceLow", type: "uint256" },
+      { name: "priceHigh", type: "uint256" },
+    ],
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// Multicall3 (block stamp for freshness)
+// -----------------------------------------------------------------------------
+export const MULTICALL3_ABI = [
+  {
+    name: "getBlockNumber",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "blockNumber", type: "uint256" }],
+  },
+  {
+    name: "getCurrentBlockTimestamp",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "timestamp", type: "uint256" }],
   },
 ] as const;

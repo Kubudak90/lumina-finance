@@ -4,19 +4,20 @@ import { useState } from "react";
 import { TokenIcon } from "@/components/common/TokenIcon";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { useUserPosition } from "@/hooks/useUserPosition";
-import { usePrices } from "@/hooks/usePrices";
+import { useOraclePrices } from "@/hooks/useOraclePrices";
 import { useAccount } from "wagmi";
-import { formatUnits } from "viem";
-import { formatPercent, formatHealthFactor, formatTokenAmount } from "@/lib/format";
+import { formatPercent, formatHealthFactor, formatTokenAmount, MAX_HEALTH_FACTOR } from "@/lib/format";
+import { formatUsd, usdValue } from "@/lib/prices";
+import { coreLegsUsd, oldestStamp } from "@/lib/valuation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SupplyModal } from "@/components/actions/SupplyModal";
 import { BorrowModal } from "@/components/actions/BorrowModal";
 import { WithdrawModal } from "@/components/actions/WithdrawModal";
 import { RepayModal } from "@/components/actions/RepayModal";
 import { EnableCollateralModal } from "@/components/actions/EnableCollateralModal";
-import { EModeModal } from "@/components/actions/EModeModal";
-import { useEMode } from "@/hooks/useEMode";
-import { useUserCollateralStatus } from "@/hooks/useUserCollateralStatus";
+import { FreshnessStamp } from "@/components/common/FreshnessStamp";
+import { GuardNotice } from "@/components/common/GuardNotice";
+import { DeploymentNotice } from "@/components/common/DeploymentNotice";
 import { MARKETS, type MarketConfig } from "@/lib/constants";
 import Link from "next/link";
 import {
@@ -24,61 +25,48 @@ import {
   ArrowDownLeft,
   TrendingUp,
   Shield,
-  Zap,
   Search,
 } from "lucide-react";
 
-function fmtUsd(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: value < 1 ? 2 : 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 type ModalState =
   | { type: "supply" | "borrow" | "withdraw" | "repay" | "collateral"; market: MarketConfig }
-  | { type: "emode" }
   | null;
 
 export default function Dashboard() {
   const { markets, isLoading } = useAllMarkets();
-  const { positions, accountData } = useUserPosition();
-  // Derive healthFactor from accountData to avoid a duplicate getUserAccountData RPC call
+  const { positions, accountData, stamp } = useUserPosition();
   const healthFactor = accountData?.healthFactor;
-  const { data: prices } = usePrices();
+  const { priceOf, stamp: priceStamp } = useOraclePrices();
+  // Valuations combine positions and prices: show the older of the two blocks.
+  const valuationStamp = oldestStamp([stamp, priceStamp]);
   const { isConnected: walletConnected } = useAccount();
-  const { currentCategoryId: eModeCategoryId, categoryData: eModeCategoryData } = useEMode();
-  const { isCollateralEnabled } = useUserCollateralStatus();
+  const isCollateralEnabled = (asset: string) =>
+    positions.find((p) => p.asset.toLowerCase() === asset.toLowerCase())?.collateralEnabled ?? false;
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<ModalState>(null);
 
-  // Compute user totals
-  const userTotalSupplied = positions.reduce((sum, p) => {
-    const price = prices?.[p.symbol] ?? 0;
-    return sum + Number(formatUnits(p.supplied, p.decimals)) * price;
-  }, 0);
-
-  const userTotalBorrowed = positions.reduce((sum, p) => {
-    const price = prices?.[p.symbol] ?? 0;
-    return sum + Number(formatUnits(p.borrowed, p.decimals)) * price;
-  }, 0);
+  // USD totals from AaveOracle prices (FE-06); "—" if a needed price is unavailable.
+  const legs = coreLegsUsd(positions, priceOf);
+  const userTotalSupplied = legs.supplied;
+  const userTotalBorrowed = legs.borrowed;
 
   // HF
-  const isMaxHf = healthFactor === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-  const hfNum = healthFactor ? (isMaxHf ? 99 : Number(healthFactor) / 1e18) : 0;
+  const isMaxHf = healthFactor === MAX_HEALTH_FACTOR;
+  const hfNum = healthFactor !== undefined ? (isMaxHf ? 99 : Number(healthFactor) / 1e18) : 0;
   const hfPercent = Math.min((hfNum / 5) * 100, 100);
   const hfColor = hfNum >= 2 ? "bg-emerald-500" : hfNum >= 1.2 ? "bg-amber-500" : "bg-rose-500";
   const hfTextColor = hfNum >= 2 ? "text-emerald-400" : hfNum >= 1.2 ? "text-amber-400" : "text-rose-400";
 
-  // Borrow limit from real account data
+  // Borrow limit (LTV-based, base currency) from on-chain account data
   const borrowLimit = accountData
     ? Number(accountData.availableBorrowsBase + accountData.totalDebtBase) / 1e8
-    : 0;
+    : undefined;
 
   // Net worth
-  const netWorth = userTotalSupplied - userTotalBorrowed;
+  const netWorth =
+    userTotalSupplied !== undefined && userTotalBorrowed !== undefined
+      ? userTotalSupplied - userTotalBorrowed
+      : undefined;
 
   // Filter markets by search
   const filtered = MARKETS.filter(
@@ -93,6 +81,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <DeploymentNotice />
+      <GuardNotice venue="core" />
+      {walletConnected && (
+        <div className="flex justify-end">
+          <FreshnessStamp stamp={valuationStamp} label="Valuation" />
+        </div>
+      )}
       {/* ─── Stats Grid ─── */}
       {walletConnected && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in">
@@ -111,7 +106,7 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="text-2xl font-mono font-bold glow-text">
-                  {fmtUsd(userTotalSupplied)}
+                  {formatUsd(userTotalSupplied)}
                 </div>
                 <div className="text-[10px] text-text-dim font-mono mt-1">Earning interest</div>
               </>
@@ -133,10 +128,10 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="text-2xl font-mono font-bold glow-text">
-                  {fmtUsd(userTotalBorrowed)}
+                  {formatUsd(userTotalBorrowed)}
                 </div>
                 <div className="text-[10px] text-text-dim font-mono mt-1">
-                  Limit: {fmtUsd(borrowLimit)}
+                  Limit: {formatUsd(borrowLimit)}
                 </div>
               </>
             )}
@@ -156,8 +151,8 @@ export default function Dashboard() {
               <Skeleton className="h-8 w-36" />
             ) : (
               <>
-                <div className={`text-2xl font-mono font-bold glow-text ${netWorth >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {fmtUsd(netWorth)}
+                <div className={`text-2xl font-mono font-bold glow-text ${netWorth === undefined || netWorth >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                  {formatUsd(netWorth)}
                 </div>
                 <div className="text-[10px] text-text-dim font-mono mt-1">Supplied - Borrowed</div>
               </>
@@ -170,19 +165,11 @@ export default function Dashboard() {
               <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim">
                 Health Factor
               </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setModal({ type: "emode" })}
-                  className="px-2 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-                >
-                  E-Mode
-                </button>
-                <div className="p-2 bg-accent/10 rounded-lg">
-                  <Shield size={14} className="text-accent" />
-                </div>
+              <div className="p-2 bg-accent/10 rounded-lg">
+                <Shield size={14} className="text-accent" />
               </div>
             </div>
-            {!healthFactor ? (
+            {healthFactor === undefined ? (
               <div className="text-2xl font-mono font-bold text-muted-foreground">--</div>
             ) : (
               <>
@@ -201,22 +188,6 @@ export default function Dashboard() {
               </>
             )}
           </div>
-        </div>
-      )}
-
-      {/* ─── E-Mode Indicator ─── */}
-      {walletConnected && eModeCategoryId > 0 && eModeCategoryData && (
-        <div className="technical-border bg-accent-dim/30 p-3 flex items-center gap-3 animate-in">
-          <Zap size={14} className="text-accent shrink-0" />
-          <span className="text-xs text-accent font-mono">
-            E-Mode: {eModeCategoryData.label || "Stablecoins"} (Higher LTV)
-          </span>
-          <button
-            onClick={() => setModal({ type: "emode" })}
-            className="ml-auto px-3 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
-          >
-            Manage
-          </button>
         </div>
       )}
 
@@ -281,9 +252,8 @@ export default function Dashboard() {
                   filtered.map((m) => {
                     const mInfo = getMarketInfo(m.asset);
                     const pos = positions.find((p) => p.asset.toLowerCase() === m.asset.toLowerCase());
-                    const price = prices?.[m.symbol] ?? 0;
-                    const suppliedAmt = pos ? Number(formatUnits(pos.supplied, m.decimals)) : 0;
-                    const suppliedUsd = suppliedAmt * price;
+                    const supplied = pos?.supplied;
+                    const suppliedUsd = usdValue(supplied, m.decimals, priceOf(m.asset));
                     const hasCollateral = isCollateralEnabled(m.asset);
 
                     return (
@@ -304,10 +274,10 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs font-mono text-foreground">
-                            {formatTokenAmount(pos?.supplied ?? 0n, m.decimals)}
+                            {supplied === undefined ? "—" : formatTokenAmount(supplied, m.decimals)}
                           </div>
                           <div className="text-[10px] text-text-dim font-mono">
-                            {fmtUsd(suppliedUsd)}
+                            {formatUsd(suppliedUsd)}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -339,7 +309,7 @@ export default function Dashboard() {
                             >
                               Supply
                             </button>
-                            {suppliedAmt > 0 && (
+                            {supplied !== undefined && supplied > 0n && (
                               <button
                                 onClick={() => setModal({ type: "withdraw", market: m })}
                                 className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
@@ -400,9 +370,8 @@ export default function Dashboard() {
                   filtered.map((m) => {
                     const mInfo = getMarketInfo(m.asset);
                     const pos = positions.find((p) => p.asset.toLowerCase() === m.asset.toLowerCase());
-                    const price = prices?.[m.symbol] ?? 0;
-                    const borrowedAmt = pos ? Number(formatUnits(pos.borrowed, m.decimals)) : 0;
-                    const borrowedUsd = borrowedAmt * price;
+                    const borrowed = pos?.borrowed;
+                    const borrowedUsd = usdValue(borrowed, m.decimals, priceOf(m.asset));
 
                     return (
                       <tr
@@ -422,10 +391,10 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs font-mono text-foreground">
-                            {formatTokenAmount(pos?.borrowed ?? 0n, m.decimals)}
+                            {borrowed === undefined ? "—" : formatTokenAmount(borrowed, m.decimals)}
                           </div>
                           <div className="text-[10px] text-text-dim font-mono">
-                            {fmtUsd(borrowedUsd)}
+                            {formatUsd(borrowedUsd)}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -441,7 +410,7 @@ export default function Dashboard() {
                             >
                               Borrow
                             </button>
-                            {borrowedAmt > 0 && (
+                            {borrowed !== undefined && borrowed > 0n && (
                               <button
                                 onClick={() => setModal({ type: "repay", market: m })}
                                 className="px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono"
@@ -501,9 +470,6 @@ export default function Dashboard() {
           currentlyEnabled={isCollateralEnabled(modal.market.asset)}
           onClose={() => setModal(null)}
         />
-      )}
-      {modal?.type === "emode" && (
-        <EModeModal onClose={() => setModal(null)} />
       )}
     </div>
   );

@@ -1,14 +1,15 @@
 "use client";
 
 import { useAccount } from "wagmi";
-import { defaultChain } from "@/lib/chains";
+import { LUMINA_CHAIN_ID } from "@/lib/deployments";
+import { NETWORK_NAME } from "@/lib/chains";
 
 export function NetworkBadge() {
-  const { chain, isConnected } = useAccount();
+  const { chainId, isConnected } = useAccount();
 
   if (!isConnected) return null;
 
-  const isCorrect = chain?.id === defaultChain.id;
+  const isCorrect = chainId === LUMINA_CHAIN_ID;
 
   return (
     <div
@@ -27,7 +28,7 @@ export function NetworkBadge() {
           isCorrect ? "bg-accent" : "bg-red-500 animate-pulse"
         }`}
       />
-      {isCorrect ? chain.name : chain?.name ?? "Unknown"}
+      {isCorrect ? NETWORK_NAME : `Wrong chain (${chainId ?? "?"})`}
     </div>
   );
 }

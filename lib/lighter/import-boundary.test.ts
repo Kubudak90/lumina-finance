@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
-const SKIP_DIRS = new Set(["node_modules", ".next", ".git", "coverage", "out", "build"]);
+// `.worktrees/` holds local git worktrees (gitignored); their copies of the code are not this checkout.
+const SKIP_DIRS = new Set(["node_modules", ".next", ".git", ".worktrees", "coverage", "out", "build"]);
 
 function walk(dir: string): string[] {
   const out: string[] = [];
