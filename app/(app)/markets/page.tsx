@@ -1,11 +1,13 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { MarketTable } from "@/components/markets/MarketTable";
 import { useAllMarkets } from "@/hooks/useAllMarkets";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function MarketsPage() {
   const { markets, isLoading } = useAllMarkets();
+  const router = useRouter();
 
   return (
     <div className="space-y-6">
@@ -21,7 +23,7 @@ export default function MarketsPage() {
         </div>
       ) : (
         <div className="animate-in-delay-1 technical-border bg-card">
-          <MarketTable markets={markets} />
+          <MarketTable markets={markets} onOpenMarket={(href) => router.push(href)} />
         </div>
       )}
     </div>

@@ -227,6 +227,8 @@ export function PositionsTable({
         <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">Your positions</span>
       </div>
       <div className="technical-border bg-card">
+        {/* Fits at 1024 px; an unusually long value scrolls inside the card, never the page. */}
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b border-border/50">
@@ -276,6 +278,7 @@ export function PositionsTable({
             </tbody>
           ) : null}
         </table>
+        </div>
       </div>
     </section>
   );

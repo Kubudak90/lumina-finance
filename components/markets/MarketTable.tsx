@@ -20,9 +20,25 @@ import type { MarketInfo } from "@/hooks/useAllMarkets";
 
 interface MarketTableProps {
   markets: MarketInfo[];
+  /** Opens a market (the page passes router.push). When given, a click anywhere on a row opens it. */
+  onOpenMarket?: (href: string) => void;
 }
 
-export function MarketTable({ markets }: MarketTableProps) {
+/**
+ * A row click outside the asset link opens that row's market. The link itself handles its own
+ * click (and is the keyboard path); a click that ends a text selection, or lands on a button, is
+ * not a navigation.
+ */
+function rowClick(href: string, open: ((href: string) => void) | undefined) {
+  return (event: React.MouseEvent<HTMLTableRowElement>) => {
+    if (!open) return;
+    if (event.target instanceof Element && event.target.closest("a, button")) return;
+    if (window.getSelection()?.toString()) return;
+    open(href);
+  };
+}
+
+export function MarketTable({ markets, onOpenMarket }: MarketTableProps) {
   const { priceOf } = useOraclePrices();
 
   return (
@@ -49,14 +65,20 @@ export function MarketTable({ markets }: MarketTableProps) {
                   ? Number((m.totalBorrow * 10000n) / m.totalSupply) / 100
                   : 0;
             const price = priceOf(m.asset);
+            const href = `/markets/${m.symbol.toLowerCase()}`;
             return (
-              // The whole row is clickable through a "stretched" link in the asset cell (its ::after
-              // covers the row): valid HTML (no <a> around a <tr>) and keyboard-focusable.
-              <TableRow key={m.symbol} className="relative cursor-pointer border-b border-border/50 hover:bg-white/5">
+              // A real link in the asset cell (keyboard path, open-in-new-tab); the rest of the row
+              // opens the market on click. No <a> around the <tr> (valid HTML).
+              <TableRow
+                key={m.symbol}
+                className={`border-b border-border/50 hover:bg-white/5 ${onOpenMarket ? "cursor-pointer" : ""}`}
+                onClick={rowClick(href, onOpenMarket)}
+                data-testid="market-row"
+              >
                   <TableCell className="px-6 py-4">
                     <Link
-                      href={`/markets/${m.symbol.toLowerCase()}`}
-                      className="flex items-center gap-3 after:absolute after:inset-0 after:content-['']"
+                      href={href}
+                      className="inline-flex items-center gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       <TokenIcon symbol={m.symbol} />
                       <div>

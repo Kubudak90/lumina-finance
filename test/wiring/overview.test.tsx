@@ -16,6 +16,7 @@ import { fake, resetFake, update, useFakeVersion } from "../support/fakeChain";
 import { DUAL_USDC_WETH, DUAL_WETH_USDC, PAIR_USDC_WETH, PAIR_WETH_USDC, USDC, WETH } from "../support/deployment";
 
 const params = vi.hoisted(() => ({ asset: "usdc" }));
+const router = vi.hoisted(() => ({ push: (() => {}) as (href: string) => void }));
 
 vi.mock("@/hooks/chain", async () => (await import("../support/fakeChain")).chainModule);
 vi.mock("wagmi", async () => (await import("../support/fakeChain")).wagmiModule);
@@ -24,7 +25,7 @@ vi.mock("@/lib/chains", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/chains")>()),
   rpcUrlFor: () => "https://rpc.test",
 }));
-vi.mock("next/navigation", () => ({ useParams: () => params, usePathname: () => "/" }));
+vi.mock("next/navigation", () => ({ useParams: () => params, usePathname: () => "/", useRouter: () => router }));
 vi.mock("@/lib/portfolio/clock", () => ({ useFreshnessNow: () => 1_700_000_100_000 }));
 vi.mock("@/hooks/useGuardStatus", () => ({ useGuardStatus: () => ({ key: "OK", borrowAllowed: true, message: "", marketId: 0, isLoading: false }) }));
 vi.mock("@/components/markets/RateCurveChart", () => ({ RateCurveChart: () => <div data-testid="rate-curve" /> }));
@@ -731,15 +732,119 @@ describe("layout at 1024 px (coordinator #6): no clipped actions, no overlapping
   });
 });
 
-describe("MarketTable: valid HTML (coordinator #8)", () => {
-  it("no <a> around a <tr>: the row link is a stretched link inside the asset cell", () => {
+describe("MarketTable: valid HTML, a real link and a clickable row (coordinator #8, Gemini r2 #2)", () => {
+  const marketRow = (symbol: string) => screen.getAllByTestId("market-row").find((r) => r.textContent?.includes(symbol))!;
+
+  beforeEach(() => {
+    router.push = vi.fn();
+  });
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("no <a> around a <tr> and no stretched overlay: a normal link in the asset cell, with a focus ring", () => {
     const { container } = render(<MarketsPage />);
     expect(container.querySelectorAll("tbody > a, a > tr")).toHaveLength(0);
     const links = screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/markets/"));
     expect(links.map((a) => a.getAttribute("href"))).toEqual(["/markets/weth", "/markets/usdc"]);
     for (const a of links) {
       expect(a.closest("td")).not.toBeNull();
-      expect(a.closest("tr")!.className.split(/\s+/)).toContain("relative");
+      expect(a.className).not.toMatch(/after:/);
+      expect(a.closest("tr")!.className.split(/\s+/)).not.toContain("relative");
+      expect(a.className).toMatch(/focus-visible:ring-2/);
     }
+  });
+
+  it("clicking a non-link cell opens that row's market through the router", () => {
+    render(<MarketsPage />);
+    fireEvent.click(within(marketRow("USDC")).getByText(RATES.usdcBorrow.apy));
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith("/markets/usdc");
+    fireEvent.click(within(marketRow("WETH")).getByText(RATES.wethSupply.apy));
+    expect(router.push).toHaveBeenLastCalledWith("/markets/weth");
+  });
+
+  it("clicking the link is the link's own navigation (the row handler stays out); a text selection is not a click", () => {
+    render(<MarketsPage />);
+    fireEvent.click(within(marketRow("WETH")).getByRole("link"));
+    expect(window.location.pathname).toBe("/markets/weth");
+    expect(router.push).not.toHaveBeenCalled();
+    vi.spyOn(window, "getSelection").mockReturnValue({ toString: () => "5.13" } as unknown as Selection);
+    fireEvent.click(within(marketRow("USDC")).getByText(RATES.usdcSupply.apy));
+    expect(router.push).not.toHaveBeenCalled();
+  });
+});
+
+/** Whether `el` is displayed below xl (no "hidden" on it or an ancestor) and at xl (no "xl:hidden"). */
+const shownBelowXl = (el: Element) => !el.closest(".hidden");
+const shownAtXl = (el: Element) => {
+  for (let e: Element | null = el; e; e = e.parentElement) if (e.classList.contains("xl:hidden")) return false;
+  return true;
+};
+
+describe("isolated All Pairs: every value visible at every width (Gemini r2 #1)", () => {
+  it("Price and Util: their own columns from xl, sublines below xl; each value shows at both widths", () => {
+    render(<IsolatedPage />);
+    const prices = ["1 USDC = 0.0005 WETH", "1 WETH = 2,000 USDC"];
+    for (const [i, price] of prices.entries()) {
+      const column = screen.getAllByTestId("pair-price")[i];
+      const inline = screen.getAllByTestId("pair-price-inline")[i];
+      expect(column.textContent).toBe(price);
+      expect(inline.textContent).toBe(`Price: ${price}`);
+      expect([shownBelowXl(column), shownAtXl(column)]).toEqual([false, true]);
+      expect([shownBelowXl(inline), shownAtXl(inline)]).toEqual([true, false]);
+    }
+    for (const [i, cell] of screen.getAllByTestId("pair-util").entries()) {
+      const inline = screen.getAllByTestId("pair-util-inline")[i];
+      expect(cell.textContent).toBe("20.0%");
+      expect(inline.textContent).toBe("20.0% util");
+      expect([shownBelowXl(cell), shownAtXl(cell)]).toEqual([false, true]);
+      expect([shownBelowXl(inline), shownAtXl(inline)]).toEqual([true, false]);
+    }
+  });
+
+  it("the empty and loading rows span exactly the columns visible at each width (7 below xl, 9 from xl)", () => {
+    update((f) => {
+      f.data.pairs = [];
+    });
+    render(<IsolatedPage />);
+    // One cell per breakpoint (only one is displayed at a time).
+    const messages = screen.getAllByText("No isolated pairs in the deployment manifest");
+    expect(messages).toHaveLength(2);
+    expect(messages.filter(shownBelowXl)).toHaveLength(1);
+    expect(messages.filter(shownAtXl)).toHaveLength(1);
+    const table = messages[0].closest("table")!;
+    const headers = [...table.querySelectorAll("thead th")];
+    const visible = (pred: (e: Element) => boolean) => headers.filter(pred).length;
+    expect([visible(shownBelowXl), visible(shownAtXl)]).toEqual([7, 9]);
+    const cells = [...table.querySelectorAll("tbody td")];
+    expect(cells.filter(shownBelowXl).map((c) => c.getAttribute("colspan"))).toEqual(["7"]);
+    expect(cells.filter(shownAtXl).map((c) => c.getAttribute("colspan"))).toEqual(["9"]);
+  });
+});
+
+describe("cards keep long values inside (Gemini r2 #3)", () => {
+  it("each wide table sits in an inner horizontal scroller inside its card", () => {
+    render(<Dashboard />);
+    const positions = rows()[0].closest("table")!;
+    expect(positions.parentElement!.className).toContain("overflow-x-auto");
+    expect(positions.parentElement!.parentElement!.className).toContain("technical-border");
+    cleanup();
+    render(<IsolatedPage />);
+    const tables = [...document.querySelectorAll("table")];
+    expect(tables).toHaveLength(2);
+    for (const t of tables) {
+      expect(t.parentElement!.className).toContain("overflow-x-auto");
+      expect(t.parentElement!.parentElement!.className).toContain("technical-border");
+    }
+  });
+
+  it("the stale-oracle subline under the LTV can wrap", () => {
+    update((f) => {
+      (f.data.iso as Iso).positions = [{ ...p1Position(), oracleBadData: true }, p2CollateralOnly()];
+    });
+    render(<IsolatedPage />);
+    const subline = screen.getByText(/· price data stale/);
+    expect(subline.className).toContain("whitespace-normal");
   });
 });

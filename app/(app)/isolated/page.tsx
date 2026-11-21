@@ -38,8 +38,29 @@ const TH = "text-[10px] text-muted-foreground uppercase font-mono tracking-wider
 const TD = "px-3 py-3 align-top";
 /** Numbers: one line each, a size down below xl (1280 px). */
 const NUM = `${TD} font-mono text-xs xl:text-sm text-right whitespace-nowrap`;
-/** Secondary columns, shown from xl (1280 px): at 1024 px the table fits without them. */
+/**
+ * Util and Price get their own columns from xl (1280 px). Below xl the same values show as
+ * sublines (under Total Borrowed and under the pair name), so every value is visible at every
+ * width and the table still fits its card at 1024 px.
+ */
 const XL = "hidden xl:table-cell";
+const BELOW_XL = "xl:hidden";
+/** All Pairs columns: 9 from xl, 7 below (Util and Price become sublines). */
+const PAIR_COLUMNS = { xl: 9, belowXl: 7 } as const;
+
+/** A full-width cell in an All Pairs row, spanning the columns visible at each width. */
+function FullRow({ className, children }: { className: string; children: React.ReactNode }) {
+  return (
+    <>
+      <td colSpan={PAIR_COLUMNS.belowXl} className={`${className} ${BELOW_XL}`}>
+        {children}
+      </td>
+      <td colSpan={PAIR_COLUMNS.xl} className={`${className} ${XL}`}>
+        {children}
+      </td>
+    </>
+  );
+}
 const BTN =
   "px-2.5 py-1 border border-accent/30 text-accent text-[10px] uppercase tracking-wider hover:bg-accent hover:text-background transition-all font-mono whitespace-nowrap";
 
@@ -127,6 +148,8 @@ export default function IsolatedPage() {
             <span className="ml-auto"><FreshnessStamp stamp={tableStamp} /></span>
           </div>
           <div className="technical-border bg-card">
+            {/* Fits at 1024 px; an unusually long value scrolls inside the card, never the page. */}
+            <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
@@ -214,7 +237,7 @@ export default function IsolatedPage() {
                             {p.borrowedShares > 0n ? (
                               <>
                                 <div>{health.value}{p.maxLTV !== undefined ? ` / ${formatMaxLtvPercent(p.maxLTV)}` : ""}</div>
-                                <div className="text-[10px] text-text-dim">{health.statusLabel}{p.oracleBadData ? " · price data stale" : ""}</div>
+                                <div className="text-[10px] text-text-dim whitespace-normal">{health.statusLabel}{p.oracleBadData ? " · price data stale" : ""}</div>
                               </>
                             ) : "—"}
                           </td>
@@ -251,6 +274,7 @@ export default function IsolatedPage() {
                 </>
               )}
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -261,6 +285,7 @@ export default function IsolatedPage() {
           <span className="text-xs font-mono uppercase tracking-[0.2em] text-accent">All Pairs</span>
         </div>
         <div className="technical-border bg-card">
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border/50">
@@ -279,26 +304,40 @@ export default function IsolatedPage() {
               {pairsLoading ? (
                 [0, 1].map((i) => (
                   <tr key={i} className="border-b border-border/50">
-                    <td colSpan={9} className="px-3 py-4"><Skeleton className="h-8 w-full" /></td>
+                    <FullRow className="px-3 py-4"><Skeleton className="h-8 w-full" /></FullRow>
                   </tr>
                 ))
               ) : pairs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="h-32 text-center text-muted-foreground">
+                  <FullRow className="h-32 text-center text-muted-foreground">
                     <p className="text-sm font-medium text-foreground">No isolated pairs in the deployment manifest</p>
-                  </td>
+                  </FullRow>
                 </tr>
               ) : (
-                pairs.map((p) => (
+                pairs.map((p) => {
+                  const util = p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`;
+                  const price =
+                    p.exchangeRate !== undefined
+                      ? `1 ${p.assetSymbol} = ${fmt(collateralPerWholeAsset(p.exchangeRate, p.assetDecimals), p.collateralDecimals, 6)} ${p.collateralSymbol}`
+                      : "—";
+                  return (
                   <tr key={p.name} className="border-b border-border/50 hover:bg-white/5">
                     <td className={TD}>
                       <PairName asset={p.assetSymbol} collateral={p.collateralSymbol} />
-                      {/* Under the name, so it shows at every width (the Price column is xl-only). */}
+                      <div className={`${BELOW_XL} text-[10px] font-mono text-text-dim mt-1 whitespace-nowrap`} data-testid="pair-price-inline" title="Pair oracle: collateral per 1 asset">
+                        Price: {price}
+                      </div>
+                      {/* Under the name, so it shows at every width. */}
                       {p.oracleBadData && <div className="text-[10px] font-mono text-amber-400 mt-1">borrows blocked</div>}
                     </td>
                     <td className={NUM}>{fmt(p.totalAssetAmount, p.assetDecimals)}</td>
-                    <td className={NUM}>{fmt(p.totalBorrowAmount, p.assetDecimals)}</td>
-                    <td className={`${NUM} ${XL}`}>{p.utilization === undefined ? "—" : `${p.utilization.toFixed(1)}%`}</td>
+                    <td className={NUM}>
+                      <div>{fmt(p.totalBorrowAmount, p.assetDecimals)}</div>
+                      <div className={`${BELOW_XL} text-[10px] text-text-dim`} data-testid="pair-util-inline">
+                        {util} util
+                      </div>
+                    </td>
+                    <td className={`${NUM} ${XL}`} data-testid="pair-util">{util}</td>
                     {/* APY = aprToApy(APR from previewAddInterest); 0 while interest is paused (spec §3.1). */}
                     <td className={`${NUM} text-emerald-400`} data-testid="pair-lend-apy">
                       {formatApy(p.lendApr && aprToApy(p.lendApr))}
@@ -307,14 +346,8 @@ export default function IsolatedPage() {
                       {formatApy(p.borrowApr && aprToApy(p.borrowApr))}
                     </td>
                     <td className={NUM}>{p.maxLTV === undefined ? "—" : formatMaxLtvPercent(p.maxLTV)}</td>
-                    <td className={`${TD} font-mono text-xs text-right ${XL}`} title="Pair oracle: collateral per 1 asset">
-                      {p.exchangeRate !== undefined
-                        ? `1 ${p.assetSymbol} = ${fmt(
-                            collateralPerWholeAsset(p.exchangeRate, p.assetDecimals),
-                            p.collateralDecimals,
-                            6,
-                          )} ${p.collateralSymbol}`
-                        : "—"}
+                    <td className={`${TD} font-mono text-xs text-right ${XL}`} title="Pair oracle: collateral per 1 asset" data-testid="pair-price">
+                      {price}
                     </td>
                     <td className={`${TD} text-right`}>
                       {isDeployedPair(p) ? (
@@ -331,10 +364,12 @@ export default function IsolatedPage() {
                       )}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
