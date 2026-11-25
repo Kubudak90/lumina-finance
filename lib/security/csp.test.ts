@@ -88,13 +88,32 @@ describe("CSP and anti-framing headers (FE-02)", () => {
     expect(directive(buildCsp({ rpcUrl: "http://rpc.example" }), "connect-src")).not.toContain("http://rpc.example");
   });
 
+  it("sets HSTS and COOP with the spec values (N-FE-04)", async () => {
+    const headers = Object.fromEntries(securityHeaders({}).map((h) => [h.key, h.value]));
+    expect(headers["Strict-Transport-Security"]).toBe("max-age=31536000; includeSubDomains");
+    expect(headers["Cross-Origin-Opener-Policy"]).toBe("same-origin-allow-popups");
+
+    const routes = await nextConfig.headers!();
+    const routeHeaders = Object.fromEntries(routes[0].headers.map((h: { key: string; value: string }) => [h.key, h.value]));
+    expect(routeHeaders["Strict-Transport-Security"]).toBe("max-age=31536000; includeSubDomains");
+    expect(routeHeaders["Cross-Origin-Opener-Policy"]).toBe("same-origin-allow-popups");
+  });
+
   it("is applied to every route by next.config headers()", async () => {
     const routes = await nextConfig.headers!();
     expect(routes).toHaveLength(1);
     expect(routes[0].source).toBe("/:path*");
     const keys = routes[0].headers.map((h: { key: string }) => h.key);
     expect(keys).toEqual(
-      expect.arrayContaining(["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]),
+      expect.arrayContaining([
+        "Content-Security-Policy",
+        "X-Frame-Options",
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+        "Strict-Transport-Security",
+        "Cross-Origin-Opener-Policy",
+      ]),
     );
   });
 });

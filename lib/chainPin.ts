@@ -62,6 +62,9 @@ export interface WriteRequest {
   functionName: string;
   args?: readonly unknown[];
   value?: bigint;
+  gas?: bigint;
+  /** Extra gas added to `estimateGas` before sending (F2: pair `liquidate` adds 1,000,000 + 100,000). */
+  gasPadding?: bigint;
   chainId?: number;
 }
 
@@ -76,27 +79,37 @@ export interface PinnedWriteDeps<Simulated extends object, Result> {
   /** Chain id the configured RPC actually reported (eth_chainId). */
   rpcChainId: number | undefined;
   simulate: (params: WriteRequest & { account: `0x${string}`; chainId: number }) => Promise<{ request: Simulated }>;
-  write: (params: Simulated & { chainId: number }) => Promise<Result>;
+  /** Required only when `request.gasPadding` is positive. */
+  estimateGas?: (params: WriteRequest & { account: `0x${string}`; chainId: number }) => Promise<bigint>;
+  write: (params: Simulated & { chainId: number; gas?: bigint }) => Promise<Result>;
 }
 
 /**
- * Validate → simulate on the pinned chain → send with `chainId`, so wagmi also asserts the wallet
- * chain at signing time. Throws before any wallet prompt if the wallet, the RPC (eth_chainId), the
- * simulating client or the request is on another chain.
+ * Validate → simulate on the pinned chain → (optionally estimate and pad gas) → send with
+ * `chainId`, so wagmi also asserts the wallet chain at signing time. Throws before any wallet
+ * prompt if the wallet, the RPC (eth_chainId), the simulating client or the request is on another
+ * chain.
  */
 export async function executePinnedWrite<Simulated extends object, Result>(
   deps: PinnedWriteDeps<Simulated, Result>,
 ): Promise<Result> {
-  const { request, account, expectedChainId, walletChainId, simulatorChainId, rpcChainId, simulate, write } = deps;
+  const { request, account, expectedChainId, walletChainId, simulatorChainId, rpcChainId, simulate, estimateGas, write } = deps;
   if (!account) throw new Error("Wallet not connected");
   assertWalletChain(expectedChainId, walletChainId);
   if (rpcChainId !== expectedChainId) throw new ChainMismatchError(expectedChainId, rpcChainId, "RPC");
   if (simulatorChainId !== expectedChainId) {
     throw new ChainMismatchError(expectedChainId, simulatorChainId, "RPC client");
   }
-  const pinned = pinChainId({ ...request, account }, expectedChainId);
+  const { gasPadding, ...contractRequest } = request;
+  const pinned = pinChainId({ ...contractRequest, account }, expectedChainId);
   const simulated = await simulate(pinned);
-  const send = pinChainId(simulated.request, expectedChainId);
+  let sendRequest: Simulated & { gas?: bigint } = simulated.request;
+  if (gasPadding !== undefined && gasPadding > 0n) {
+    if (!estimateGas) throw new Error("Gas estimation unavailable for padded write");
+    const estimated = await estimateGas(pinned);
+    sendRequest = { ...sendRequest, gas: estimated + gasPadding };
+  }
+  const send = pinChainId(sendRequest, expectedChainId);
   assertPinned(send, expectedChainId);
   return write(send);
 }

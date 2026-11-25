@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { DUAL_ORACLE_ABI, ERC20_ABI, ISOLATED_PAIR_ABI, PRICE_GUARD_ABI } from "@/lib/abis";
 import { LUMINA } from "@/lib/deployments";
+import type { VaultTotals } from "@/lib/approvals";
 import { bigintAt, resultAt, useLuminaReader } from "@/hooks/chain";
 
 export interface FreshAccountState {
@@ -18,6 +19,8 @@ export interface FreshAccountState {
 export interface FreshPairRisk {
   /** Pair oracle rate (priceHigh) and its bad-data flag. */
   exchangeRate: bigint;
+  /** Pair oracle low rate (priceLow), used by liquidate(). */
+  lowExchangeRate: bigint;
   oracleBadData: boolean;
   /** LuminaPriceGuard.borrowStatus() == OK. */
   guardOk: boolean;
@@ -26,6 +29,20 @@ export interface FreshPairRisk {
   totalBorrowAmount: bigint;
   totalBorrowShares: bigint;
   borrowLimit: bigint;
+}
+
+export interface FreshLiquidationContext {
+  borrowShares: bigint;
+  collateral: bigint;
+  allowance: bigint;
+  wallet: bigint;
+  /** Pair liquidation exchange rate (priceLow). */
+  lowExchangeRate: bigint;
+  maxLtv: bigint;
+  totalBorrow: VaultTotals;
+  cleanLiquidationFee: bigint;
+  dirtyLiquidationFee: bigint;
+  protocolLiquidationFee: bigint;
 }
 
 /**
@@ -91,6 +108,7 @@ export function useIsolatedFreshReads() {
       }
       return {
         exchangeRate: prices[2],
+        lowExchangeRate: prices[1],
         oracleBadData: prices[0],
         guardOk: Number(status[0]) === 0,
         maxLtv,
@@ -103,5 +121,68 @@ export function useIsolatedFreshReads() {
     [read],
   );
 
-  return { accountState, shareValue, pairRisk };
+  /** Atomic single-block read for isolated pair liquidation pre-send checks (F8). */
+  const liquidationContext = useCallback(
+    async (
+      pair: `0x${string}`,
+      borrower: `0x${string}`,
+      asset: `0x${string}`,
+      liquidator: `0x${string}`,
+      dualOracle: `0x${string}` | null,
+    ): Promise<FreshLiquidationContext> => {
+      if (!dualOracle) throw new Error("pair oracle not in the manifest");
+      const r = await read([
+        { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "getUserSnapshot", args: [borrower] },
+        { address: asset, abi: ERC20_ABI, functionName: "allowance", args: [liquidator, pair] },
+        { address: asset, abi: ERC20_ABI, functionName: "balanceOf", args: [liquidator] },
+        { address: dualOracle, abi: DUAL_ORACLE_ABI, functionName: "getPrices" },
+        { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "maxLTV" },
+        { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "getPairAccounting" },
+        { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "cleanLiquidationFee" },
+        { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "dirtyLiquidationFee" },
+        { address: pair, abi: ISOLATED_PAIR_ABI, functionName: "protocolLiquidationFee" },
+      ]);
+      const snap = resultAt<readonly bigint[]>(r, 0);
+      const allowance = bigintAt(r, 1);
+      const wallet = bigintAt(r, 2);
+      const prices = resultAt<readonly [boolean, bigint, bigint]>(r, 3);
+      const maxLtv = bigintAt(r, 4);
+      const accounting = resultAt<readonly bigint[]>(r, 5);
+      const cleanLiquidationFee = bigintAt(r, 6);
+      const dirtyLiquidationFee = bigintAt(r, 7);
+      const protocolLiquidationFee = bigintAt(r, 8);
+      if (
+        !snap ||
+        snap.length < 3 ||
+        allowance === undefined ||
+        wallet === undefined ||
+        !prices ||
+        typeof prices[1] !== "bigint" ||
+        prices[1] <= 0n ||
+        maxLtv === undefined ||
+        !accounting ||
+        accounting.length < 4 ||
+        cleanLiquidationFee === undefined ||
+        dirtyLiquidationFee === undefined ||
+        protocolLiquidationFee === undefined
+      ) {
+        throw new Error("could not read the borrower, rate or liquidation fees from the chain");
+      }
+      return {
+        borrowShares: snap[1],
+        collateral: snap[2],
+        allowance,
+        wallet,
+        lowExchangeRate: prices[1],
+        maxLtv,
+        totalBorrow: { amount: accounting[2], shares: accounting[3] },
+        cleanLiquidationFee,
+        dirtyLiquidationFee,
+        protocolLiquidationFee,
+      };
+    },
+    [read],
+  );
+
+  return { accountState, shareValue, pairRisk, liquidationContext };
 }

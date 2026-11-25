@@ -418,9 +418,20 @@
         "ltvBps": 7500,
         "liquidationThresholdBps": 8000,
         "liquidationBonusBps": 500,
+        "liquidationProtocolFeeBps": 1000,
         "reserveFactorBps": 1500,
+        "debtCeiling": 0,
         "supplyCap": null,
         "borrowCap": null,
+        "active": true,
+        "frozen": false,
+        "paused": false,
+        "borrowingEnabled": true,
+        "flashLoanEnabled": false,
+        "optimalUsageRatioBps": 8000,
+        "baseVariableBorrowRateBps": 0,
+        "variableRateSlope1Bps": 300,
+        "variableRateSlope2Bps": 8000,
         "seedAmount": null
       },
       {
@@ -432,9 +443,20 @@
         "ltvBps": 7500,
         "liquidationThresholdBps": 7800,
         "liquidationBonusBps": 500,
+        "liquidationProtocolFeeBps": 1000,
         "reserveFactorBps": 1000,
+        "debtCeiling": 0,
         "supplyCap": null,
         "borrowCap": null,
+        "active": true,
+        "frozen": false,
+        "paused": false,
+        "borrowingEnabled": true,
+        "flashLoanEnabled": false,
+        "optimalUsageRatioBps": 8000,
+        "baseVariableBorrowRateBps": 0,
+        "variableRateSlope1Bps": 500,
+        "variableRateSlope2Bps": 6000,
         "seedAmount": null
       }
     ],
@@ -447,7 +469,9 @@
         "maxLtvBps": 7500,
         "cleanLiquidationFeeBps": 500,
         "protocolLiquidationFeeShareBps": 1000,
-        "seedAmount": null
+        "seedAmount": null,
+        "depositLimit": null,
+        "borrowLimit": null
       },
       {
         "name": "WETH/USDC",
@@ -457,7 +481,9 @@
         "maxLtvBps": 7500,
         "cleanLiquidationFeeBps": 500,
         "protocolLiquidationFeeShareBps": 1000,
-        "seedAmount": null
+        "seedAmount": null,
+        "depositLimit": null,
+        "borrowLimit": null
       }
     ]
   },
@@ -511,7 +537,6 @@
           null
         ],
         "POOL_ADMIN": [
-          null,
           null
         ],
         "EMERGENCY_ADMIN": [
@@ -523,9 +548,7 @@
         ],
         "FLASH_BORROWER": [],
         "BRIDGE": [],
-        "ASSET_LISTING_ADMIN": [
-          null
-        ]
+        "ASSET_LISTING_ADMIN": []
       },
       "executorOwner": null,
       "executorEmergencyEnabled": false,

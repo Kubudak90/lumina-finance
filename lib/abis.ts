@@ -289,6 +289,9 @@ export const ISOLATED_PAIR_ABI = [
   { name: "asset", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
   { name: "collateralContract", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
   { name: "maxLTV", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { name: "cleanLiquidationFee", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { name: "dirtyLiquidationFee", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { name: "protocolLiquidationFee", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { name: "decimals", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] },
   { name: "name", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] },
   { name: "symbol", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] },
@@ -526,6 +529,19 @@ export const ISOLATED_PAIR_ABI = [
   { name: "WithdrawPaused", type: "error", inputs: [] },
   { name: "LiquidatePaused", type: "error", inputs: [] },
   { name: "InterestPaused", type: "error", inputs: [] },
+  { name: "NothingToRepay", type: "error", inputs: [] },
+  { name: "InsufficientGasForGuard", type: "error", inputs: [] },
+  // --- Events ---
+  {
+    name: "RepayAsset",
+    type: "event",
+    inputs: [
+      { name: "payer", type: "address", indexed: true },
+      { name: "borrower", type: "address", indexed: true },
+      { name: "amountToRepay", type: "uint256", indexed: false },
+      { name: "shares", type: "uint256", indexed: false },
+    ],
+  },
   // --- Mutative ---
   {
     name: "withdraw",
@@ -880,6 +896,7 @@ export const DUAL_ORACLE_ABI = [
       { name: "priceHigh", type: "uint256" },
     ],
   },
+  { name: "InsufficientGasForGuard", type: "error", inputs: [] },
 ] as const;
 
 // -----------------------------------------------------------------------------

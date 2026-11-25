@@ -10,6 +10,7 @@ import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { hasExecutionHeadroom, planIsolatedRepay, repayHeadroom, walletBoundedShares } from "@/lib/approvals";
 import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
+import { parseRepayAssetEvent } from "@/lib/repayEvent";
 import { aprToApy, isolatedPreview, type IsolatedAction } from "@/lib/risk";
 import type { TxErrorContext } from "@/lib/txErrors";
 import { QUERY } from "@/lib/queryPolicy";
@@ -50,7 +51,6 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   const info = useIsolatedPair(pair);
   const [amount, setAmount] = useState("");
   const [intent, setIntent] = useState<Intent>({ kind: "amount" });
-  const [submittedAll, setSubmittedAll] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const { address } = useAccount();
   const fresh = useIsolatedFreshReads();
@@ -145,7 +145,6 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
       // The account, chain and inputs must still be the ones this follow-up started with.
       const stale = flow.stale();
       if (stale) return cancelFollowUp(stale);
-      setSubmittedAll(params.mode === "all");
       await tx.send(repayRequest(sharesNow));
     } catch (err) {
       return stop(`Re-check failed (${(err as Error).message}); nothing was sent.`, "the re-check could not read the chain");
@@ -162,9 +161,12 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   });
   const needsApproval = plan !== null && flow.needsApproval(plan.approve);
 
+  const repaidEvent = tx.isSuccess ? parseRepayAssetEvent(tx.receipt?.logs, pair, address) : null;
+  const repaidLabel = repaidEvent ? formatToken(repaidEvent.amountToRepay, assetDecimals, assetSymbol) : null;
+
   useTxErrorToast(tx.error, "Repay failed", CTX);
   useTxErrorToast(flow.error, "Approval failed", { venue: "isolated", action: "approve" });
-  useTxSuccessToast(tx.isSuccess, tx.hash, "Debt repaid");
+  useTxSuccessToast(tx.isSuccess, tx.hash, "Debt repaid", repaidLabel ? `Repaid ${repaidLabel}` : undefined);
 
   const handleRepay = () => {
     if (!address || !plan) return;
@@ -203,7 +205,16 @@ export function IsolatedRepayModal({ pair, onClose }: { pair: `0x${string}`; onC
   return (
     <TxDialog onClose={onClose}>
       {tx.isSuccess ? (
-        <TxSuccess title={`Repaid ${submittedAll ? "all" : `~${amount}`} ${assetSymbol}`} hash={tx.hash} onClose={onClose}>
+        <TxSuccess
+          title={repaidLabel ? `Repaid ${repaidLabel}` : "Debt repaid"}
+          message={
+            repaidEvent
+              ? `${repaidEvent.shares.toString()} borrow shares repaid.`
+              : "Repaid amount unavailable from receipt logs."
+          }
+          hash={tx.hash}
+          onClose={onClose}
+        >
           {sides && <IsolatedAfterState read={read} sides={sides} receiptBlock={tx.receipt?.blockNumber} />}
           <PostTxAllowance refetch={flow.refetchAllowance} symbol={assetSymbol} decimals={assetDecimals} spenderLabel="pair" />
         </TxSuccess>

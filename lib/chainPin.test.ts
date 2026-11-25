@@ -141,4 +141,24 @@ describe("executePinnedWrite", () => {
     await expect(strictWrite()({})).rejects.toThrow(/without chainId/);
     await expect(strictWrite()({ chainId: 1 })).rejects.toThrow(/chain 1/);
   });
+
+  it("adds gas = estimate + gasPadding when gasPadding is set (F2 pair liquidate gas rule)", async () => {
+    const estimateGas = vi.fn<(params: WriteRequest & { account: `0x${string}`; chainId: number }) => Promise<bigint>>(async () => 250_000n);
+    const { args, write } = deps({
+      request: { ...REQUEST, functionName: "liquidate", gasPadding: 1_100_000n },
+      estimateGas,
+    });
+    await expect(executePinnedWrite(args)).resolves.toBe("0xhash");
+    expect(estimateGas).toHaveBeenCalledTimes(1);
+    expect(estimateGas.mock.calls[0][0]).toMatchObject({ chainId: LUMINA_CHAIN_ID, account: ACCOUNT, functionName: "liquidate" });
+    expect(write.mock.calls[0][0]).toMatchObject({ chainId: LUMINA_CHAIN_ID, gas: 1_350_000n });
+  });
+
+  it("does not estimate or override gas when gasPadding is unset", async () => {
+    const estimateGas = vi.fn<(params: WriteRequest & { account: `0x${string}`; chainId: number }) => Promise<bigint>>(async () => 250_000n);
+    const { args, write } = deps({ estimateGas });
+    await expect(executePinnedWrite(args)).resolves.toBe("0xhash");
+    expect(estimateGas).not.toHaveBeenCalled();
+    expect((write.mock.calls[0][0] as { gas?: bigint }).gas).toBeUndefined();
+  });
 });

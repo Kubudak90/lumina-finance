@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ARCHIVED_ENVIRONMENTS,
   ENVIRONMENTS,
   ManifestError,
+  SIGNER_SETS,
   loadManifest,
+  resolveSignerSet,
 } from "../deployments/index.mjs";
 import manifestJson from "../deployments/lighter-devnet.json";
+import { buildDeployedManifest } from "../test/support/deployment";
 import {
   DEPLOYMENTS,
   LUMINA,
@@ -21,38 +24,139 @@ import { RPC_URL_ENV, luminaChain, makeLuminaChain } from "./chains";
 /** Template now; strict once the deploy scripts flip the manifest to "deployed". */
 const strict = manifestJson.status === "deployed";
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("vendored manifest + loader (deployments/)", () => {
   it("the vendored loader validates the vendored manifest (data mode, as the app loads it)", () => {
-    const m = loadManifest({ chainId: LUMINA_CHAIN_ID, data: manifestJson, strict }) as { chainId: number; status: string };
+    const m = loadManifest({ chainId: LUMINA_CHAIN_ID, data: manifestJson, strict, signerSet: "live" }) as {
+      chainId: number;
+      status: string;
+    };
     expect(m.chainId).toBe(LUMINA_CHAIN_ID);
     expect(Object.isFrozen(m)).toBe(true);
   });
 
   it("the vendored loader validates the vendored manifest (file mode, by env name)", () => {
-    const m = loadManifest({ env: "lighter-devnet", strict }) as { environment: string };
+    const m = loadManifest({ env: "lighter-devnet", strict, signerSet: "live" }) as { environment: string };
     expect(m.environment).toBe("lighter-devnet");
   });
 
   it("strict mode is reserved for a deployed manifest", () => {
     if (strict) {
-      expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: manifestJson, strict: true })).not.toThrow();
+      expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: manifestJson, strict: true, signerSet: "live" })).not.toThrow();
     } else {
       expect(manifestJson.status).toBe("template");
-      expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: manifestJson, strict: true })).toThrow(ManifestError);
+      expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: manifestJson, strict: true, signerSet: "live" })).toThrow(ManifestError);
     }
   });
 
   it("registers chain 19529 and refuses every archived chain", () => {
     expect(ENVIRONMENTS["lighter-devnet"].chainId).toBe(LUMINA_CHAIN_ID);
     for (const archived of Object.values(ARCHIVED_ENVIRONMENTS)) {
-      expect(() => loadManifest({ chainId: archived.chainId, data: manifestJson, strict: false })).toThrow(ManifestError);
+      expect(() => loadManifest({ chainId: archived.chainId, data: manifestJson, strict: false, signerSet: "live" })).toThrow(ManifestError);
     }
   });
 
   it("rejects a manifest whose addresses are tampered with", () => {
     const bad = structuredClone(manifestJson) as { multicall3: string };
     bad.multicall3 = bad.multicall3.toLowerCase().replace("0xca11", "0xca12");
-    expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: bad, strict: false })).toThrow(ManifestError);
+    expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: bad, strict: false, signerSet: "live" })).toThrow(ManifestError);
+  });
+
+  it("exposes SIGNER_SETS and resolveSignerSet (F6)", () => {
+    expect(SIGNER_SETS).toEqual(["live", "harness"]);
+    expect(resolveSignerSet("live")).toBe("live");
+    expect(resolveSignerSet("harness")).toBe("harness");
+    expect(() => resolveSignerSet("unknown")).toThrow(ManifestError);
+  });
+});
+
+describe("app entry point signer set enforcement (audit-fixes-v1 F6)", () => {
+  it("loads the committed template with default settings", () => {
+    vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", "");
+    const d = loadDeployment(LUMINA_CHAIN_ID, manifestJson);
+    expect(d.chainId).toBe(LUMINA_CHAIN_ID);
+    expect(d.status).toBe("template");
+  });
+
+  it("loads a deployed manifest signed by the live signers by default", () => {
+    vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", "");
+    const live = buildDeployedManifest("live");
+    const d = loadDeployment(LUMINA_CHAIN_ID, live);
+    expect(d.status).toBe("deployed");
+    expect(d.contracts.pool).not.toBeNull();
+    expect(d.isolatedMarkets.every((m) => m.pair !== null)).toBe(true);
+    expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: live, strict: true, signerSet: "live" })).not.toThrow();
+  });
+
+  it("rejects a deployed manifest signed by the harness accounts with default settings (including non-strict)", () => {
+    vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", "");
+    vi.stubEnv("LUMINA_SIGNER_SET", "");
+    const harness = buildDeployedManifest("harness");
+    expect(() => loadDeployment(LUMINA_CHAIN_ID, harness)).toThrow(ManifestError);
+    expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: harness, strict: false })).toThrow(ManifestError);
+    expect(() => loadManifest({ chainId: LUMINA_CHAIN_ID, data: harness, strict: true })).toThrow(ManifestError);
+  });
+
+  it("never lets the loader fall back to LUMINA_SIGNER_SET on the server", () => {
+    vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", "");
+    vi.stubEnv("LUMINA_SIGNER_SET", "harness");
+    const harness = buildDeployedManifest("harness");
+    const live = buildDeployedManifest("live");
+    // Even though LUMINA_SIGNER_SET=harness is in the server environment, the app entry point
+    // passes an explicit signerSet ("live") so the harness manifest is rejected and live loads.
+    expect(() => loadDeployment(LUMINA_CHAIN_ID, harness)).toThrow(ManifestError);
+    expect(loadDeployment(LUMINA_CHAIN_ID, live).status).toBe("deployed");
+
+    // Likewise an invalid server LUMINA_SIGNER_SET never breaks loading the committed template.
+    vi.stubEnv("LUMINA_SIGNER_SET", "bogus-server-value");
+    expect(loadDeployment(LUMINA_CHAIN_ID, manifestJson).status).toBe("template");
+  });
+
+  it("loads a harness-signed deployed manifest when NEXT_PUBLIC_LUMINA_SIGNER_SET=harness and rejects live signers", () => {
+    vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", "harness");
+    const harness = buildDeployedManifest("harness");
+    const live = buildDeployedManifest("live");
+    const d = loadDeployment(LUMINA_CHAIN_ID, harness);
+    expect(d.status).toBe("deployed");
+    expect(d.contracts.pool).not.toBeNull();
+    expect(() => loadDeployment(LUMINA_CHAIN_ID, live)).toThrow(ManifestError);
+  });
+
+  it("treats any NEXT_PUBLIC_LUMINA_SIGNER_SET value other than exact 'harness' as 'live'", () => {
+    const harness = buildDeployedManifest("harness");
+    const live = buildDeployedManifest("live");
+    for (const val of ["live", "HARNESS", " harness ", "other"]) {
+      vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", val);
+      expect(() => loadDeployment(LUMINA_CHAIN_ID, harness)).toThrow(ManifestError);
+      expect(loadDeployment(LUMINA_CHAIN_ID, live).status).toBe("deployed");
+    }
+  });
+
+  it("enforces F1 ACL layout, F4 pair limits, and F6 core reserve fields on deployed manifests", () => {
+    vi.stubEnv("NEXT_PUBLIC_LUMINA_SIGNER_SET", "");
+
+    // F4: null pair depositLimit or borrowLimit is rejected.
+    const missingLimit = buildDeployedManifest("live") as { markets: { isolated: { depositLimit: string | null }[] } };
+    missingLimit.markets.isolated[0].depositLimit = null;
+    expect(() => loadDeployment(LUMINA_CHAIN_ID, missingLimit)).toThrow(ManifestError);
+
+    // F6: missing new core reserve field is rejected.
+    const missingCoreField = buildDeployedManifest("live") as {
+      markets: { core: Record<string, unknown>[] };
+    };
+    delete missingCoreField.markets.core[0].optimalUsageRatioBps;
+    expect(() => loadDeployment(LUMINA_CHAIN_ID, missingCoreField)).toThrow(ManifestError);
+
+    // F1: Safe holding POOL_ADMIN is rejected.
+    const oldAcl = buildDeployedManifest("live") as {
+      safe: { address: string };
+      roles: { core: { acl: { POOL_ADMIN: string[] } } };
+    };
+    oldAcl.roles.core.acl.POOL_ADMIN.push(oldAcl.safe.address);
+    expect(() => loadDeployment(LUMINA_CHAIN_ID, oldAcl)).toThrow(ManifestError);
   });
 });
 

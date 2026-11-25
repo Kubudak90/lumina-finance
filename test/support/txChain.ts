@@ -50,6 +50,10 @@ export interface TxChainState {
   allowance: bigint;
   /** pair.maxRedeem(owner). */
   maxRedeem: bigint;
+  /** Pair liquidation fees (1e5 precision). */
+  cleanLiquidationFee: bigint;
+  dirtyLiquidationFee: bigint;
+  protocolLiquidationFee: bigint;
 }
 
 export const MAX_HF = (1n << 256n) - 1n;
@@ -80,6 +84,9 @@ export function defaultTxChain(): TxChainState {
     wallet: 10n ** 24n,
     allowance: 10n ** 24n,
     maxRedeem: 0n,
+    cleanLiquidationFee: 5_000n,
+    dirtyLiquidationFee: 4_500n,
+    protocolLiquidationFee: 10_000n,
   };
 }
 
@@ -150,6 +157,12 @@ export function txChain(state: TxChainState) {
           return ok(state.allowance);
         case "maxRedeem":
           return ok(state.maxRedeem);
+        case "cleanLiquidationFee":
+          return ok(state.cleanLiquidationFee);
+        case "dirtyLiquidationFee":
+          return ok(state.dirtyLiquidationFee);
+        case "protocolLiquidationFee":
+          return ok(state.protocolLiquidationFee);
         default:
           return fail(`unscripted ${c.functionName}`);
       }

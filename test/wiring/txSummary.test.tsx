@@ -69,6 +69,10 @@ const pairInfo = {
   availableLiquidity: 999_900_000_000n,
   utilization: 0,
   exchangeRate: RATE,
+  lowExchangeRate: RATE,
+  cleanLiquidationFee: 5_000n,
+  dirtyLiquidationFee: 4_500n,
+  protocolLiquidationFee: 10_000n,
   oracleBadData: false as boolean | undefined,
   loaded: true,
 };
@@ -251,8 +255,10 @@ describe("profile (c), liquidation: debt repaid and the borrower's remaining pos
     expect(within(summary()).queryByRole("meter")).toBeNull();
   });
 
-  it("IsolatedLiquidate: 100 shares = 100 USDC against 0.1 WETH", () => {
-    setRead(PAIR_USDC_WETH, "toBorrowAmount", 100_000_000n);
+  it("IsolatedLiquidate: shows repayment, collateral seized, protocol fee, collateral received and write-off as separate lines (F8)", () => {
+    // 100 USDC (100e6 shares = 100 USDC) against 0.1 WETH ($200 at $2,000/ETH) → dirty path (+4.5% fee, 10% protocol share of bonus).
+    // base = 0.05 WETH; seized = 0.05225 WETH; protocolFee = 0.000225 WETH; received = 0.052025 WETH; writeOff = 0.
+    // Borrower collateral left = 0.1 - 0.05225 = 0.04775 WETH (formatted down to 4 places: 0.0477 WETH).
     render(
       <IsolatedLiquidateModal
         pair={PAIR_USDC_WETH}
@@ -263,15 +269,20 @@ describe("profile (c), liquidation: debt repaid and the borrower's remaining pos
         collateralDecimals={18}
         borrower={BORROWER}
         borrowerDebtAsset={100_000_000n}
-        borrowerDebtShares={100n}
+        borrowerDebtShares={100_000_000n}
         borrowerCollateral={10n ** 17n}
         onClose={() => {}}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "MAX" }));
     expect(summary().dataset.profile).toBe("liquidation");
+    expect(row("Repayment")).toContain("100 USDC");
+    expect(row("Collateral seized")).toContain("0.0522 WETH");
+    expect(row("Protocol fee")).toContain("0.0002 WETH");
+    expect(row("Collateral received")).toContain("0.052 WETH");
+    expect(row("Write-off")).toContain("0 USDC");
     expect(row("Borrower debt")).toContain("100 USDC → 0 USDC");
-    expect(row("Borrower collateral")).toContain("0.1 WETH → 0.05 WETH");
+    expect(row("Borrower collateral")).toContain("0.1 WETH → 0.0477 WETH");
     expect(within(summary()).queryByRole("meter")).toBeNull();
   });
 });

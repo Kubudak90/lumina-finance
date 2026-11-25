@@ -278,6 +278,57 @@ export function LiquidationSummary({ figures, note }: { figures: LiquidationFigu
   );
 }
 
+export interface IsolatedLiquidationFigures extends LiquidationFigures {
+  collateralSeized: bigint | undefined;
+  protocolFee: bigint | undefined;
+  collateralReceived: bigint | undefined;
+  writeOff: bigint | undefined;
+}
+
+export function IsolatedLiquidationSummary({
+  figures,
+  note,
+  blocked,
+  cleanBufferBlocked,
+}: {
+  figures: IsolatedLiquidationFigures;
+  note?: ReactNode;
+  blocked?: string | null;
+  cleanBufferBlocked?: string | null;
+}) {
+  const f = figures;
+  return (
+    <Frame profile="liquidation" title="Liquidation quote (at quote time)">
+      <SummaryRow label="Repayment" before={formatToken(f.repaid, f.debtDecimals, f.debtSymbol)} />
+      <SummaryRow label="Collateral seized" before={formatToken(f.collateralSeized, f.collateralDecimals, f.collateralSymbol)} />
+      <SummaryRow label="Protocol fee" before={formatToken(f.protocolFee, f.collateralDecimals, f.collateralSymbol)} />
+      <SummaryRow label="Collateral received" before={formatToken(f.collateralReceived, f.collateralDecimals, f.collateralSymbol)} />
+      <SummaryRow label="Write-off" before={formatToken(f.writeOff, f.debtDecimals, f.debtSymbol)} />
+      <SummaryRow
+        label="Borrower debt"
+        before={formatToken(f.debtBefore, f.debtDecimals, f.debtSymbol)}
+        after={formatToken(f.debtAfter, f.debtDecimals, f.debtSymbol)}
+      />
+      <SummaryRow
+        label="Borrower collateral"
+        before={formatToken(f.collateralBefore, f.collateralDecimals, f.collateralSymbol)}
+        after={formatToken(f.collateralAfter, f.collateralDecimals, f.collateralSymbol)}
+      />
+      {blocked && (
+        <p className="text-xs text-destructive font-medium" data-testid="repayment-exceeds-collateral">
+          {blocked}
+        </p>
+      )}
+      {cleanBufferBlocked && (
+        <p className="text-xs text-destructive font-medium" data-testid="clean-buffer-blocked">
+          {cleanBufferBlocked}
+        </p>
+      )}
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </Frame>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Success screen: the after-state, read at or after the receipt block
 // ---------------------------------------------------------------------------------------------
