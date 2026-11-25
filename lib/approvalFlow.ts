@@ -15,17 +15,40 @@ export interface PendingFollowUp<P> {
   approvalHash: `0x${string}` | null;
 }
 
+export interface FollowUpReceipt {
+  transactionHash: `0x${string}`;
+  status: "success" | "reverted";
+  /** Original approval hash when the approval was replaced by a verified same-call repricing. */
+  originalHash?: `0x${string}`;
+  replaced?: "repriced";
+}
+
 export interface FollowUpContext {
   account: `0x${string}` | undefined;
   chainId: number | undefined;
   paramsKey: string;
-  receipt: { transactionHash: `0x${string}`; status: "success" | "reverted" } | undefined;
+  receipt: FollowUpReceipt | undefined;
+  /** Hash of a bound approval transaction that was cancelled in the wallet (N-FE-02 / F8). */
+  cancelledHash?: `0x${string}` | undefined;
   /**
-   * Hash of a transaction whose receipt could not be read or reported a failure (wagmi turns a
-   * reverted receipt into an error). For the flow's own approval this ends the flow instead of
-   * leaving it waiting forever (ui-usability-v1 §3.2, the step-1 receipt-error wedge).
+   * Hash of a transaction whose receipt could not be read, reverted, or was replaced by a
+   * different call. For the flow's own approval this ends the flow instead of leaving it waiting
+   * forever (ui-usability-v1 §3.2, N-FE-02 / F8).
    */
   receiptErrorHash?: `0x${string}` | undefined;
+  /** Optional specific reason for `receiptErrorHash` (e.g. replaced by a different call). */
+  receiptErrorReason?: string | undefined;
+}
+
+/**
+ * True when `receipt` is the receipt of `approvalHash` itself OR a verified same-call `"repriced"`
+ * replacement whose `originalHash` equals `approvalHash` (N-FE-02 / F8).
+ */
+export function receiptMatchesApproval(receipt: FollowUpReceipt | undefined, approvalHash: `0x${string}`): boolean {
+  if (!receipt) return false;
+  const target = approvalHash.toLowerCase();
+  if (receipt.transactionHash.toLowerCase() === target) return true;
+  return receipt.replaced === "repriced" && !!receipt.originalHash && receipt.originalHash.toLowerCase() === target;
 }
 
 /**
@@ -109,12 +132,15 @@ export function decideFollowUp<P>(pending: PendingFollowUp<P> | null, ctx: Follo
   if (ctx.chainId !== pending.chainId) return { kind: "cancel", reason: "the wallet network changed" };
   if (ctx.paramsKey !== pending.paramsKey) return { kind: "cancel", reason: "the inputs changed" };
   if (!pending.approvalHash) return { kind: "wait" };
-  if (ctx.receiptErrorHash && ctx.receiptErrorHash.toLowerCase() === pending.approvalHash.toLowerCase()) {
-    return { kind: "cancel", reason: "the approval failed or its receipt could not be read" };
+  if (ctx.cancelledHash && ctx.cancelledHash.toLowerCase() === pending.approvalHash.toLowerCase()) {
+    return { kind: "cancel", reason: "the approval was cancelled" };
   }
-  if (!ctx.receipt || ctx.receipt.transactionHash.toLowerCase() !== pending.approvalHash.toLowerCase()) {
+  if (ctx.receiptErrorHash && ctx.receiptErrorHash.toLowerCase() === pending.approvalHash.toLowerCase()) {
+    return { kind: "cancel", reason: ctx.receiptErrorReason ?? "the approval failed or its receipt could not be read" };
+  }
+  if (!receiptMatchesApproval(ctx.receipt, pending.approvalHash)) {
     return { kind: "wait" };
   }
-  if (ctx.receipt.status !== "success") return { kind: "cancel", reason: "the approval reverted" };
+  if (ctx.receipt!.status !== "success") return { kind: "cancel", reason: "the approval reverted" };
   return { kind: "proceed", params: pending.params };
 }

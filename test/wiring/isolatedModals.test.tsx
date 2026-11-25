@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
 import {
   ALICE,
   fake,
@@ -16,6 +17,7 @@ import {
 import { DUAL_USDC_WETH, PAIR_USDC_WETH, USDC, WETH } from "../support/deployment";
 import { describeGuardStatus } from "@/lib/guard";
 import { repayApproval, repayHeadroom, vaultToAmount, walletBoundedShares } from "@/lib/approvals";
+import { ISOLATED_LIQ_GAS_PADDING, isolatedLiquidationMax } from "@/lib/liquidation";
 
 vi.mock("@/hooks/chain", async () => (await import("../support/fakeChain")).chainModule);
 vi.mock("wagmi", async () => (await import("../support/fakeChain")).wagmiModule);
@@ -69,6 +71,10 @@ const pairInfo = {
   availableLiquidity: 1_000_000_000_000n,
   utilization: 0,
   exchangeRate: RATE,
+  lowExchangeRate: RATE,
+  cleanLiquidationFee: 5_000n,
+  dirtyLiquidationFee: 4_500n,
+  protocolLiquidationFee: 10_000n,
   oracleBadData: false as boolean | undefined,
   loaded: true,
 };
@@ -284,11 +290,79 @@ describe("IsolatedRepayModal (Codex #8, Gemini r2 M1/M2/M3)", () => {
     render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
     expect(screen.getByTestId("share-estimate").textContent).toMatch(/Estimate/);
   });
+
+  it("shows the repaid amount from the mined RepayAsset event, not the typed input (F3)", async () => {
+    const repayEventAbi = parseAbi([
+      "event RepayAsset(address indexed payer, address indexed borrower, uint256 amountToRepay, uint256 shares)",
+    ]);
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 80n);
+    setRead(PAIR_USDC_WETH, "toBorrowAmount", 80_000_000n);
+    render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "80" } });
+    await act(async () => fireEvent.click(button("Repay USDC")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)).toMatchObject({ functionName: "repayAsset", args: [80n, ALICE] });
+
+    // Contract capped shares (e.g. a third party repaid part of the debt before inclusion):
+    // mined RepayAsset event reports 37.5 USDC (37_500_000 base units), 37 shares.
+    const aliceLc = ALICE.toLowerCase() as `0x${string}`;
+    const topics = encodeEventTopics({
+      abi: repayEventAbi,
+      eventName: "RepayAsset",
+      args: { payer: aliceLc, borrower: aliceLc },
+    }) as `0x${string}`[];
+    const data = encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [37_500_000n, 37n]);
+    await act(async () => mine(hashOf(1), "success", 101n, [{ address: PAIR_USDC_WETH, topics, data }]));
+
+    const success = screen.getByTestId("tx-success");
+    expect(success.textContent).toContain("Repaid 37.5 USDC");
+    expect(success.textContent).not.toContain("~80");
+    expect(success.textContent).not.toContain("80 USDC");
+  });
+
+  it("never falls back to the typed input when no RepayAsset log is in the receipt (F3)", async () => {
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 80n);
+    setRead(PAIR_USDC_WETH, "toBorrowAmount", 80_000_000n);
+    render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "80" } });
+    await act(async () => fireEvent.click(button("Repay USDC")));
+    await act(async () => {});
+    await act(async () => mine(hashOf(1), "success", 101n, []));
+
+    const success = screen.getByTestId("tx-success");
+    expect(success.textContent).toContain("Debt repaid");
+    expect(success.textContent).not.toContain("~80");
+    expect(success.textContent).not.toContain("80 USDC");
+  });
 });
 
-describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3)", () => {
-  const renderLiq = (shares = 100n) =>
-    render(
+describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3, F2, F8)", () => {
+  const E6 = 10n ** 6n;
+  const E18 = 10n ** 18n;
+
+  const renderLiq = (opts?: {
+    shares?: bigint;
+    debt?: bigint;
+    collateral?: bigint;
+    rate?: bigint;
+    totalBorrow?: { amount: bigint; shares: bigint };
+  }) => {
+    const shares = opts?.shares ?? 100n * E6;
+    const debt = opts?.debt ?? shares;
+    const collateral = opts?.collateral ?? 10n ** 17n; // 0.1 WETH ($200 at $2000/ETH)
+    const rate = opts?.rate ?? RATE;
+    const tb = opts?.totalBorrow ?? { amount: shares, shares };
+    fake.data.pair = {
+      ...pairInfo,
+      totalBorrowAmount: tb.amount,
+      totalBorrowShares: tb.shares,
+      exchangeRate: rate,
+      lowExchangeRate: rate,
+    };
+    chain.snapshots[BORROWER.toLowerCase()] = [0n, shares, collateral];
+    chain.accounting = [1_000_000_000_000n, 1_000_000_000_000n, tb.amount, tb.shares, collateral];
+    chain.rate = rate;
+    return render(
       <IsolatedLiquidateModal
         pair={PAIR_USDC_WETH}
         asset={USDC}
@@ -297,45 +371,135 @@ describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3)", () => {
         collateralSymbol="WETH"
         collateralDecimals={18}
         borrower={BORROWER}
-        borrowerDebtAsset={shares * 1_000_000n}
+        borrowerDebtAsset={debt}
         borrowerDebtShares={shares}
-        borrowerCollateral={10n ** 17n}
+        borrowerCollateral={collateral}
         onClose={() => {}}
       />,
     );
+  };
 
   beforeEach(() => {
-    chain.snapshots[BORROWER.toLowerCase()] = [0n, 100n, 10n ** 17n];
-    setRead(PAIR_USDC_WETH, "toBorrowAmount", 100_000_000n);
-    // The modal re-checks the borrower's solvency on-chain before sending (U2 r1 #3): 70–100 USDC
-    // of debt against 0.1 WETH ($200) is 35–50% LTV, so the scripted pair's max LTV must be below it.
+    // 70–100 USDC against 0.1 WETH ($200) is 35–50% LTV, so maxLtv < 35% keeps borrower insolvent.
     chain.maxLtv = 30_000n;
+    chain.perShare = 1n;
   });
 
   it("wallet equal to the share value is not enough: the headroom is required", () => {
-    setRead(USDC, "balanceOf", 100_000_000n);
+    setRead(USDC, "balanceOf", 100n * E6);
     renderLiq();
     fireEvent.click(button("MAX"));
     expect(button("Liquidate").disabled).toBe(true);
   });
 
   it("typed shares above the borrower's debt shares are refused", () => {
-    setRead(PAIR_USDC_WETH, "toBorrowShares", 150n);
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 150n * E6);
     renderLiq();
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "150" } });
     expect(screen.getByTestId("share-bound-error")).toBeTruthy();
     expect(button(/Liquidate|Approve/).disabled).toBe(true);
   });
 
-  it("MAX liquidates the borrower's shares as read on-chain at send time", async () => {
+  it("MAX liquidates the borrower's shares as read on-chain at send time, with 120s deadline and F2 gas padding", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
     renderLiq();
     fireEvent.click(button("MAX"));
-    chain.snapshots[BORROWER.toLowerCase()] = [0n, 70n, 10n ** 17n]; // partly repaid meanwhile
+    chain.snapshots[BORROWER.toLowerCase()] = [0n, 70n * E6, 10n ** 17n]; // partly repaid meanwhile
     await act(async () => fireEvent.click(button("Liquidate")));
     await act(async () => {});
-    expect(fake.sends.at(-1)).toMatchObject({ functionName: "liquidate" });
-    expect(fake.sends.at(-1)?.args?.[0]).toBe(70n);
-    expect(fake.sends.at(-1)?.args?.[2]).toBe(BORROWER);
+    const sent = fake.sends.at(-1);
+    expect(sent).toMatchObject({ functionName: "liquidate", gasPadding: ISOLATED_LIQ_GAS_PADDING });
+    expect(sent?.args?.[0]).toBe(70n * E6);
+    expect(sent?.args?.[2]).toBe(BORROWER);
+    const deadline = sent?.args?.[1] as bigint;
+    expect(deadline).toBeGreaterThanOrEqual(BigInt(nowSec + 115));
+    expect(deadline).toBeLessThanOrEqual(BigInt(nowSec + 130));
+  });
+
+  it("underwater position: MAX picks the largest clean amount inside the 1% margin, never full debt (N-FE-01 / F8)", async () => {
+    // 3,000 USDC debt, 1 WETH collateral at ETH = $2,800 (underwater).
+    const rate = (10n ** 30n) / 2_800n;
+    const expected = isolatedLiquidationMax({
+      borrowerShares: 3_000n * E6,
+      collateral: E18,
+      totalBorrow: { amount: 3_000n * E6, shares: 3_000n * E6 },
+      exchangeRate: rate,
+      cleanLiquidationFee: 5_000n,
+      dirtyLiquidationFee: 4_500n,
+      protocolLiquidationFee: 10_000n,
+    });
+    expect(expected.mode).toBe("clean");
+    expect(expected.shares).toBeLessThan(3_000n * E6);
+
+    renderLiq({ shares: 3_000n * E6, debt: 3_000n * E6, collateral: E18, rate });
+    fireEvent.click(button("MAX"));
+    expect(button("Liquidate").disabled).toBe(false);
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)).toMatchObject({ functionName: "liquidate", gasPadding: ISOLATED_LIQ_GAS_PADDING });
+    expect(fake.sends.at(-1)?.args?.[0]).toBe(expected.shares);
+  });
+
+  it("equity outside the 1% margin: MAX picks the largest dirty partial leaving remainder covered, explains why MAX is small, and still allows manual input (rev 3.1)", async () => {
+    // 2,790 USDC debt, 1 WETH collateral at ETH = $2,800 ($10 equity; outside 1% margin).
+    const rate = (10n ** 30n) / 2_800n;
+    renderLiq({ shares: 2_790n * E6, debt: 2_790n * E6, collateral: E18, rate });
+    const reason = screen.getByTestId("dirty-max-reason").textContent ?? "";
+    expect(reason).toMatch(/safety margin/i);
+    expect(reason).toMatch(/remaining debt uncovered/i);
+    fireEvent.click(button("MAX"));
+    expect(screen.getByTestId("tx-summary").querySelector('[data-row="Write-off"]')?.textContent).toContain("0 USDC");
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)?.args?.[0]).toBe(222_222_222n);
+  });
+
+  it("thin equity where no dirty partial keeps remainder covered: MAX is 0 with explanation, user can still type an amount (rev 3.1)", async () => {
+    // 1,000 USDC debt, 1 WETH collateral at ETH = $1,000 (exact 100% LTV, 0 equity: has equity, MAX = 0).
+    const rate = (10n ** 30n) / 1_000n;
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 1_000n * E6);
+    renderLiq({ shares: 1_000n * E6, debt: 1_000n * E6, collateral: E18, rate });
+    expect(button("MAX").disabled).toBe(true);
+    const reason = screen.getByTestId("no-safe-max").textContent ?? "";
+    expect(reason).toMatch(/safety margin/i);
+    expect(reason).toMatch(/remaining debt uncovered/i);
+
+    // User can still manually type full repayment (which does not exceed collateral received).
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "1000" } });
+    expect(button("Liquidate").disabled).toBe(false);
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)?.args?.[0]).toBe(1_000n * E6);
+  });
+
+  it("blocks sending when repayment exceeds collateral received (render-time and send-time price drop)", async () => {
+    // Underwater: 3,000 USDC debt, 1 WETH at $2,800. Manually typing 2,900 USDC exceeds collateral ($2,800).
+    const rate = (10n ** 30n) / 2_800n;
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 2_900n * E6);
+    renderLiq({ shares: 3_000n * E6, debt: 3_000n * E6, collateral: E18, rate });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "2900" } });
+    expect(screen.getByTestId("repayment-exceeds-collateral")).toBeTruthy();
+    expect(button(/Liquidate|Approve/).disabled).toBe(true);
+
+    // Price drop at send time: quote was profitable (2,000 USDC vs 1 WETH @ $2,500), then ETH crashes to $1,500 on-chain.
+    cleanup();
+    const okRate = (10n ** 30n) / 2_500n;
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 2_000n * E6);
+    renderLiq({ shares: 3_000n * E6, debt: 3_000n * E6, collateral: E18, rate: okRate });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "2000" } });
+    expect(button("Liquidate").disabled).toBe(false);
+    // On-chain price drops to $1,500 right before send: repayment (2,000) > collateral received ($1,500).
+    chain.rate = (10n ** 30n) / 1_500n;
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends).toHaveLength(0);
+    expect(screen.getByTestId("liquidate-notice").textContent).toMatch(/exceeds the collateral/i);
+  });
+
+  it("states that the comparison holds at quote time and does not promise a discount (F8)", () => {
+    renderLiq();
+    expect(document.body.textContent).toMatch(/quote time/i);
+    expect(document.body.textContent).not.toMatch(/with discount/i);
   });
 });
 

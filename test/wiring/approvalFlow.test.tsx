@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { ALICE, BOB, fake, flushWrites, hashOf, mine, resetFake, update } from "../support/fakeChain";
+import { ALICE, BOB, fake, flushWrites, hashOf, mine, replaceTx, resetFake, update } from "../support/fakeChain";
 
 vi.mock("@/hooks/chain", async () => (await import("../support/fakeChain")).chainModule);
 vi.mock("wagmi", async () => (await import("../support/fakeChain")).wagmiModule);
@@ -96,5 +96,39 @@ describe("approval → follow-up binding in the hook (Codex #3)", () => {
     const { hook } = setup();
     await expect(hook.result.current.start({ amount: 1n }, (1n << 256n) - 1n)).rejects.toThrow(/refusing approval/);
     expect(fake.sends).toHaveLength(0);
+  });
+
+  it("sped-up approval (repriced same call) carries the verified replacement hash and runs the follow-up (N-FE-02 / F8)", async () => {
+    const { hook, onProceed } = setup();
+    await act(async () => hook.result.current.start({ amount: 100n }, 100n));
+    const h1 = hashOf(1);
+    const h2 = hashOf(99);
+    await act(async () => replaceTx(h1, h2, "repriced"));
+    expect(onProceed).toHaveBeenCalledTimes(1);
+    expect(onProceed).toHaveBeenCalledWith({ amount: 100n });
+    expect(hook.result.current.steps?.step1).toEqual({ kind: "done", hash: h2 });
+    expect(hook.result.current.steps?.approvalHash).toBe(h2);
+  });
+
+  it("cancelled approval marks step 1 and step 2 cancelled and never runs the follow-up (N-FE-02 / F8)", async () => {
+    const { hook, onProceed } = setup();
+    await act(async () => hook.result.current.start({ amount: 100n }, 100n));
+    const h1 = hashOf(1);
+    await act(async () => replaceTx(h1, hashOf(99), "cancelled"));
+    expect(onProceed).not.toHaveBeenCalled();
+    expect(hook.result.current.steps?.step1.kind).toBe("cancelled");
+    expect(hook.result.current.steps?.step2).toEqual({ kind: "cancelled", reason: "the approval was cancelled" });
+    expect(hook.result.current.awaitingApproval).toBe(false);
+  });
+
+  it("approval replaced with different calldata fails step 1, cancels step 2, and never runs the follow-up (N-FE-02 / F8)", async () => {
+    const { hook, onProceed } = setup();
+    await act(async () => hook.result.current.start({ amount: 100n }, 100n));
+    const h1 = hashOf(1);
+    await act(async () => replaceTx(h1, hashOf(99), "replaced"));
+    expect(onProceed).not.toHaveBeenCalled();
+    expect(hook.result.current.steps?.step1.kind).toBe("failed");
+    expect(hook.result.current.steps?.step2.kind).toBe("cancelled");
+    expect(hook.result.current.awaitingApproval).toBe(false);
   });
 });

@@ -186,6 +186,30 @@ describe("pair custom errors (ISOLATED_PAIR_ABI error entries)", () => {
     expect(decodeRevert(panic, "isolated")).toEqual({ kind: "panic", code: 0x11n });
     expect(describeTxError(panic, iso("removeCollateral"))).toBe("The amount is more than your position holds.");
   });
+
+  it("decodes F3's NothingToRepay custom error on the isolated venue", () => {
+    const data = encodeErrorResult({ abi: ISOLATED_PAIR_ABI as unknown as Abi, errorName: "NothingToRepay", args: [] });
+    const err = viemRevert(data, "isolated", "repayAsset");
+    expect(decodeRevert(err, "isolated")).toEqual({ kind: "custom", name: "NothingToRepay", args: [] });
+    expect(describeTxError(err, ctx({ venue: "isolated", action: "repay" }))).toBe("Nothing left to repay.");
+  });
+
+  it("decodes F2's InsufficientGasForGuard custom error from the dual oracle on the isolated venue", () => {
+    const data = encodeErrorResult({
+      abi: [{ name: "InsufficientGasForGuard", type: "error", inputs: [] }] as const,
+      errorName: "InsufficientGasForGuard",
+      args: [],
+    });
+    expect(ISOLATED_PAIR_ABI.find((x) => x.type === "error" && x.name === "InsufficientGasForGuard")).toBeDefined();
+    const err = viemRevert(data, "isolated", "liquidate");
+    expect(decodeRevert(err, "isolated")).toEqual({ kind: "custom", name: "InsufficientGasForGuard", args: [] });
+    expect(decodeRevert(viemRevert(data, "isolated", "liquidate", PAIR_FUNCTIONS_ONLY), "isolated")).toEqual({
+      kind: "custom",
+      name: "InsufficientGasForGuard",
+      args: [],
+    });
+    expect(describeTxError(err, ctx({ venue: "isolated", action: "liquidate" }))).toMatch(/higher gas limit/i);
+  });
 });
 
 describe("context-dependent messages (action × guard status)", () => {

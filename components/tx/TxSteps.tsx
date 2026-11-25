@@ -31,6 +31,7 @@ export interface ActionTxView {
   isPending: boolean;
   isConfirming: boolean;
   isSuccess: boolean;
+  isCancelled?: boolean;
   error: Error | null | undefined;
 }
 
@@ -65,6 +66,8 @@ export function approvalRow(steps: ApprovalSteps | null, ctx: TxErrorContext): R
       return { state: "confirming" };
     case "done":
       return { state: "done" };
+    case "cancelled":
+      return { state: "cancelled", detail: s.reason };
     case "failed":
       return { state: "failed", detail: s.error ? describeTxError(s.error, { ...ctx, action: "approve" }) : "the approval reverted" };
   }
@@ -81,6 +84,7 @@ export function actionRow(steps: ApprovalSteps | null, action: ActionTxView, ctx
   if (action.isSimulating) return { state: "simulating" };
   if (action.isConfirming) return { state: "confirming" };
   if (action.isSuccess) return { state: "done" };
+  if (s.kind === "sent" && action.isCancelled) return { state: "cancelled", detail: "cancelled in wallet" };
   if (s.kind === "checking") return { state: "checking" };
   if (s.kind === "aborted") return { state: "aborted", detail: s.reapprove ? `${s.reason}; approve again to continue` : s.reason };
   if (s.kind === "sent" && action.error) return { state: "failed", detail: describeTxError(action.error, ctx) };

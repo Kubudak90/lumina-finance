@@ -3,8 +3,8 @@
  * remaining debt and collateral, estimated from the liquidator's inputs. Pure bigint; every
  * divisor is guarded and a missing input gives undefined ("unavailable"), never 0.
  */
-import { EXCHANGE_PRECISION } from "./borrowMax";
-import { percentMul } from "./liquidation";
+import { vaultToAmount, type VaultTotals } from "./approvals";
+import { percentMul, repaymentExceedsCollateral, simulateIsolatedLiquidation } from "./liquidation";
 
 const min = (a: bigint, b: bigint) => (a < b ? a : b);
 const sub0 = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
@@ -57,37 +57,103 @@ export function coreLiquidationEstimate(p: {
   };
 }
 
+export interface IsolatedLiquidationEstimate extends LiquidationEstimate {
+  /** Gross collateral taken from the borrower (`collateralReceived + protocolFee`). */
+  collateralSeized: bigint | undefined;
+  /** Protocol share of the liquidation bonus (ISO-01: bonus only). */
+  protocolFee: bigint | undefined;
+  /** Net collateral delivered to the liquidator (`collateralSeized − protocolFee`). */
+  collateralReceived: bigint | undefined;
+  /** Bad debt written off against lenders (clean path, unpaid shares only). */
+  writeOff: bigint | undefined;
+  /** True when the quote-time repayment exceeds the value of the collateral received. */
+  repaymentExceedsCollateral: boolean;
+  /** True when the pair takes the clean path (all collateral taken, remaining shares written off). */
+  isClean: boolean;
+}
+
 /**
- * LightlendPair `liquidate(shares)`: the liquidator repays the shares' value; the borrower loses
- * that value in collateral at the pair's exchange rate PLUS the pair's liquidation fee, which this
- * app does not read — so the remaining collateral is an upper bound. When the value alone uses up
- * the collateral, the clean path takes all of it and writes off the rest of the debt.
+ * LightlendPair `liquidate(shares)`: exact reproduction of `LightlendPairCore.liquidate` integer
+ * arithmetic (branch rounds down, repayment rounds up, protocol fee on bonus only, clean-path
+ * write-off on unpaid shares only). Any missing input produces `undefined` ("unavailable"), never 0.
  */
 export function isolatedLiquidationEstimate(p: {
-  /** Current value of the shares being liquidated (toBorrowAmount, previewing interest). */
-  shareValue: bigint | undefined;
+  shares: bigint;
+  borrowerShares: bigint;
+  totalBorrow: VaultTotals | undefined;
   debt: bigint | undefined;
   collateral: bigint | undefined;
-  /** Collateral per asset × 1e18 (the pair's exchange rate). */
+  /** Collateral per asset × 1e18 (the pair's liquidation exchange rate, `lowExchangeRate`). */
   exchangeRate: bigint | undefined;
-}): LiquidationEstimate {
-  const repaid = p.shareValue === undefined ? undefined : p.debt === undefined ? p.shareValue : min(p.shareValue, p.debt);
-  if (repaid === undefined || p.collateral === undefined || p.exchangeRate === undefined || p.exchangeRate <= 0n) {
-    return {
-      repaid,
-      debtAfter: repaid === undefined || p.debt === undefined ? undefined : p.debt - repaid,
-      collateralAfter: undefined,
-      collateralExhausted: false,
-    };
-  }
-  const base = (repaid * p.exchangeRate) / EXCHANGE_PRECISION;
-  if (base >= p.collateral) {
-    return { repaid, debtAfter: p.debt === undefined ? undefined : 0n, collateralAfter: 0n, collateralExhausted: true };
-  }
-  return {
-    repaid,
-    debtAfter: p.debt === undefined ? undefined : p.debt - repaid,
-    collateralAfter: p.collateral - base,
+  cleanLiquidationFee: bigint | undefined;
+  dirtyLiquidationFee: bigint | undefined;
+  protocolLiquidationFee: bigint | undefined;
+}): IsolatedLiquidationEstimate {
+  const unavailable: IsolatedLiquidationEstimate = {
+    repaid: undefined,
+    debtAfter: undefined,
+    collateralAfter: undefined,
     collateralExhausted: false,
+    collateralSeized: undefined,
+    protocolFee: undefined,
+    collateralReceived: undefined,
+    writeOff: undefined,
+    repaymentExceedsCollateral: false,
+    isClean: false,
+  };
+  if (p.shares <= 0n || p.borrowerShares <= 0n || p.totalBorrow === undefined) {
+    return unavailable;
+  }
+  const effectiveShares = min(p.shares, p.borrowerShares);
+  const repaid = vaultToAmount(p.totalBorrow, effectiveShares, true);
+
+  if (
+    p.collateral === undefined ||
+    p.exchangeRate === undefined ||
+    p.exchangeRate <= 0n ||
+    p.cleanLiquidationFee === undefined ||
+    p.dirtyLiquidationFee === undefined ||
+    p.protocolLiquidationFee === undefined
+  ) {
+    return { ...unavailable, repaid };
+  }
+
+  const sim = simulateIsolatedLiquidation(
+    {
+      borrowerShares: p.borrowerShares,
+      collateral: p.collateral,
+      totalBorrow: p.totalBorrow,
+      exchangeRate: p.exchangeRate,
+      cleanLiquidationFee: p.cleanLiquidationFee,
+      dirtyLiquidationFee: p.dirtyLiquidationFee,
+      protocolLiquidationFee: p.protocolLiquidationFee,
+    },
+    effectiveShares,
+  );
+
+  const remainingShares = p.borrowerShares - effectiveShares;
+  const debtAfter =
+    sim.isClean || remainingShares === 0n
+      ? 0n
+      : vaultToAmount(
+          {
+            amount: sub0(p.totalBorrow.amount, sim.repayment),
+            shares: sub0(p.totalBorrow.shares, effectiveShares),
+          },
+          remainingShares,
+          true,
+        );
+
+  return {
+    repaid: sim.repayment,
+    debtAfter,
+    collateralAfter: sub0(p.collateral, sim.collateralSeized),
+    collateralExhausted: sim.isClean,
+    collateralSeized: sim.collateralSeized,
+    protocolFee: sim.protocolFee,
+    collateralReceived: sim.collateralReceived,
+    writeOff: sim.writeOff,
+    repaymentExceedsCollateral: repaymentExceedsCollateral(sim, p.exchangeRate),
+    isClean: sim.isClean,
   };
 }

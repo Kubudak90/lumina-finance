@@ -32,4 +32,42 @@ describe("approval → follow-up binding (Codex #3)", () => {
     expect(decideFollowUp(pending, { ...ok, receipt: { transactionHash: H1, status: "reverted" } }).kind).toBe("cancel");
     expect(decideFollowUp(null, ok)).toEqual({ kind: "idle" });
   });
+
+  it("proceeds on a verified same-call repriced replacement of the bound approval (N-FE-02 / F8)", () => {
+    const repricedReceipt = {
+      transactionHash: H2,
+      originalHash: H1,
+      status: "success" as const,
+      replaced: "repriced" as const,
+    };
+    expect(decideFollowUp(pending, { ...ok, receipt: repricedReceipt })).toEqual({ kind: "proceed", params: { amount: 100n } });
+
+    // A retry bound to H2 must never accept a stale repriced receipt whose originalHash was H1.
+    const H3 = "0x3333333333333333333333333333333333333333333333333333333333333333" as const;
+    const retry = { ...startFollowUp(ALICE, 19529, "100", { amount: 100n }), approvalHash: H3 };
+    expect(decideFollowUp(retry, { ...ok, receipt: repricedReceipt })).toEqual({ kind: "wait" });
+
+    // Without replaced: "repriced", a different transactionHash never proceeds even if originalHash is set.
+    expect(decideFollowUp(pending, { ...ok, receipt: { transactionHash: H2, originalHash: H1, status: "success" } })).toEqual({
+      kind: "wait",
+    });
+  });
+
+  it("cancels when the bound approval was cancelled or replaced by a different call (N-FE-02 / F8)", () => {
+    expect(decideFollowUp(pending, { ...ok, receipt: undefined, cancelledHash: H1 })).toEqual({
+      kind: "cancel",
+      reason: "the approval was cancelled",
+    });
+    expect(
+      decideFollowUp(pending, {
+        ...ok,
+        receipt: undefined,
+        receiptErrorHash: H1,
+        receiptErrorReason: "the approval was replaced by a different call",
+      }),
+    ).toEqual({
+      kind: "cancel",
+      reason: "the approval was replaced by a different call",
+    });
+  });
 });

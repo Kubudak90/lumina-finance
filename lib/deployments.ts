@@ -5,7 +5,7 @@
  * A manifest in `status: "template"` loads with `null` addresses: the UI then shows the market as
  * not deployed and disables every action instead of guessing an address.
  */
-import { loadManifest } from "../deployments/index.mjs";
+import { loadManifest, type ManifestV1, type SignerSet } from "../deployments/index.mjs";
 import lighterDevnetManifest from "../deployments/lighter-devnet.json";
 
 export type Address = `0x${string}`;
@@ -14,47 +14,14 @@ export type Address = `0x${string}`;
 export const LUMINA_CHAIN_ID = 19529 as const;
 export type LuminaChainId = typeof LUMINA_CHAIN_ID;
 
-// ---------------------------------------------------------------------------------------------
-// Manifest subset (schema: lumina-monorepo deployments/README.md, schemaVersion 1)
-// ---------------------------------------------------------------------------------------------
-
-interface ManifestContractEntry {
-  address: string | null;
-}
-
-interface ManifestV1 {
-  schemaVersion: 1;
-  environment: string;
-  chainId: number;
-  status: "template" | "deployed";
-  rpcEnv: string;
-  nativeCurrency: { name: string; symbol: string; decimals: number };
-  blockTime: number;
-  multicall3: string;
-  explorer: string | null;
-  assets: Record<string, { address: string; decimals: number }>;
-  contracts: Record<string, ManifestContractEntry>;
-  markets: {
-    core: {
-      symbol: string;
-      asset: string;
-      aToken: string | null;
-      variableDebtToken: string | null;
-      ltvBps: number;
-      liquidationThresholdBps: number;
-    }[];
-    isolated: {
-      name: string;
-      pair: string | null;
-      asset: string;
-      collateral: string;
-      maxLtvBps: number;
-    }[];
-  };
-  oracle: {
-    guard: { maxRefAgeSec: number; maxDeviationBps: number; maxCorePriceAgeSec: number; marketIds: number[] };
-    dualOracles: { address: string | null; asset: string; collateral: string }[];
-  };
+/**
+ * Explicit signer set for the manifest loader (audit-fixes-v1 F6).
+ * `NEXT_PUBLIC_LUMINA_SIGNER_SET` is referenced literally so Next.js inlines it into the client
+ * bundle. Always returns `"harness"` or `"live"` — never `undefined` — so the loader never falls
+ * back to `LUMINA_SIGNER_SET` on the server (which could differ from the browser bundle).
+ */
+export function resolveAppSignerSet(): SignerSet {
+  return process.env.NEXT_PUBLIC_LUMINA_SIGNER_SET === "harness" ? "harness" : "live";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -201,12 +168,17 @@ export function toDeployment(manifest: ManifestV1): LuminaDeployment {
 }
 
 /**
- * Validate one imported manifest with the S6 loader (no file access) and normalize it. A
- * "deployed" manifest must be complete (the loader enforces that even with strict: false); a
- * "template" may carry nulls.
+ * Validate one imported manifest with the vendored loader (no file access) and normalize it. A
+ * "deployed" manifest must be complete and match the app's explicit signer set (enforced even with
+ * strict: false); a "template" may carry nulls.
  */
 export function loadDeployment(chainId: number, data: unknown): LuminaDeployment {
-  const manifest = loadManifest({ chainId, data, strict: false }) as ManifestV1;
+  const manifest = loadManifest({
+    chainId,
+    data,
+    strict: false,
+    signerSet: resolveAppSignerSet(),
+  }) as ManifestV1;
   return toDeployment(manifest);
 }
 

@@ -8,8 +8,16 @@ import { useApprovalFlow, type FollowUpResult } from "@/hooks/useApprovalFlow";
 import { useIsolatedFreshReads } from "@/hooks/useIsolatedFreshReads";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { useIsolatedPair } from "@/hooks/useIsolatedPairs";
-import { hasExecutionHeadroom, repayApproval, repayHeadroom } from "@/lib/approvals";
+import { hasExecutionHeadroom, repayApproval, repayHeadroom, vaultToAmount, vaultToShares, type VaultTotals } from "@/lib/approvals";
 import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
+import {
+  ISOLATED_LIQ_DEADLINE_SEC,
+  ISOLATED_LIQ_GAS_PADDING,
+  isolatedLiquidationMax,
+  repaymentExceedsCollateral,
+  simulateIsolatedLiquidation,
+  type IsolatedLiquidationParams,
+} from "@/lib/liquidation";
 import { formatHealth, isolatedLtvOf } from "@/lib/risk";
 import { isolatedLiquidationEstimate } from "@/lib/txSummary";
 import type { TxErrorContext } from "@/lib/txErrors";
@@ -20,7 +28,7 @@ import { TxButton } from "@/components/common/TxButton";
 import { AllowanceNote } from "@/components/common/AllowanceNote";
 import { PostTxAllowance } from "@/components/common/PostTxAllowance";
 import { AmountField, TxDialog, TxForm, TxNotice, TxSuccess, useTxErrorToast, useTxSuccessToast } from "@/components/tx/TxShell";
-import { AfterState, LiquidationSummary, SummaryRow } from "@/components/tx/TxSummary";
+import { AfterState, IsolatedLiquidationSummary, SummaryRow } from "@/components/tx/TxSummary";
 import { TxSteps } from "@/components/tx/TxSteps";
 import { TxDetails } from "@/components/tx/TxDetails";
 import { previewCall } from "@/components/tx/AfterStates";
@@ -49,23 +57,26 @@ interface Props {
   onClose: () => void;
 }
 
-/** "all": every borrow share of the borrower at send time; otherwise exactly `shares`. */
-type LiquidateParams = { all: boolean; shares: bigint };
+/** "max": recompute F5/F8 policy MAX on-chain at send time; otherwise exactly `shares`. */
+type LiquidateParams = { useMax: boolean; shares: bigint };
 
 const CTX: TxErrorContext = { venue: "isolated", action: "liquidate" };
 
-/** `_deadline` argument: 30 minutes from now (called when sending, never during render). */
+/** `_deadline` argument: 120 seconds from now (F8; called when sending, never during render). */
 function liquidationDeadline(): bigint {
-  return BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
+  return BigInt(Math.floor(Date.now() / 1000) + ISOLATED_LIQ_DEADLINE_SEC);
 }
 
 /**
- * LightlendPair.liquidate(_sharesToLiquidate, _deadline, _borrower). Like a repay this is
- * share-based: the pair pulls the shares' value after accruing interest, so the approval carries
- * the repay buffer — ceil(currentShareValue × 1.001) + 1 — and the wallet must hold the execution
- * headroom ceil(currentShareValue × 1.0005) + 1, not just the typed amount (Codex #6, Gemini r2 M1).
- * Shares above the borrower's debt shares are refused (M2), and right before sending the borrower's
- * shares, the share value, the allowance and the wallet are read from the chain (M3).
+ * LightlendPair.liquidate(_sharesToLiquidate, _deadline, _borrower). Share-based: the pair pulls
+ * the shares' value after accruing interest, so the approval carries the repay buffer —
+ * ceil(currentShareValue × 1.001) + 1 — and the wallet must hold execution headroom
+ * ceil(currentShareValue × 1.0005) + 1 (Codex #6, Gemini r2 M1).
+ *
+ * F8 amount policy: MAX uses a zero profit floor and a 1% margin on the collateral value, computed
+ * with the pair's exact integer arithmetic (`lib/liquidation.ts`). Sending is blocked whenever the
+ * quote-time repayment exceeds the collateral received (checked both at render and on fresh reads
+ * right before sending). F2 gas rule: `gas = estimate + 1,000,000 + 100,000`.
  */
 export function IsolatedLiquidateModal({
   pair,
@@ -83,7 +94,7 @@ export function IsolatedLiquidateModal({
   onClose,
 }: Props) {
   const [amount, setAmount] = useState("");
-  const [all, setAll] = useState(false);
+  const [useMax, setUseMax] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const { address } = useAccount();
   const fresh = useIsolatedFreshReads();
@@ -93,38 +104,75 @@ export function IsolatedLiquidateModal({
   // The borrower re-read (stamped) once the receipt is in (spec §3.2 profile (c)).
   const after = useIsolatedAccountRead(pair, dualOracle ?? info?.dualOracle, borrower, tx.isSuccess);
 
+  const totalBorrow: VaultTotals | undefined =
+    info?.totalBorrowAmount !== undefined && info?.totalBorrowShares !== undefined
+      ? { amount: info.totalBorrowAmount, shares: info.totalBorrowShares }
+      : undefined;
+  const liqRate = info?.lowExchangeRate ?? info?.exchangeRate;
+  const cleanFee = info?.cleanLiquidationFee;
+  const dirtyFee = info?.dirtyLiquidationFee;
+  const protocolFee = info?.protocolLiquidationFee;
+  const liqParams: IsolatedLiquidationParams | null =
+    totalBorrow !== undefined &&
+    liqRate !== undefined &&
+    liqRate > 0n &&
+    cleanFee !== undefined &&
+    dirtyFee !== undefined &&
+    protocolFee !== undefined
+      ? {
+          borrowerShares: borrowerDebtShares,
+          collateral: borrowerCollateral,
+          totalBorrow,
+          exchangeRate: liqRate,
+          cleanLiquidationFee: cleanFee,
+          dirtyLiquidationFee: dirtyFee,
+          protocolLiquidationFee: protocolFee,
+        }
+      : null;
+  const maxPlan = liqParams ? isolatedLiquidationMax(liqParams) : null;
+
   const parsed = amount ? (safeParseUnits(amount, assetDecimals) ?? 0n) : 0n;
-  const shownAmount = all && borrowerDebtAsset !== undefined ? formatUnits(borrowerDebtAsset, assetDecimals) : amount;
+  const shownAmount = useMax && maxPlan?.outcome ? formatUnits(maxPlan.outcome.repayment, assetDecimals) : amount;
 
   const sharesPreview = useLuminaReadContract({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "toBorrowShares",
     args: [parsed, false, true],
-    query: { enabled: parsed > 0n && !all, ...QUERY.user },
+    query: { enabled: parsed > 0n && !useMax, ...QUERY.user },
   });
-  const computedShares = sharesPreview.data as bigint | undefined;
-  const sharesToLiquidate = all ? borrowerDebtShares : (computedShares ?? 0n);
-  const overShares = !all && sharesToLiquidate > borrowerDebtShares;
+  const computedShares =
+    (sharesPreview.data as bigint | undefined) ??
+    (totalBorrow !== undefined && parsed > 0n ? vaultToShares(totalBorrow, parsed, false) : undefined);
+  const sharesToLiquidate = useMax ? (maxPlan?.shares ?? 0n) : (computedShares ?? 0n);
+  const overShares = !useMax && sharesToLiquidate > borrowerDebtShares;
 
-  const shareValueRead = useLuminaReadContract({
-    address: pair,
-    abi: ISOLATED_PAIR_ABI,
-    functionName: "toBorrowAmount",
-    args: [sharesToLiquidate, true, true],
-    query: { enabled: sharesToLiquidate > 0n, ...QUERY.user },
+  const estimate = isolatedLiquidationEstimate({
+    shares: sharesToLiquidate,
+    borrowerShares: borrowerDebtShares,
+    totalBorrow,
+    debt: borrowerDebtAsset,
+    collateral: borrowerCollateral,
+    exchangeRate: liqRate,
+    cleanLiquidationFee: cleanFee,
+    dirtyLiquidationFee: dirtyFee,
+    protocolLiquidationFee: protocolFee,
   });
-  const shareValue = shareValueRead.data as bigint | undefined;
+
+  const shareValue = estimate.repaid;
   const approveAmount = shareValue !== undefined && shareValue > 0n ? repayApproval(shareValue) : undefined;
   const walletRaw = wallet.value;
   // The pull is the shares' current value (it grows with accrual), not the typed amount.
   const insufficientWallet = shareValue !== undefined && walletRaw !== undefined && walletRaw < repayHeadroom(shareValue);
+  const repaymentBlocked = estimate.repaymentExceedsCollateral;
+  const paramsUnavailable = liqParams === null;
 
   const liquidateRequest = (shares: bigint, deadline: bigint | string) => ({
     address: pair,
     abi: ISOLATED_PAIR_ABI,
     functionName: "liquidate",
     args: [shares, deadline, borrower],
+    gasPadding: ISOLATED_LIQ_GAS_PADDING,
   });
 
   const stop = (text: string, reason: string, reapprove = false) => {
@@ -139,25 +187,24 @@ export function IsolatedLiquidateModal({
     // lists, nor to one the pair sees as solvent right now (review U2 r1 #3).
     if (!liquidatable) return stop("The borrower has no debt left in this pair; nothing was sent.", "the borrower is no longer liquidatable");
     try {
-      // From the chain, not the poll cache: the borrower's shares, then their current value.
-      const state = await fresh.accountState(pair, borrower, asset, address);
-      const shares = params.all ? state.borrowShares : params.shares;
-      if (shares === 0n || state.borrowShares === 0n) {
+      // Atomic single-block read from the chain: borrower state, allowance, wallet, rate, totals and fees.
+      const ctx = await fresh.liquidationContext(pair, borrower, asset, address, dualOracle ?? info?.dualOracle ?? null);
+      if (ctx.borrowShares === 0n) {
         return stop("The borrower has no debt left; nothing was sent.", "the borrower has no debt left");
       }
-      if (shares > state.borrowShares) {
-        return stop(
-          `The borrower now owes ${state.borrowShares.toString()} shares, fewer than the ${shares.toString()} selected; nothing was sent.`,
-          "the borrower's debt is now smaller than the selected shares",
-        );
-      }
-      // Solvency as `_isSolvent` sees it: the whole debt, the collateral, maxLTV and the pair rate.
-      const [risk, debtNow] = await Promise.all([
-        fresh.pairRisk(pair, dualOracle ?? info?.dualOracle ?? null),
-        fresh.shareValue(pair, state.borrowShares),
-      ]);
-      const ltvNow = isolatedLtvOf({ debt: debtNow, collateral: state.collateral, maxLTV: risk.maxLtv, exchangeRate: risk.exchangeRate });
-      const insolvent = ltvNow.kind === "infinite" || (ltvNow.kind === "value" && ltvNow.ltv > risk.maxLtv);
+      const freshParams: IsolatedLiquidationParams = {
+        borrowerShares: ctx.borrowShares,
+        collateral: ctx.collateral,
+        totalBorrow: ctx.totalBorrow,
+        exchangeRate: ctx.lowExchangeRate,
+        cleanLiquidationFee: ctx.cleanLiquidationFee,
+        dirtyLiquidationFee: ctx.dirtyLiquidationFee,
+        protocolLiquidationFee: ctx.protocolLiquidationFee,
+      };
+      // Solvency as `liquidate` checks it: `_isSolvent(_borrower, _lowExchangeRate)`.
+      const debtNow = vaultToAmount(ctx.totalBorrow, ctx.borrowShares, true);
+      const ltvNow = isolatedLtvOf({ debt: debtNow, collateral: ctx.collateral, maxLTV: ctx.maxLtv, exchangeRate: ctx.lowExchangeRate });
+      const insolvent = ltvNow.kind === "infinite" || (ltvNow.kind === "value" && ltvNow.ltv > ctx.maxLtv);
       if (!insolvent) {
         return stop(
           ltvNow.kind === "unavailable"
@@ -166,9 +213,45 @@ export function IsolatedLiquidateModal({
           "the borrower is no longer liquidatable",
         );
       }
-      const valueNow = await fresh.shareValue(pair, shares);
-      if (!hasExecutionHeadroom({ allowance: state.allowance, wallet: state.wallet, value: valueNow })) {
-        const walletShortNow = state.wallet < repayHeadroom(valueNow);
+
+      let shares: bigint;
+      if (params.useMax) {
+        const freshMax = isolatedLiquidationMax(freshParams);
+        if (freshMax.shares === 0n) {
+          return stop(
+            freshMax.hasEquity
+              ? "Full repayment earns less than the 1% safety margin, and a larger partial would leave the borrower's remaining debt uncovered at the pair's current rate; nothing was sent."
+              : "No share amount fits within the 1% collateral margin at the pair's current rate; nothing was sent.",
+            freshMax.hasEquity
+              ? "no dirty partial leaves the borrower's remaining debt covered within the safety margin"
+              : "no share amount fits within the collateral margin",
+          );
+        }
+        shares = freshMax.shares;
+      } else {
+        shares = params.shares;
+        if (shares === 0n) {
+          return stop("No shares selected; nothing was sent.", "no shares selected");
+        }
+        if (shares > ctx.borrowShares) {
+          return stop(
+            `The borrower now owes ${ctx.borrowShares.toString()} shares, fewer than the ${shares.toString()} selected; nothing was sent.`,
+            "the borrower's debt is now smaller than the selected shares",
+          );
+        }
+      }
+
+      const freshSim = simulateIsolatedLiquidation(freshParams, shares);
+      if (repaymentExceedsCollateral(freshSim, freshParams.exchangeRate)) {
+        return stop(
+          "Repayment exceeds the collateral you would receive at the pair's current rate; nothing was sent.",
+          "repayment exceeds the collateral received",
+        );
+      }
+
+      const valueNow = freshSim.repayment;
+      if (!hasExecutionHeadroom({ allowance: ctx.allowance, wallet: ctx.wallet, value: valueNow })) {
+        const walletShortNow = ctx.wallet < repayHeadroom(valueNow);
         return stop(
           walletShortNow
             ? `Your wallet no longer covers these shares (${formatAmount(valueNow, assetDecimals)} ${assetSymbol}) plus the accrual margin; nothing was sent.`
@@ -189,7 +272,7 @@ export function IsolatedLiquidateModal({
   const flow = useApprovalFlow<LiquidateParams>({
     token: asset,
     spender: pair,
-    paramsKey: `${borrower}|${all ? "all" : amount}`,
+    paramsKey: `${borrower}|${useMax ? "max" : amount}`,
     onProceed: sendLiquidation,
     actionBusy: tx.isSimulating || tx.isPending || tx.isConfirming,
   });
@@ -200,8 +283,8 @@ export function IsolatedLiquidateModal({
   useTxSuccessToast(tx.isSuccess, tx.hash, "Liquidation successful", `Received ${collateralSymbol} collateral`);
 
   const handleLiquidate = () => {
-    if (!address || sharesToLiquidate === 0n || approveAmount === undefined) return;
-    const params: LiquidateParams = { all, shares: sharesToLiquidate };
+    if (!address || paramsUnavailable || sharesToLiquidate === 0n || repaymentBlocked || approveAmount === undefined) return;
+    const params: LiquidateParams = { useMax, shares: sharesToLiquidate };
     if (approvalNeeded) {
       void flow.start(params, approveAmount);
       return;
@@ -209,12 +292,6 @@ export function IsolatedLiquidateModal({
     void flow.proceed(params);
   };
 
-  const estimate = isolatedLiquidationEstimate({
-    shareValue,
-    debt: borrowerDebtAsset,
-    collateral: borrowerCollateral,
-    exchangeRate: info?.exchangeRate,
-  });
   const afterStatus = afterReadStatus({
     receiptBlock: tx.receipt?.blockNumber,
     stamp: after.stamp,
@@ -235,6 +312,12 @@ export function IsolatedLiquidateModal({
       buffered
     />
   );
+
+  const summaryNote = estimate.isClean
+    ? estimate.writeOff !== undefined && estimate.writeOff > 0n
+      ? "Clean path (at quote time): takes all of the borrower's collateral; only unpaid shares are written off. A price move before inclusion can change the outcome."
+      : "Clean path (at quote time): takes all of the borrower's collateral with no debt written off. A price move before inclusion can change the outcome."
+    : "Dirty path (at quote time): leaves collateral with the borrower and writes off no debt. A price move before inclusion can change the outcome.";
 
   return (
     <TxDialog onClose={onClose}>
@@ -268,25 +351,45 @@ export function IsolatedLiquidateModal({
             <SummaryRow label="Collateral" before={formatToken(borrowerCollateral, collateralDecimals, collateralSymbol)} />
           </div>
           <p className="text-sm text-muted-foreground">
-            Pay {assetSymbol} to settle part or all of the borrower&apos;s debt and receive {collateralSymbol} (with discount). The pair
-            reverts if the borrower is solvent at execution time.
+            Pay {assetSymbol} to repay part or all of the borrower&apos;s debt and receive {collateralSymbol}. The pair
+            reverts if the borrower is solvent at execution time. Repayment vs. collateral comparison holds at quote time
+            only; the pair has no minimum-collateral bound (deadline: {ISOLATED_LIQ_DEADLINE_SEC} s).
           </p>
           {!liquidatable && <TxNotice testId="not-liquidatable">The borrower has no debt left in this pair.</TxNotice>}
+          {paramsUnavailable && (
+            <TxNotice testId="liquidation-params-unavailable">
+              Pair rate, totals or liquidation fees could not be read; liquidating is disabled until they load.
+            </TxNotice>
+          )}
           <AmountField
             label={`Amount to Repay (${assetSymbol})`}
             aside={<>Wallet: <span className="font-mono">{walletRaw === undefined ? "—" : formatAmount(walletRaw, assetDecimals)}</span></>}
             value={shownAmount}
             decimals={assetDecimals}
             onChange={(v) => {
-              setAll(false);
+              setUseMax(false);
               setAmount(v);
             }}
-            onMax={() => setAll(true)}
-            maxDisabled={borrowerDebtShares === 0n}
+            onMax={() => setUseMax(true)}
+            maxDisabled={maxPlan === null || maxPlan.shares === 0n}
           >
+            {maxPlan !== null && maxPlan.shares === 0n && borrowerDebtShares > 0n && (
+              <p className="text-xs text-warning-strong mt-1" data-testid="no-safe-max">
+                {maxPlan.hasEquity
+                  ? "MAX is 0: full repayment earns less than the 1% safety margin, and a larger partial would leave the borrower's remaining debt uncovered at the quote-time rate. You can still type an amount."
+                  : "No share amount fits within the 1% collateral margin at the quote-time rate."}
+              </p>
+            )}
+            {maxPlan !== null && maxPlan.hasEquity && maxPlan.mode === "dirty" && maxPlan.outcome !== null && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="dirty-max-reason">
+                MAX is limited to {formatToken(maxPlan.outcome.repayment, assetDecimals, assetSymbol)}: full repayment earns less than the 1%
+                safety margin, and a larger partial would leave the borrower&apos;s remaining debt uncovered at the quote-time rate. You can
+                still type an amount.
+              </p>
+            )}
             {shareValue !== undefined && (
               <p className="text-xs text-muted-foreground mt-1">
-                Estimate: {sharesToLiquidate.toString()} shares, currently {formatToken(shareValue, assetDecimals, assetSymbol)}; the pair takes
+                Quote: {sharesToLiquidate.toString()} shares, currently {formatToken(shareValue, assetDecimals, assetSymbol)}; the pair takes
                 their value at execution.
               </p>
             )}
@@ -300,9 +403,13 @@ export function IsolatedLiquidateModal({
           </AmountField>
 
           {sharesToLiquidate > 0n && (
-            <LiquidationSummary
+            <IsolatedLiquidationSummary
               figures={{
                 repaid: estimate.repaid,
+                collateralSeized: estimate.collateralSeized,
+                protocolFee: estimate.protocolFee,
+                collateralReceived: estimate.collateralReceived,
+                writeOff: estimate.writeOff,
                 debtBefore: borrowerDebtAsset,
                 debtAfter: estimate.debtAfter,
                 collateralBefore: borrowerCollateral,
@@ -312,11 +419,12 @@ export function IsolatedLiquidateModal({
                 collateralSymbol,
                 collateralDecimals,
               }}
-              note={
-                estimate.collateralExhausted
-                  ? "This takes all of the borrower's collateral; the pair writes off any debt left over."
-                  : "Remaining collateral is at most this: the pair also takes its liquidation fee, which is not read here."
+              blocked={
+                repaymentBlocked
+                  ? "Repayment exceeds the collateral you would receive at the quote-time rate; sending is blocked."
+                  : null
               }
+              note={summaryNote}
             />
           )}
 
@@ -341,8 +449,10 @@ export function IsolatedLiquidateModal({
             disabled={
               !address ||
               !liquidatable ||
+              paramsUnavailable ||
               sharesToLiquidate === 0n ||
               overShares ||
+              repaymentBlocked ||
               walletRaw === undefined ||
               insufficientWallet ||
               borrowerDebtShares === 0n ||
@@ -357,7 +467,7 @@ export function IsolatedLiquidateModal({
               sharesToLiquidate > 0n
                 ? [
                     approvalNeeded && approveAmount !== undefined ? flow.describeApprove(approveAmount) : null,
-                    previewCall(liquidateRequest(sharesToLiquidate, "now + 30 min, set when sending")),
+                    previewCall(liquidateRequest(sharesToLiquidate, `now + ${ISOLATED_LIQ_DEADLINE_SEC} s, set when sending`)),
                   ]
                 : []
             }

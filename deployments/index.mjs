@@ -14,16 +14,43 @@
 
 export const SCHEMA_VERSION = 1;
 
+/** Allowed signer sets for deployed manifests: "live" (default) or "harness" (Anvil tests only). */
+export const SIGNER_SETS = Object.freeze(["live", "harness"]);
+
 /**
- * The fixed layout of the Lighter EVM devnet deployment (spec 3.1, 3.2, 3.4). validateManifest
- * enforces it for environment "lighter-devnet": a manifest that encodes other expectations is
- * rejected, so snapshot-roles / verify-deployment can never pass against wrong expectations.
- * In a template, null fields are skipped but every value that is set must fit.
+ * The fixed layout of the Lighter EVM devnet deployment (spec 3.1, 3.2, 3.4, audit-fixes-v1 F1/F6).
+ * validateManifest enforces it for environment "lighter-devnet": a manifest that encodes other
+ * expectations is rejected, so snapshot-roles / verify-deployment can never pass against wrong
+ * expectations. In a template, null fields are skipped but every value that is set must fit.
  */
 const LIGHTER_DEVNET_LAYOUT = deepFreeze({
   // The leaked Base Sepolia EOA (0xf9D4...E512, full address in deployments/archive/base-sepolia.json)
   // must be in `compromised`. Only its keccak256 lives in code; the address itself is manifest data.
   compromisedKeccak: "0x0e9b2f63fed9bac36dab993082cd8c4b6e22f5f99b533480ee3817c23871bc14",
+  // Allowed signer sets for `status: "deployed"` manifests (audit-fixes-v1 F6). `live` is the
+  // committed launch keyset; `harness` is the Anvil test keyset (harness/deploy/lib/accounts.mjs).
+  signerSets: {
+    live: {
+      deployer: "0x8B524a320Bf6e6BEAa793fa34ACB5EC3b2f23cE8",
+      safeOwners: [
+        "0x8ebE0590F24D8b89E887aE2f21008dD1efbe4C37",
+        "0xF244919d74392A625f295e280ab90c54B11B4012",
+        "0x9801AC65D2a2184316aEB2b5888C08dbBc6FdD8c",
+      ],
+      keeper: "0xDA19711321966B59d52c6ad44675EAA061248aB6",
+      liquidator: "0xD41bDd4b32B9E8A08c0f355bEBE58B9d67a3c154",
+    },
+    harness: {
+      deployer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      safeOwners: [
+        "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+        "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+      ],
+      keeper: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      liquidator: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+    },
+  },
   assets: {
     WETH: { address: "0x660000000000000000000000000000000000000c", decimals: 18 },
     USDC: { address: "0xf2A5728d366c6d0f764Af612cD47F3608E2B4d5B", decimals: 6 },
@@ -70,12 +97,15 @@ export const REQUIRED_CONTRACTS = Object.freeze([
   "pool",
   "poolConfigurator",
   "aaveOracle",
+  "poolDataProvider",
+  "reserveInterestRateStrategy",
   "executor",
   "priceGuard",
   "isolatedTimelock",
   "isolatedDeployer",
   "isolatedRegistry",
   "isolatedWhitelist",
+  "isolatedRateCalculator",
 ]);
 
 /** Aave ACLManager roles: name -> role id (DEFAULT_ADMIN is 0x00, the others keccak256(name)). */
@@ -133,6 +163,19 @@ export class ManifestError extends Error {
 // ------------------------------------------------------------------------------------------------
 
 /**
+ * Resolve the signer set: explicit `option`, else `process.env.LUMINA_SIGNER_SET`, else `"live"`.
+ * Safe in browsers (no Node imports). Throws ManifestError on unknown values.
+ */
+export function resolveSignerSet(option) {
+  const envVal = globalThis.process?.env?.LUMINA_SIGNER_SET;
+  const chosen = option ?? (envVal ? envVal : "live");
+  if (typeof chosen !== "string" || !SIGNER_SETS.includes(chosen)) {
+    throw new ManifestError(`unknown signerSet ${JSON.stringify(chosen)} (allowed: ${SIGNER_SETS.join(", ")})`);
+  }
+  return chosen;
+}
+
+/**
  * Load and validate the manifest of one environment.
  * @param {object} options
  * @param {string} [options.env] environment name, e.g. "lighter-devnet"
@@ -140,11 +183,13 @@ export class ManifestError extends Error {
  * @param {string|URL} [options.path] read this file instead of deployments/<env>.json
  * @param {object|string} [options.data] an already-loaded manifest (object or JSON text); no file access
  * @param {boolean} [options.strict=true] require a complete, deployed manifest (every address set)
+ * @param {"live"|"harness"} [options.signerSet] allowed signer set for deployed manifests (default: LUMINA_SIGNER_SET or "live")
  * @returns {object} the validated manifest, deep-frozen
  */
 export function loadManifest(options = {}) {
-  const { env, chainId, path, data, strict = true } = options;
+  const { env, chainId, path, data, strict = true, signerSet } = options;
   const resolved = resolveEnvironment(env, chainId);
+  const chosenSignerSet = resolveSignerSet(signerSet);
   let manifest;
   if (data !== undefined) {
     manifest = typeof data === "string" ? parseJson(data, "data") : structuredClone(data);
@@ -152,7 +197,7 @@ export function loadManifest(options = {}) {
     const file = path ?? new URL(`./${resolved.env}.json`, import.meta.url);
     manifest = parseJson(readText(file), String(file));
   }
-  validateManifest(manifest, { strict, env: resolved.env, chainId: resolved.chainId });
+  validateManifest(manifest, { strict, env: resolved.env, chainId: resolved.chainId, signerSet: chosenSignerSet });
   return deepFreeze(manifest);
 }
 
@@ -220,15 +265,16 @@ function deepFreeze(value) {
 /**
  * Validate a manifest object. Throws a ManifestError listing every problem; returns the object.
  *
- * `strict` (default true) requires `status: "deployed"`. A deployed manifest must be complete even
- * with `strict: false`; only `status: "template"` may contain nulls. Archived manifests are always
- * refused.
+ * `strict` (default true) requires `status: "deployed"`. A deployed manifest must be complete and
+ * match the selected signer set even with `strict: false`; only `status: "template"` may contain
+ * nulls. Archived manifests are always refused.
  *
  * @param {object} manifest
- * @param {{strict?: boolean, env?: string, chainId?: number}} [options]
+ * @param {{strict?: boolean, env?: string, chainId?: number, signerSet?: "live"|"harness"}} [options]
  */
 export function validateManifest(manifest, options = {}) {
-  const { strict = true, env, chainId } = options;
+  const { strict = true, env, chainId, signerSet } = options;
+  const chosenSignerSet = resolveSignerSet(signerSet);
   if (!isPlainObject(manifest)) throw new ManifestError("manifest must be a JSON object");
   if (manifest.archived !== undefined && manifest.archived !== false) {
     throw new ManifestError(
@@ -252,7 +298,7 @@ export function validateManifest(manifest, options = {}) {
     v.err("status", `must be "template" or "deployed", got ${JSON.stringify(manifest.status)}`);
     v.complete = strict;
   }
-  checkManifest(v, manifest);
+  checkManifest(v, manifest, chosenSignerSet);
   if (v.errors.length) {
     throw new ManifestError(`invalid manifest "${manifest.environment ?? "?"}"`, v.errors);
   }
@@ -396,15 +442,20 @@ class Validator {
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const UINT256_MAX = (1n << 256n) - 1n;
+const PAIR_MAX_LIMIT = UINT256_MAX - 1n; // type(uint256).max means uncapped in LightlendPairCore
 const UINT128_MAX = (1n << 128n) - 1n;
 const INT256_MAX = (1n << 255n) - 1n;
 const AAVE_MAX_CAP = 68_719_476_735; // ReserveConfiguration MAX_VALID_SUPPLY_CAP / MAX_VALID_BORROW_CAP (36 bits)
+const AAVE_MAX_DEBT_CEILING = 1_099_511_627_775; // ReserveConfiguration MAX_VALID_DEBT_CEILING (40 bits, $0.01 units)
+const AAVE_MIN_OPTIMAL_USAGE_RATIO = 100; // DefaultReserveInterestRateStrategyV2.MIN_OPTIMAL_POINT (1%)
+const AAVE_MAX_OPTIMAL_USAGE_RATIO = 9_900; // DefaultReserveInterestRateStrategyV2.MAX_OPTIMAL_POINT (99%)
+const AAVE_MAX_BORROW_RATE = 100_000; // DefaultReserveInterestRateStrategyV2.MAX_BORROW_RATE (1000%)
 const ISOLATED_MAX_SEED = 10n ** 18n; // LightlendPairValidation.MAX_SEED_AMOUNT
 const KEY_RE = /^[A-Za-z][A-Za-z0-9]*$/;
 const REPO_RE = /^[a-z0-9][a-z0-9-]*$/;
 const SYMBOL_RE = /^[A-Z][A-Z0-9]{0,15}$/;
 
-function checkManifest(v, m) {
+function checkManifest(v, m, signerSet) {
   for (const key of Object.keys(m)) {
     if (!TOP_LEVEL_KEYS.has(key)) v.err(key, "is not a known top-level field");
   }
@@ -671,9 +722,20 @@ function checkManifest(v, m) {
             "ltvBps",
             "liquidationThresholdBps",
             "liquidationBonusBps",
+            "liquidationProtocolFeeBps",
             "reserveFactorBps",
+            "debtCeiling",
             "supplyCap",
             "borrowCap",
+            "active",
+            "frozen",
+            "paused",
+            "borrowingEnabled",
+            "flashLoanEnabled",
+            "optimalUsageRatioBps",
+            "baseVariableBorrowRateBps",
+            "variableRateSlope1Bps",
+            "variableRateSlope2Bps",
             "seedAmount",
             "params",
           ])
@@ -704,10 +766,22 @@ function checkManifest(v, m) {
         const ltv = v.integer(`${p}.ltvBps`, mk.ltvBps, 0, 10_000);
         const lt = v.integer(`${p}.liquidationThresholdBps`, mk.liquidationThresholdBps, 0, 10_000);
         const lb = v.integer(`${p}.liquidationBonusBps`, mk.liquidationBonusBps, 0, 10_000);
+        v.integer(`${p}.liquidationProtocolFeeBps`, mk.liquidationProtocolFeeBps, 0, 10_000);
         v.integer(`${p}.reserveFactorBps`, mk.reserveFactorBps, 0, 10_000);
+        v.integer(`${p}.debtCeiling`, mk.debtCeiling, 0, AAVE_MAX_DEBT_CEILING);
         checkAaveCollateralParams(v, p, ltv, lt, lb);
         v.integer(`${p}.supplyCap`, mk.supplyCap, 1, AAVE_MAX_CAP);
         v.integer(`${p}.borrowCap`, mk.borrowCap, 1, AAVE_MAX_CAP);
+        v.bool(`${p}.active`, mk.active);
+        v.bool(`${p}.frozen`, mk.frozen);
+        v.bool(`${p}.paused`, mk.paused);
+        v.bool(`${p}.borrowingEnabled`, mk.borrowingEnabled);
+        v.bool(`${p}.flashLoanEnabled`, mk.flashLoanEnabled);
+        v.integer(`${p}.optimalUsageRatioBps`, mk.optimalUsageRatioBps, AAVE_MIN_OPTIMAL_USAGE_RATIO, AAVE_MAX_OPTIMAL_USAGE_RATIO);
+        const baseRate = v.integer(`${p}.baseVariableBorrowRateBps`, mk.baseVariableBorrowRateBps, 0, AAVE_MAX_BORROW_RATE);
+        const slope1 = v.integer(`${p}.variableRateSlope1Bps`, mk.variableRateSlope1Bps, 0, AAVE_MAX_BORROW_RATE);
+        const slope2 = v.integer(`${p}.variableRateSlope2Bps`, mk.variableRateSlope2Bps, 0, AAVE_MAX_BORROW_RATE);
+        checkAaveRateParams(v, p, baseRate, slope1, slope2);
         // Aave keeps (scaled) balances in uint128.
         const seed = v.uintString(`${p}.seedAmount`, mk.seedAmount, UINT128_MAX, "uint128 (Aave scaled balance)");
         if (seed === "0") v.err(`${p}.seedAmount`, "must be positive (every reserve is seeded)");
@@ -728,6 +802,8 @@ function checkManifest(v, m) {
             "cleanLiquidationFeeBps",
             "protocolLiquidationFeeShareBps",
             "seedAmount",
+            "depositLimit",
+            "borrowLimit",
             "params",
           ])
         ) {
@@ -757,6 +833,13 @@ function checkManifest(v, m) {
         checkPairParams(v, p, ltv, clean, share);
         const seed = v.uintString(`${p}.seedAmount`, mk.seedAmount, ISOLATED_MAX_SEED, "the pair seed (LightlendPairValidation.MAX_SEED_AMOUNT)");
         if (seed === "0") v.err(`${p}.seedAmount`, "must be positive (every pair is seeded)");
+        const depositLimit = v.uintString(`${p}.depositLimit`, mk.depositLimit, PAIR_MAX_LIMIT, "a bounded pair depositLimit (< type(uint256).max)");
+        if (depositLimit === "0") v.err(`${p}.depositLimit`, "must be positive (F4 bounded pair limit)");
+        const borrowLimit = v.uintString(`${p}.borrowLimit`, mk.borrowLimit, PAIR_MAX_LIMIT, "a bounded pair borrowLimit (< type(uint256).max)");
+        if (borrowLimit === "0") v.err(`${p}.borrowLimit`, "must be positive (F4 bounded pair limit)");
+        if (depositLimit !== null && seed !== null && BigInt(depositLimit) < BigInt(seed)) {
+          v.err(p, "needs depositLimit >= seedAmount");
+        }
         if (mk.params !== undefined && !isPlainObject(mk.params)) v.err(`${p}.params`, "must be an object");
       });
     }
@@ -897,7 +980,7 @@ function checkManifest(v, m) {
     }
   }
 
-  if (known?.layout) checkLayout(v, m, known.layout);
+  if (known?.layout) checkLayout(v, m, known.layout, signerSet);
 
   if (m.observedRoles !== undefined) {
     if (v.object("observedRoles", m.observedRoles)) {
@@ -912,11 +995,35 @@ function checkManifest(v, m) {
  * Spec-fixed layout of one environment (see LIGHTER_DEVNET_LAYOUT). Null values (a template) are
  * skipped; every value that is set must match. One error per violated invariant.
  */
-function checkLayout(v, m, layout) {
+function checkLayout(v, m, layout, signerSet) {
   const eq = (a, b) => typeof a === "string" && typeof b === "string" && lower(a) === lower(b);
   const set = (x) => x !== null && x !== undefined;
   const obj = (x) => (isPlainObject(x) ? x : {});
   const arr = (x) => (Array.isArray(x) ? x : []);
+
+  // Signer set (audit-fixes-v1 F6): enforced for every status === "deployed" manifest regardless
+  // of `strict`, so `strict: false` never relaxes signer identity on a deployed manifest.
+  const expectedSigners = layout.signerSets?.[signerSet];
+  if (m.status === "deployed" && expectedSigners) {
+    if (set(m.deployer) && !eq(m.deployer, expectedSigners.deployer)) {
+      v.err("deployer", `must be ${expectedSigners.deployer} (signerSet "${signerSet}")`);
+    }
+    const bots = obj(m.bots);
+    if (set(bots.keeper) && !eq(bots.keeper, expectedSigners.keeper)) {
+      v.err("bots.keeper", `must be ${expectedSigners.keeper} (signerSet "${signerSet}")`);
+    }
+    if (set(bots.liquidator) && !eq(bots.liquidator, expectedSigners.liquidator)) {
+      v.err("bots.liquidator", `must be ${expectedSigners.liquidator} (signerSet "${signerSet}")`);
+    }
+    const safeOwners = obj(m.safe).owners;
+    if (Array.isArray(safeOwners) && safeOwners.every(set)) {
+      const wantOwners = new Set(expectedSigners.safeOwners.map(lower));
+      const haveOwners = new Set(safeOwners.map(lower));
+      if (haveOwners.size !== wantOwners.size || [...haveOwners].some((a) => !wantOwners.has(a))) {
+        v.err("safe.owners", `must equal the "${signerSet}" Safe owners [${expectedSigners.safeOwners.join(", ")}]`);
+      }
+    }
+  }
 
   // compromised: the leaked Base Sepolia EOA is always listed.
   if (Array.isArray(m.compromised)) {
@@ -1046,17 +1153,18 @@ function checkLayout(v, m, layout) {
   if (set(rc.executorDelaySec) && rc.executorDelaySec !== layout.executorDelaySec) v.err("roles.core.executorDelaySec", `must be ${layout.executorDelaySec} (1 day)`);
   if (set(ri.timelockDelaySec) && ri.timelockDelaySec !== layout.timelockDelaySec) v.err("roles.isolated.timelockDelaySec", `must be ${layout.timelockDelaySec} (2 days)`);
 
-  // ACL (spec 3.4, S4c decision 2): exact member sets. Cardinality is checked even in a template;
-  // members only once filled.
+  // ACL (spec 3.4, audit-fixes-v1 F1): exact member sets. Cardinality is checked even in a
+  // template; members only once filled. POOL_ADMIN belongs solely to the timelocked Executor, and
+  // ASSET_LISTING_ADMIN is empty so the Safe cannot list an unreviewed asset without the timelock.
   const acl = obj(rc.acl);
   const SAFE = { label: "the Safe", address: safe };
   const EXECUTOR = { label: "the Executor", address: executor };
   const aclLayout = {
     DEFAULT_ADMIN: [EXECUTOR],
-    POOL_ADMIN: [SAFE, EXECUTOR],
+    POOL_ADMIN: [EXECUTOR],
     RISK_ADMIN: [SAFE, EXECUTOR],
     EMERGENCY_ADMIN: [SAFE],
-    ASSET_LISTING_ADMIN: [SAFE],
+    ASSET_LISTING_ADMIN: [],
     FLASH_BORROWER: [],
     BRIDGE: [],
   };
@@ -1098,6 +1206,21 @@ function checkAaveCollateralParams(v, p, ltv, lt, bonus) {
   const percentMul = Math.floor((lt * onChainBonus + 5_000) / 10_000);
   if (percentMul > 10_000) {
     v.err(p, `needs percentMul(liquidationThresholdBps, 10000 + liquidationBonusBps) <= 10000; got ${percentMul} (PoolConfigurator INVALID_RESERVE_PARAMS)`);
+  }
+}
+
+/**
+ * DefaultReserveInterestRateStrategyV2._setInterestRateParams (Aave v3.2, bps precision).
+ */
+function checkAaveRateParams(v, p, baseRate, slope1, slope2) {
+  if (slope1 !== null && slope2 !== null && slope1 > slope2) {
+    v.err(p, "needs variableRateSlope1Bps <= variableRateSlope2Bps (DefaultReserveInterestRateStrategyV2 SLOPE_2_MUST_BE_GTE_SLOPE_1)");
+  }
+  if (baseRate !== null && slope1 !== null && slope2 !== null && baseRate + slope1 + slope2 > AAVE_MAX_BORROW_RATE) {
+    v.err(
+      p,
+      `needs baseVariableBorrowRateBps + variableRateSlope1Bps + variableRateSlope2Bps <= ${AAVE_MAX_BORROW_RATE} (DefaultReserveInterestRateStrategyV2 MAX_BORROW_RATE)`,
+    );
   }
 }
 
