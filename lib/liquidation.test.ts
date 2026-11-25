@@ -10,7 +10,9 @@ import {
   ISOLATED_LIQ_MARGIN_BPS,
   LIQ_PRECISION,
   MAX_LIQUIDATION_CLOSE_FACTOR,
+  bufferedBorrowTotals,
   closeFactorFor,
+  dirtyPartialWithinCleanBuffer,
   fitsLiquidationMargin,
   isRemainderCovered,
   isolatedLiquidationMax,
@@ -22,7 +24,12 @@ import {
   type IsolatedLiquidationParams,
 } from "./liquidation";
 import { EXCHANGE_PRECISION } from "./borrowMax";
-import { vaultToAmount } from "./approvals";
+import {
+  SECONDS_PER_YEAR,
+  ceilWithRepayBuffer,
+  isolatedTotalBorrowAfter,
+  vaultToAmount,
+} from "./approvals";
 
 const hf = (n: string) => parseUnits(n, 18);
 const usd8 = (n: number) => BigInt(Math.round(n * 1e8));
@@ -382,15 +389,159 @@ describe("isolatedLiquidationMax: F5/F8 amount policy (0 floor, 1% margin)", () 
     expect(res.shares).toBe(0n);
   });
 
+  it("spec rev 3.3: dirty partial keeps repay-buffer headroom below clean threshold across 1 block of interest", () => {
+    // 10% borrow APR in FraxLend 1e18 rate-per-second precision (~317 micro-USDC per 1s block on 100k USDC).
+    const ratePerSec10Pct = 10n ** 17n / SECONDS_PER_YEAR;
+    const rate = usdcWethRate(2_000n); // ETH = $2,000
+
+    // 1) Exact review example: 100,000 USDC debt vs 52.25 WETH ($104,500) collateral, default fees.
+    // Clean threshold is 99,523.809524 USDC; 99,523.809523 is dirty at block B but flips clean after 1 block
+    // (~317–318 micro-USDC of interest) and writes off ~476.19 USDC.
+    const reviewParams: IsolatedLiquidationParams = {
+      borrowerShares: 100_000n * E6,
+      collateral: 52_250_000_000_000_000_000n, // 52.25 WETH = $104,500
+      totalBorrow: { amount: 100_000n * E6, shares: 100_000n * E6 },
+      exchangeRate: rate,
+      ...DEFAULT_FEES,
+    };
+    const nextBlockTotals = {
+      amount: isolatedTotalBorrowAfter(reviewParams.totalBorrow.amount, ratePerSec10Pct, 1n),
+      shares: reviewParams.totalBorrow.shares,
+    };
+    expect(nextBlockTotals.amount - reviewParams.totalBorrow.amount).toBeGreaterThanOrEqual(317n);
+
+    const realCleanMin = 99_523_809_524n;
+    const unbufferedDirty = realCleanMin - 1n;
+    expect(simulateIsolatedLiquidation(reviewParams, unbufferedDirty).isClean).toBe(false);
+    expect(simulateIsolatedLiquidation(reviewParams, realCleanMin).isClean).toBe(true);
+
+    // One block of interest turns unbufferedDirty into a clean liquidation writing off ~476.19 USDC:
+    const afterOneBlockUnbuffered = simulateIsolatedLiquidation({ ...reviewParams, totalBorrow: nextBlockTotals }, unbufferedDirty);
+    expect(afterOneBlockUnbuffered.isClean).toBe(true);
+    expect(afterOneBlockUnbuffered.writeOff).toBeGreaterThan(476n * E6);
+
+    // Buffered totalBorrow uses the existing repay approval buffer (ceilWithRepayBuffer = 1001/1000).
+    const buffered = bufferedBorrowTotals(reviewParams.totalBorrow);
+    expect(buffered).toEqual({
+      amount: ceilWithRepayBuffer(reviewParams.totalBorrow.amount),
+      shares: reviewParams.totalBorrow.shares,
+    });
+    const bufferedParams = { ...reviewParams, totalBorrow: buffered };
+    // Buffered clean boundary: smallest share that is clean at +10 bps borrow total.
+    const bufferedCleanMin = 99_424_385_140n;
+    expect(simulateIsolatedLiquidation(bufferedParams, bufferedCleanMin).isClean).toBe(true);
+    expect(simulateIsolatedLiquidation(bufferedParams, bufferedCleanMin - 1n).isClean).toBe(false);
+
+    // Typed amounts inside [bufferedCleanMin, realCleanMin - 1] on a position with equity are blocked:
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, unbufferedDirty)).toBe(true);
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, 99_500n * E6)).toBe(true);
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, bufferedCleanMin)).toBe(true);
+    // Below bufferedCleanMin, already clean, full repayment, far from boundary, or underwater are NOT blocked:
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, bufferedCleanMin - 1n)).toBe(false);
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, 50_000n * E6)).toBe(false);
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, realCleanMin)).toBe(false);
+    expect(dirtyPartialWithinCleanBuffer(reviewParams, reviewParams.borrowerShares)).toBe(false);
+    const underwaterParams: IsolatedLiquidationParams = {
+      ...reviewParams,
+      collateral: 45n * E18, // $90,000 < $100,000
+    };
+    expect(dirtyPartialWithinCleanBuffer(underwaterParams, 85_650n * E6)).toBe(false);
+
+    // 2) MAX in the equity dirty branch when large equity leaves remainder-covered non-binding:
+    //    (a) $100,000 debt vs $104,490 collateral (52.245 WETH), DEFAULT_FEES (5% / 4.5% / 10%), marginBps = 389n.
+    const nearFullEquity: IsolatedLiquidationParams = {
+      borrowerShares: 100_000n * E6,
+      collateral: 52_245_000_000_000_000_000n, // $104,490 ($4,490 equity; remainder-covered cap ≈ 99,777.78 > cleanMin ≈ 99,514.29)
+      totalBorrow: { amount: 100_000n * E6, shares: 100_000n * E6 },
+      exchangeRate: rate,
+      ...DEFAULT_FEES,
+    };
+    const resNearFull = isolatedLiquidationMax(nearFullEquity, 389n);
+    expect(resNearFull.hasEquity).toBe(true);
+    expect(resNearFull.mode).toBe("dirty");
+    // Exact simulation returned to user stays on the real totals:
+    expect(resNearFull.outcome).toEqual(simulateIsolatedLiquidation(nearFullEquity, resNearFull.shares));
+    expect(resNearFull.outcome!.isClean).toBe(false);
+    expect(resNearFull.outcome!.writeOff).toBe(0n);
+    // Stays below the buffered clean boundary (and successor enters the buffered clean zone):
+    const bufferedNearFull = { ...nearFullEquity, totalBorrow: bufferedBorrowTotals(nearFullEquity.totalBorrow) };
+    expect(simulateIsolatedLiquidation(bufferedNearFull, resNearFull.shares).isClean).toBe(false);
+    expect(simulateIsolatedLiquidation(bufferedNearFull, resNearFull.shares + 1n).isClean).toBe(true);
+    expect(dirtyPartialWithinCleanBuffer(nearFullEquity, resNearFull.shares)).toBe(false);
+    // Simulating the chosen shares after 1 block of 10% APR interest is still dirty (0 write-off):
+    const afterOneBlockChosen = simulateIsolatedLiquidation(
+      { ...nearFullEquity, totalBorrow: nextBlockTotals },
+      resNearFull.shares,
+    );
+    expect(afterOneBlockChosen.isClean).toBe(false);
+    expect(afterOneBlockChosen.writeOff).toBe(0n);
+
+    //    (b) Default 1% margin (marginBps = 100n): $100,000 debt vs $101,120 collateral (50.56 WETH),
+    //        cleanFee = 5%, dirtyFee = 1.15%, protocolFee = 10% (remainder-covered ≈ 97,391 > cleanMin ≈ 96,304.76).
+    const defaultMarginDirtyBoundary: IsolatedLiquidationParams = {
+      borrowerShares: 100_000n * E6,
+      collateral: 50_560_000_000_000_000_000n, // $101,120
+      totalBorrow: { amount: 100_000n * E6, shares: 100_000n * E6 },
+      exchangeRate: rate,
+      cleanLiquidationFee: 5_000n,
+      dirtyLiquidationFee: 1_150n,
+      protocolLiquidationFee: 10_000n,
+    };
+    const resDefault = isolatedLiquidationMax(defaultMarginDirtyBoundary);
+    expect(resDefault.hasEquity).toBe(true);
+    expect(resDefault.mode).toBe("dirty");
+    expect(resDefault.outcome).toEqual(simulateIsolatedLiquidation(defaultMarginDirtyBoundary, resDefault.shares));
+    expect(resDefault.outcome!.writeOff).toBe(0n);
+    const bufferedDefault = {
+      ...defaultMarginDirtyBoundary,
+      totalBorrow: bufferedBorrowTotals(defaultMarginDirtyBoundary.totalBorrow),
+    };
+    expect(simulateIsolatedLiquidation(bufferedDefault, resDefault.shares).isClean).toBe(false);
+    expect(simulateIsolatedLiquidation(bufferedDefault, resDefault.shares + 1n).isClean).toBe(true);
+    expect(
+      simulateIsolatedLiquidation({ ...defaultMarginDirtyBoundary, totalBorrow: nextBlockTotals }, resDefault.shares).isClean,
+    ).toBe(false);
+  });
+
+  it("positions far from the clean boundary are unchanged by the accrual buffer", () => {
+    // 2,790 USDC vs $2,800 collateral: remainder-covered binds at ~222.22 USDC, far below bufferedCleanMin (~2,664 USDC).
+    const params: IsolatedLiquidationParams = {
+      borrowerShares: 2_790n * E6,
+      collateral: E18,
+      totalBorrow: { amount: 2_790n * E6, shares: 2_790n * E6 },
+      exchangeRate: usdcWethRate(2_800n),
+      ...DEFAULT_FEES,
+    };
+    const res = isolatedLiquidationMax(params);
+    expect(res.mode).toBe("dirty");
+    expect(res.shares).toBe(222_222_222n);
+    expect(dirtyPartialWithinCleanBuffer(params, res.shares)).toBe(false);
+  });
+
   it("matches exhaustive brute-force search across share ratios (<1, =1, >1), directions (USDC/WETH & WETH/USDC) and fee regimes", () => {
-    function bruteForceMax(params: IsolatedLiquidationParams): { shares: bigint; mode: "full" | "dirty" | "clean" | "none" } {
+    function bruteForceMax(
+      params: IsolatedLiquidationParams,
+      marginBps: bigint = ISOLATED_LIQ_MARGIN_BPS,
+    ): { shares: bigint; mode: "full" | "dirty" | "clean" | "none" } {
       const full = simulateIsolatedLiquidation(params, params.borrowerShares);
       const hasEquity = !repaymentExceedsCollateral(full, params.exchangeRate);
       if (hasEquity) {
-        if (fitsLiquidationMargin(full, params.exchangeRate)) return { shares: params.borrowerShares, mode: "full" };
+        if (fitsLiquidationMargin(full, params.exchangeRate, marginBps)) {
+          return { shares: params.borrowerShares, mode: "full" };
+        }
+        const bufferedParams: IsolatedLiquidationParams = {
+          ...params,
+          totalBorrow: bufferedBorrowTotals(params.totalBorrow),
+        };
         for (let s = params.borrowerShares; s >= 1n; s -= 1n) {
           const sim = simulateIsolatedLiquidation(params, s);
-          if (!sim.isClean && isRemainderCovered(params, sim) && fitsLiquidationMargin(sim, params.exchangeRate)) {
+          const bufferedSim = simulateIsolatedLiquidation(bufferedParams, s);
+          if (
+            !sim.isClean &&
+            !bufferedSim.isClean &&
+            isRemainderCovered(params, sim) &&
+            fitsLiquidationMargin(sim, params.exchangeRate, marginBps)
+          ) {
             return { shares: s, mode: "dirty" };
           }
         }
@@ -398,107 +549,173 @@ describe("isolatedLiquidationMax: F5/F8 amount policy (0 floor, 1% margin)", () 
       }
       for (let s = params.borrowerShares; s >= 1n; s -= 1n) {
         const sim = simulateIsolatedLiquidation(params, s);
-        if (sim.isClean && fitsLiquidationMargin(sim, params.exchangeRate)) return { shares: s, mode: "clean" };
+        if (sim.isClean && fitsLiquidationMargin(sim, params.exchangeRate, marginBps)) return { shares: s, mode: "clean" };
       }
       return { shares: 0n, mode: "none" };
     }
 
-    const cases: IsolatedLiquidationParams[] = [
+    const cases: Array<{ params: IsolatedLiquidationParams; marginBps?: bigint }> = [
       // Share price > 1, underwater, 10% protocol fee
       {
-        borrowerShares: 1_500n,
-        collateral: 1_200n,
-        totalBorrow: { amount: 2_345n, shares: 1_500n },
-        exchangeRate: EXCHANGE_PRECISION,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 10_000n,
+        params: {
+          borrowerShares: 1_500n,
+          collateral: 1_200n,
+          totalBorrow: { amount: 2_345n, shares: 1_500n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 10_000n,
+        },
       },
       // Share price < 1 (post-write-off), underwater, 50% protocol fee (max)
       {
-        borrowerShares: 2_000n,
-        collateral: 900n,
-        totalBorrow: { amount: 500n, shares: 2_000n },
-        exchangeRate: EXCHANGE_PRECISION,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 50_000n,
+        params: {
+          borrowerShares: 2_000n,
+          collateral: 900n,
+          totalBorrow: { amount: 500n, shares: 2_000n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 50_000n,
+        },
       },
       // Equity outside 1% margin with non-1:1 share price (A > S)
       {
-        borrowerShares: 1_200n,
-        collateral: 1_372n,
-        totalBorrow: { amount: 1_500n, shares: 1_200n },
-        exchangeRate: EXCHANGE_PRECISION,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 10_000n,
+        params: {
+          borrowerShares: 1_200n,
+          collateral: 1_372n,
+          totalBorrow: { amount: 1_500n, shares: 1_200n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 10_000n,
+        },
       },
       // Equity outside 1% margin with share price < 1 (post-write-off) and parity oscillation
       {
-        borrowerShares: 1_001n,
-        collateral: 504n,
-        totalBorrow: { amount: 500n, shares: 2_000n },
-        exchangeRate: EXCHANGE_PRECISION,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 10_000n,
+        params: {
+          borrowerShares: 1_001n,
+          collateral: 504n,
+          totalBorrow: { amount: 500n, shares: 2_000n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 10_000n,
+        },
       },
       // Equity outside 1% margin with R < E (WETH/USDC direction, flickering plateaus)
       {
-        borrowerShares: 10_005n,
-        collateral: 1_008n,
-        totalBorrow: { amount: 10_005n, shares: 10_005n },
-        exchangeRate: EXCHANGE_PRECISION / 10n,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 10_000n,
+        params: {
+          borrowerShares: 10_005n,
+          collateral: 1_008n,
+          totalBorrow: { amount: 10_005n, shares: 10_005n },
+          exchangeRate: EXCHANGE_PRECISION / 10n,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 10_000n,
+        },
       },
       // Equity outside 1% margin with R > E (USDC/WETH direction) and A > S
       {
-        borrowerShares: 1_001n,
-        collateral: 150_800n,
-        totalBorrow: { amount: 500n, shares: 0n }, // (500+1000)/(0+1000) = 1.5 per share → 1501.5 debt
-        exchangeRate: EXCHANGE_PRECISION * 100n,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 10_000n,
+        params: {
+          borrowerShares: 1_001n,
+          collateral: 150_800n,
+          totalBorrow: { amount: 500n, shares: 0n }, // (500+1000)/(0+1000) = 1.5 per share → 1501.5 debt
+          exchangeRate: EXCHANGE_PRECISION * 100n,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 10_000n,
+        },
+      },
+      // Equity outside 1% margin where buffered clean boundary binds BEFORE remainder-covered (R = E, A = S)
+      {
+        params: {
+          borrowerShares: 10_000n,
+          collateral: 10_112n,
+          totalBorrow: { amount: 10_000n, shares: 10_000n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 1_150n,
+          protocolLiquidationFee: 10_000n,
+        },
+      },
+      // Equity outside 1% margin where buffered clean boundary binds BEFORE remainder-covered (R > E, A > S)
+      {
+        params: {
+          borrowerShares: 2_000n,
+          collateral: 313_470n, // debt 3,100 * 100 = 310,000; equity 3,470 (1.12%)
+          totalBorrow: { amount: 3_650n, shares: 2_000n }, // (3650+1000)/(2000+1000) = 1.55 per share
+          exchangeRate: EXCHANGE_PRECISION * 100n,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 1_150n,
+          protocolLiquidationFee: 10_000n,
+        },
+      },
+      // Equity outside 1% margin where buffered clean boundary binds BEFORE remainder-covered (R < E, A < S)
+      {
+        params: {
+          borrowerShares: 10_000n,
+          collateral: 809n, // debt 8,000 * 0.1 = 800; equity 9 (1.125%)
+          totalBorrow: { amount: 7_800n, shares: 10_000n }, // (7800+1000)/(10000+1000) = 0.8 per share
+          exchangeRate: EXCHANGE_PRECISION / 10n,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 1_250n,
+          protocolLiquidationFee: 15_000n,
+        },
+      },
+      // Equity outside margin where buffered clean boundary binds with DEFAULT_FEES (5% / 4.5% / 10%)
+      {
+        params: {
+          borrowerShares: 10_000n,
+          collateral: 10_449n,
+          totalBorrow: { amount: 10_000n, shares: 10_000n },
+          exchangeRate: EXCHANGE_PRECISION,
+          ...DEFAULT_FEES,
+        },
+        marginBps: 389n,
       },
       // Thin equity outside 1% margin → mode "none"
       {
-        borrowerShares: 1_000n,
-        collateral: 1_000n,
-        totalBorrow: { amount: 1_000n, shares: 1_000n },
-        exchangeRate: EXCHANGE_PRECISION,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 10_000n,
+        params: {
+          borrowerShares: 1_000n,
+          collateral: 1_000n,
+          totalBorrow: { amount: 1_000n, shares: 1_000n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 10_000n,
+        },
       },
       // Small exchangeRate (WETH/USDC-like direction where 1 collateral wei spans multiple asset wei), underwater
       {
-        borrowerShares: 2_000n,
-        collateral: 150n,
-        totalBorrow: { amount: 2_000n, shares: 2_000n },
-        exchangeRate: EXCHANGE_PRECISION / 10n, // 0.1 collateral per asset
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 50_000n,
+        params: {
+          borrowerShares: 2_000n,
+          collateral: 150n,
+          totalBorrow: { amount: 2_000n, shares: 2_000n },
+          exchangeRate: EXCHANGE_PRECISION / 10n, // 0.1 collateral per asset
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 50_000n,
+        },
       },
       // Zero protocol fee, underwater
       {
-        borrowerShares: 1_000n,
-        collateral: 800n,
-        totalBorrow: { amount: 1_000n, shares: 1_000n },
-        exchangeRate: EXCHANGE_PRECISION,
-        cleanLiquidationFee: 5_000n,
-        dirtyLiquidationFee: 4_500n,
-        protocolLiquidationFee: 0n,
+        params: {
+          borrowerShares: 1_000n,
+          collateral: 800n,
+          totalBorrow: { amount: 1_000n, shares: 1_000n },
+          exchangeRate: EXCHANGE_PRECISION,
+          cleanLiquidationFee: 5_000n,
+          dirtyLiquidationFee: 4_500n,
+          protocolLiquidationFee: 0n,
+        },
       },
     ];
 
     for (const c of cases) {
-      const expected = bruteForceMax(c);
-      const actual = isolatedLiquidationMax(c);
+      const margin = c.marginBps ?? ISOLATED_LIQ_MARGIN_BPS;
+      const expected = bruteForceMax(c.params, margin);
+      const actual = isolatedLiquidationMax(c.params, margin);
       expect({ shares: actual.shares, mode: actual.mode }).toEqual(expected);
     }
   });

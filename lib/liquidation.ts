@@ -11,7 +11,14 @@
  * the collateral available at the liquidation bonus (PercentageMath half-up rounding).
  */
 
-import { VAULT_VIRTUAL_AMOUNT, VAULT_VIRTUAL_SHARES, vaultToAmount, vaultToShares, type VaultTotals } from "./approvals";
+import {
+  VAULT_VIRTUAL_AMOUNT,
+  VAULT_VIRTUAL_SHARES,
+  ceilWithRepayBuffer,
+  vaultToAmount,
+  vaultToShares,
+  type VaultTotals,
+} from "./approvals";
 import { EXCHANGE_PRECISION } from "./borrowMax";
 
 export const DEFAULT_LIQUIDATION_CLOSE_FACTOR = 5_000n;
@@ -255,11 +262,49 @@ export interface IsolatedLiquidationPolicyResult {
   outcome: IsolatedLiquidationOutcome | null;
 }
 
+/**
+ * Borrow totals with `amount` inflated by the app's repay approval buffer (`ceilWithRepayBuffer`,
+ * `REPAY_BUFFER_NUMERATOR / REPAY_BUFFER_DENOMINATOR` = 1001/1000). Used to keep dirty partials
+ * below the clean threshold across interest accrual until inclusion (spec rev 3.3, F5/F8).
+ */
+export function bufferedBorrowTotals(totalBorrow: VaultTotals): VaultTotals {
+  return {
+    amount: ceilWithRepayBuffer(totalBorrow.amount),
+    shares: totalBorrow.shares,
+  };
+}
+
 function isCleanAt(params: IsolatedLiquidationParams, shares: bigint): boolean {
   const amountDown = vaultToAmount(params.totalBorrow, shares, false);
   const liqAmt = (amountDown * params.exchangeRate) / EXCHANGE_PRECISION;
   const optimistic = (liqAmt * (LIQ_PRECISION + params.cleanLiquidationFee)) / LIQ_PRECISION;
   return optimistic >= params.collateral;
+}
+
+/**
+ * True when `sharesToLiquidate` is a partial liquidation on a position with equity that is dirty
+ * at the quote-time totals, yet crosses into the clean branch once `totalBorrow.amount` is inflated
+ * by the repay approval buffer — risking an unintended bad-debt write-off after interest accrues
+ * before inclusion (spec rev 3.3, F5/F8). Full repayment (`shares >= borrowerShares`) is never
+ * flagged because no unpaid shares remain to write off.
+ */
+export function dirtyPartialWithinCleanBuffer(
+  params: IsolatedLiquidationParams,
+  sharesToLiquidate: bigint,
+): boolean {
+  if (
+    sharesToLiquidate <= 0n ||
+    params.borrowerShares <= 0n ||
+    params.collateral <= 0n ||
+    params.exchangeRate <= 0n ||
+    sharesToLiquidate >= params.borrowerShares
+  ) {
+    return false;
+  }
+  const full = simulateIsolatedLiquidation(params, params.borrowerShares);
+  if (repaymentExceedsCollateral(full, params.exchangeRate)) return false;
+  if (isCleanAt(params, sharesToLiquidate)) return false;
+  return isCleanAt({ ...params, totalBorrow: bufferedBorrowTotals(params.totalBorrow) }, sharesToLiquidate);
 }
 
 /** Smallest `s` in `[1, borrowerShares]` that enters the clean branch, or null if none does. */
@@ -506,12 +551,14 @@ function findLargestClean(
 }
 
 /**
- * F5/F8 isolated liquidation amount policy (spec rev 3.1) with a zero profit floor and `marginBps`
+ * F5/F8 isolated liquidation amount policy (spec rev 3.3) with a zero profit floor and `marginBps`
  * margin on the collateral value (default 1% = 100 bps):
  * 1. Position has equity (`collateralReceived >= repayment` on full repayment):
  *    repay in full if it fits inside the margin; otherwise take the largest dirty partial that
- *    both fits inside the margin and leaves the borrower's remaining debt covered by the remaining
- *    collateral (never a clean partial); otherwise 0.
+ *    stays below the clean threshold computed with the borrow total inflated by the repay approval
+ *    buffer (`bufferedBorrowTotals`), fits inside the margin, and leaves the borrower's remaining
+ *    debt covered by the remaining collateral (never a clean partial); otherwise 0. The returned
+ *    `outcome` is simulated on the exact quote-time totals.
  * 2. Position is under water:
  *    take the largest clean share count that stays inside the margin; otherwise 0.
  */
@@ -530,7 +577,7 @@ export function isolatedLiquidationMax(
     if (fitsLiquidationMargin(full, params.exchangeRate, marginBps)) {
       return { shares: full.shares, hasEquity: true, mode: "full", outcome: full };
     }
-    const cleanMin = findCleanBoundary(params);
+    const cleanMin = findCleanBoundary({ ...params, totalBorrow: bufferedBorrowTotals(params.totalBorrow) });
     const dirtyMax = cleanMin === null ? params.borrowerShares : cleanMin - 1n;
     const dirty = findLargestDirty(params, dirtyMax, marginBps);
     if (dirty) return { shares: dirty.shares, hasEquity: true, mode: "dirty", outcome: dirty };

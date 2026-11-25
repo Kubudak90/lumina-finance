@@ -496,6 +496,61 @@ describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3, F2, F8)", () => {
     expect(screen.getByTestId("liquidate-notice").textContent).toMatch(/exceeds the collateral/i);
   });
 
+  it("warns and blocks a typed dirty partial within the accrual buffer of the clean boundary on a position with equity (spec rev 3.3)", async () => {
+    // Review example: 100,000 USDC debt vs 52.25 WETH ($104,500 at $2,000/ETH), default fees (5% / 4.5% / 10%).
+    // Real cleanMin = 99,523,809,524; bufferedCleanMin (+10 bps) = 99,424,385,140.
+    const collateral = 52_250_000_000_000_000_000n;
+    const debt = 100_000n * E6;
+    setRead(USDC, "balanceOf", 200_000n * E6);
+    setRead(USDC, "allowance", 200_000n * E6);
+    chain.wallet = 200_000n * E6;
+    chain.allowance = 200_000n * E6;
+
+    // 1) Typed amount inside the buffer zone (99,523.809523 = realCleanMin - 1): dirty at quote, blocked!
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 99_523_809_523n);
+    renderLiq({ shares: debt, debt, collateral, rate: RATE });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "99523.809523" } });
+    // Quote simulation stays on the real totals (dirty -> 0 USDC write-off) while warning & blocking send:
+    expect(screen.getByTestId("tx-summary").querySelector('[data-row="Write-off"]')?.textContent).toContain("0 USDC");
+    const warning = screen.getByTestId("clean-buffer-blocked").textContent ?? "";
+    expect(warning).toMatch(/clean/i);
+    expect(warning).toMatch(/write off/i);
+    expect(button(/Liquidate|Approve/).disabled).toBe(true);
+
+    // 2) Lowering below the buffered boundary (99,424 USDC < bufferedCleanMin) unblocks and sends:
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 99_424n * E6);
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "99424" } });
+    expect(screen.queryByTestId("clean-buffer-blocked")).toBeNull();
+    expect(button("Liquidate").disabled).toBe(false);
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)).toMatchObject({ functionName: "liquidate", args: [99_424n * E6, expect.any(BigInt), BORROWER] });
+
+    // 3) Send-time re-check: just below bufferedCleanMin at quote, then 1 block of interest (+318 micro-USDC)
+    //    pushes those shares into the clean buffer on-chain -> aborts with notice, sends nothing.
+    cleanup();
+    fake.sends = [];
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 99_424_385_139n); // bufferedCleanMin - 1
+    renderLiq({ shares: debt, debt, collateral, rate: RATE });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "99424.385139" } });
+    expect(screen.queryByTestId("clean-buffer-blocked")).toBeNull();
+    expect(button("Liquidate").disabled).toBe(false);
+    chain.accounting = [1_000_000_000_000n, 1_000_000_000_000n, debt + 318n, debt, collateral];
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends).toHaveLength(0);
+    expect(screen.getByTestId("liquidate-notice").textContent).toMatch(/clean.*threshold|write off/i);
+
+    // 4) Underwater position near clean boundary is NOT blocked by the equity clean-buffer rule:
+    cleanup();
+    const uwRate = (10n ** 30n) / 2_800n;
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 2_665n * E6); // dirty at quote, within 10 bps of cleanMin (~2,666.67)
+    renderLiq({ shares: 3_000n * E6, debt: 3_000n * E6, collateral: E18, rate: uwRate });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "2665" } });
+    expect(screen.queryByTestId("clean-buffer-blocked")).toBeNull();
+    expect(button("Liquidate").disabled).toBe(false);
+  });
+
   it("states that the comparison holds at quote time and does not promise a discount (F8)", () => {
     renderLiq();
     expect(document.body.textContent).toMatch(/quote time/i);

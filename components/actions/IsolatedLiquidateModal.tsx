@@ -13,6 +13,7 @@ import { abortFollowUp, cancelFollowUp } from "@/lib/approvalFlow";
 import {
   ISOLATED_LIQ_DEADLINE_SEC,
   ISOLATED_LIQ_GAS_PADDING,
+  dirtyPartialWithinCleanBuffer,
   isolatedLiquidationMax,
   repaymentExceedsCollateral,
   simulateIsolatedLiquidation,
@@ -73,9 +74,11 @@ function liquidationDeadline(): bigint {
  * ceil(currentShareValue × 1.001) + 1 — and the wallet must hold execution headroom
  * ceil(currentShareValue × 1.0005) + 1 (Codex #6, Gemini r2 M1).
  *
- * F8 amount policy: MAX uses a zero profit floor and a 1% margin on the collateral value, computed
- * with the pair's exact integer arithmetic (`lib/liquidation.ts`). Sending is blocked whenever the
- * quote-time repayment exceeds the collateral received (checked both at render and on fresh reads
+ * F8 amount policy (spec rev 3.3): MAX uses a zero profit floor and a 1% margin on the collateral
+ * value, computed with the pair's exact integer arithmetic (`lib/liquidation.ts`), keeping repay-
+ * buffer headroom below the clean threshold on dirty partials. Sending is blocked whenever the
+ * quote-time repayment exceeds the collateral received or a dirty partial on an equity position
+ * falls within the accrual buffer of the clean threshold (checked both at render and on fresh reads
  * right before sending). F2 gas rule: `gas = estimate + 1,000,000 + 100,000`.
  */
 export function IsolatedLiquidateModal({
@@ -165,6 +168,8 @@ export function IsolatedLiquidateModal({
   // The pull is the shares' current value (it grows with accrual), not the typed amount.
   const insufficientWallet = shareValue !== undefined && walletRaw !== undefined && walletRaw < repayHeadroom(shareValue);
   const repaymentBlocked = estimate.repaymentExceedsCollateral;
+  const cleanBufferBlocked = liqParams !== null && dirtyPartialWithinCleanBuffer(liqParams, sharesToLiquidate);
+  const sendBlocked = repaymentBlocked || cleanBufferBlocked;
   const paramsUnavailable = liqParams === null;
 
   const liquidateRequest = (shares: bigint, deadline: bigint | string) => ({
@@ -248,6 +253,12 @@ export function IsolatedLiquidateModal({
           "repayment exceeds the collateral received",
         );
       }
+      if (dirtyPartialWithinCleanBuffer(freshParams, shares)) {
+        return stop(
+          "This partial liquidation is too close to the clean threshold at the pair's current state: interest accruing before inclusion could flip it to a clean liquidation and write off unpaid debt; nothing was sent.",
+          "dirty partial is within the accrual buffer of the clean threshold",
+        );
+      }
 
       const valueNow = freshSim.repayment;
       if (!hasExecutionHeadroom({ allowance: ctx.allowance, wallet: ctx.wallet, value: valueNow })) {
@@ -283,7 +294,7 @@ export function IsolatedLiquidateModal({
   useTxSuccessToast(tx.isSuccess, tx.hash, "Liquidation successful", `Received ${collateralSymbol} collateral`);
 
   const handleLiquidate = () => {
-    if (!address || paramsUnavailable || sharesToLiquidate === 0n || repaymentBlocked || approveAmount === undefined) return;
+    if (!address || paramsUnavailable || sharesToLiquidate === 0n || sendBlocked || approveAmount === undefined) return;
     const params: LiquidateParams = { useMax, shares: sharesToLiquidate };
     if (approvalNeeded) {
       void flow.start(params, approveAmount);
@@ -424,6 +435,11 @@ export function IsolatedLiquidateModal({
                   ? "Repayment exceeds the collateral you would receive at the quote-time rate; sending is blocked."
                   : null
               }
+              cleanBufferBlocked={
+                cleanBufferBlocked
+                  ? "This partial amount is too close to the clean threshold: interest accruing before inclusion could flip it to a clean liquidation and write off unpaid debt on a position with equity. Lower the amount or repay in full; sending is blocked."
+                  : null
+              }
               note={summaryNote}
             />
           )}
@@ -452,7 +468,7 @@ export function IsolatedLiquidateModal({
               paramsUnavailable ||
               sharesToLiquidate === 0n ||
               overShares ||
-              repaymentBlocked ||
+              sendBlocked ||
               walletRaw === undefined ||
               insufficientWallet ||
               borrowerDebtShares === 0n ||
