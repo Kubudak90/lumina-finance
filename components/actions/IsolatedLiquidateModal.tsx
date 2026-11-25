@@ -219,8 +219,12 @@ export function IsolatedLiquidateModal({
         const freshMax = isolatedLiquidationMax(freshParams);
         if (freshMax.shares === 0n) {
           return stop(
-            "No share amount fits within the 1% collateral margin at the pair's current rate; nothing was sent.",
-            "no share amount fits within the collateral margin",
+            freshMax.hasEquity
+              ? "Full repayment earns less than the 1% safety margin, and a larger partial would leave the borrower's remaining debt uncovered at the pair's current rate; nothing was sent."
+              : "No share amount fits within the 1% collateral margin at the pair's current rate; nothing was sent.",
+            freshMax.hasEquity
+              ? "no dirty partial leaves the borrower's remaining debt covered within the safety margin"
+              : "no share amount fits within the collateral margin",
           );
         }
         shares = freshMax.shares;
@@ -371,7 +375,16 @@ export function IsolatedLiquidateModal({
           >
             {maxPlan !== null && maxPlan.shares === 0n && borrowerDebtShares > 0n && (
               <p className="text-xs text-warning-strong mt-1" data-testid="no-safe-max">
-                No share amount fits within the 1% collateral margin at the quote-time rate.
+                {maxPlan.hasEquity
+                  ? "MAX is 0: full repayment earns less than the 1% safety margin, and a larger partial would leave the borrower's remaining debt uncovered at the quote-time rate. You can still type an amount."
+                  : "No share amount fits within the 1% collateral margin at the quote-time rate."}
+              </p>
+            )}
+            {maxPlan !== null && maxPlan.hasEquity && maxPlan.mode === "dirty" && maxPlan.outcome !== null && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="dirty-max-reason">
+                MAX is limited to {formatToken(maxPlan.outcome.repayment, assetDecimals, assetSymbol)}: full repayment earns less than the 1%
+                safety margin, and a larger partial would leave the borrower&apos;s remaining debt uncovered at the quote-time rate. You can
+                still type an amount.
               </p>
             )}
             {shareValue !== undefined && (

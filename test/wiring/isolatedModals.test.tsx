@@ -440,15 +440,36 @@ describe("IsolatedLiquidateModal (Gemini r2 M1/M2/M3, F2, F8)", () => {
     expect(fake.sends.at(-1)?.args?.[0]).toBe(expected.shares);
   });
 
-  it("equity outside the 1% margin: MAX picks the largest dirty partial (predecessor of clean boundary), zero write-off", async () => {
-    // 995 USDC debt, 1 WETH collateral at ETH = $1,000 (99.5% LTV: has equity, outside 1% margin).
-    const rate = (10n ** 30n) / 1_000n;
-    renderLiq({ shares: 995n * E6, debt: 995n * E6, collateral: E18, rate });
+  it("equity outside the 1% margin: MAX picks the largest dirty partial leaving remainder covered, explains why MAX is small, and still allows manual input (rev 3.1)", async () => {
+    // 2,790 USDC debt, 1 WETH collateral at ETH = $2,800 ($10 equity; outside 1% margin).
+    const rate = (10n ** 30n) / 2_800n;
+    renderLiq({ shares: 2_790n * E6, debt: 2_790n * E6, collateral: E18, rate });
+    const reason = screen.getByTestId("dirty-max-reason").textContent ?? "";
+    expect(reason).toMatch(/safety margin/i);
+    expect(reason).toMatch(/remaining debt uncovered/i);
     fireEvent.click(button("MAX"));
     expect(screen.getByTestId("tx-summary").querySelector('[data-row="Write-off"]')?.textContent).toContain("0 USDC");
     await act(async () => fireEvent.click(button("Liquidate")));
     await act(async () => {});
-    expect(fake.sends.at(-1)?.args?.[0]).toBe(952_380_952n);
+    expect(fake.sends.at(-1)?.args?.[0]).toBe(222_222_222n);
+  });
+
+  it("thin equity where no dirty partial keeps remainder covered: MAX is 0 with explanation, user can still type an amount (rev 3.1)", async () => {
+    // 1,000 USDC debt, 1 WETH collateral at ETH = $1,000 (exact 100% LTV, 0 equity: has equity, MAX = 0).
+    const rate = (10n ** 30n) / 1_000n;
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 1_000n * E6);
+    renderLiq({ shares: 1_000n * E6, debt: 1_000n * E6, collateral: E18, rate });
+    expect(button("MAX").disabled).toBe(true);
+    const reason = screen.getByTestId("no-safe-max").textContent ?? "";
+    expect(reason).toMatch(/safety margin/i);
+    expect(reason).toMatch(/remaining debt uncovered/i);
+
+    // User can still manually type full repayment (which does not exceed collateral received).
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "1000" } });
+    expect(button("Liquidate").disabled).toBe(false);
+    await act(async () => fireEvent.click(button("Liquidate")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)?.args?.[0]).toBe(1_000n * E6);
   });
 
   it("blocks sending when repayment exceeds collateral received (render-time and send-time price drop)", async () => {
