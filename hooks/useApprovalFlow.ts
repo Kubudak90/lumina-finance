@@ -120,6 +120,12 @@ export function useApprovalFlow<P>(options: {
   const approveTx = useLuminaWrite();
   const [pending, setPending] = useState<PendingFollowUp<P> | null>(null);
   const [cancelReason, setCancelReason] = useState<string | null>(null);
+  const [cancelNotice, setCancelNotice] = useState<{ reason: string } | null>(null);
+  const [queuedProceed, setQueuedProceed] = useState<{
+    id: number | null;
+    params: P;
+    binding: FollowUpBinding;
+  } | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const onProceedRef = useRef(options.onProceed);
@@ -166,20 +172,37 @@ export function useApprovalFlow<P>(options: {
     receiptErrorReason: approveTx.replacementKind === "replaced" ? "the approval was replaced by a different call" : undefined,
   });
 
+  // Resolve a pending approval flow during render (the same pattern as `seenKey` above) so
+  // passive effects perform only external side effects (toast / async follow-up) and never call
+  // setState synchronously.
+  if (pending !== null && (decision.kind === "cancel" || decision.kind === "proceed")) {
+    setPending(null);
+    if (decision.kind === "cancel") {
+      setCancelReason(decision.reason);
+      if (session) setSession({ ...session, step2: { kind: "cancelled", reason: decision.reason } });
+      setCancelNotice({ reason: decision.reason });
+    } else if (isChecking) {
+      if (session) setSession({ ...session, step2: { kind: "cancelled", reason: "another check was running" } });
+    } else {
+      setIsChecking(true);
+      if (session) setSession({ ...session, step2: { kind: "checking" } });
+      setQueuedProceed({
+        id: session?.id ?? null,
+        params: decision.params,
+        binding: { account: pending.account, chainId: pending.chainId, paramsKey: pending.paramsKey },
+      });
+    }
+  }
+
   /**
-   * Run the follow-up bound to `binding`, recording `checking` → `sent` / `aborted` / `cancelled`
-   * on session `id` (if any). Re-entrant calls while one is checking are ignored (null).
+   * Complete an already-started follow-up check (`checkingRef.current === true`), recording
+   * `sent` / `aborted` / `cancelled` on session `id` (if any) once `onProceed` resolves.
    */
-  const runFollowUp = useCallback(async (params: P, id: number | null, binding: FollowUpBinding): Promise<FollowUpResult | null> => {
+  const finishFollowUp = useCallback(async (params: P, id: number | null): Promise<FollowUpResult> => {
     const mark = (step2: FollowUpState) => {
       if (id === null) return;
       setSession((s) => (s && s.id === id ? { ...s, step2 } : s));
     };
-    if (checkingRef.current) return null;
-    checkingRef.current = true;
-    runningBindingRef.current = binding;
-    setIsChecking(true);
-    mark({ kind: "checking" });
     try {
       const result = await onProceedRef.current(params);
       if (isFollowUpCancel(result)) {
@@ -203,6 +226,22 @@ export function useApprovalFlow<P>(options: {
   }, []);
 
   /**
+   * Run the follow-up bound to `binding`, recording `checking` → `sent` / `aborted` / `cancelled`
+   * on session `id` (if any). Re-entrant calls while one is checking are ignored (null).
+   */
+  const runFollowUp = useCallback(
+    async (params: P, id: number | null, binding: FollowUpBinding): Promise<FollowUpResult | null> => {
+      if (checkingRef.current) return null;
+      checkingRef.current = true;
+      runningBindingRef.current = binding;
+      setIsChecking(true);
+      if (id !== null) setSession((s) => (s && s.id === id ? { ...s, step2: { kind: "checking" } } : s));
+      return finishFollowUp(params, id);
+    },
+    [finishFollowUp],
+  );
+
+  /**
    * Why the running follow-up must not send any more (its account, chain or inputs changed), or
    * null while it is current. Follow-ups call it right before the wallet prompt.
    */
@@ -212,26 +251,32 @@ export function useApprovalFlow<P>(options: {
     return bound ? staleFollowUp(bound, liveBindingRef.current) : null;
   }, [mountedRef]);
 
-  // Each pending flow is resolved (cancelled or continued) exactly once.
-  const resolvedRef = useRef<PendingFollowUp<P> | null>(null);
+  // Show the cancellation toast once per cancelled flow (external side effect only).
+  const shownCancelRef = useRef<{ reason: string } | null>(null);
   useEffect(() => {
-    if (decision.kind !== "cancel" && decision.kind !== "proceed") return;
-    if (!pending || resolvedRef.current === pending) return;
-    resolvedRef.current = pending;
-    setPending(null);
-    const id = liveSessionRef.current?.id ?? null;
-    if (decision.kind === "cancel") {
-      setCancelReason(decision.reason);
-      setSession((s) => (s && s.id === id ? { ...s, step2: { kind: "cancelled", reason: decision.reason } } : s));
-      toast.warning("Approval flow cancelled", { description: `Nothing was sent because ${decision.reason}.` });
-    } else {
-      const bound = { account: pending.account, chainId: pending.chainId, paramsKey: pending.paramsKey };
-      void runFollowUp(decision.params, id, bound).then((r) => {
-        // Another follow-up was still checking: this one did not run.
-        if (r === null) setSession((s) => (s && s.id === id ? { ...s, step2: { kind: "cancelled", reason: "another check was running" } } : s));
+    if (!cancelNotice || shownCancelRef.current === cancelNotice) return;
+    shownCancelRef.current = cancelNotice;
+    toast.warning("Approval flow cancelled", { description: `Nothing was sent because ${cancelNotice.reason}.` });
+  }, [cancelNotice]);
+
+  // Run each queued follow-up exactly once (external async side effect; state updates happen after await).
+  const startedProceedRef = useRef<typeof queuedProceed>(null);
+  useEffect(() => {
+    if (!queuedProceed || startedProceedRef.current === queuedProceed) return;
+    startedProceedRef.current = queuedProceed;
+    if (checkingRef.current) {
+      const id = queuedProceed.id;
+      void Promise.resolve().then(() => {
+        if (id !== null) {
+          setSession((s) => (s && s.id === id ? { ...s, step2: { kind: "cancelled", reason: "another check was running" } } : s));
+        }
       });
+      return;
     }
-  }, [decision, pending, runFollowUp]);
+    checkingRef.current = true;
+    runningBindingRef.current = queuedProceed.binding;
+    void finishFollowUp(queuedProceed.params, queuedProceed.id);
+  }, [queuedProceed, finishFollowUp]);
 
   const start = useCallback(
     async (params: P, approveAmount: bigint) => {
