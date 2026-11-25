@@ -289,10 +289,12 @@ export function IsolatedLiquidationSummary({
   figures,
   note,
   blocked,
+  cleanBufferBlocked,
 }: {
   figures: IsolatedLiquidationFigures;
   note?: ReactNode;
   blocked?: string | null;
+  cleanBufferBlocked?: string | null;
 }) {
   const f = figures;
   return (
@@ -315,6 +317,11 @@ export function IsolatedLiquidationSummary({
       {blocked && (
         <p className="text-xs text-destructive font-medium" data-testid="repayment-exceeds-collateral">
           {blocked}
+        </p>
+      )}
+      {cleanBufferBlocked && (
+        <p className="text-xs text-destructive font-medium" data-testid="clean-buffer-blocked">
+          {cleanBufferBlocked}
         </p>
       )}
       {note && <p className="text-xs text-muted-foreground">{note}</p>}
