@@ -409,6 +409,7 @@ const PAIR_MESSAGES: Readonly<Record<string, string>> = {
   PastDeadline: "The liquidation deadline passed before the transaction was mined; try again.",
   InvalidReceiver: "The receiver address is invalid.",
   SlippageTooHigh: "The price moved beyond the allowed slippage.",
+  NothingToRepay: "Nothing left to repay.",
 };
 
 function describeCustom(d: Extract<DecodedRevert, { kind: "custom" }>, ctx: TxErrorContext): string {

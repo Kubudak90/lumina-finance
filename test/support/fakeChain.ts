@@ -37,6 +37,8 @@ interface FakeState {
   receipts: Map<string, "success" | "reverted">;
   /** Block each mined receipt reports (default 1). */
   receiptBlocks: Map<string, bigint>;
+  /** Logs each mined receipt carries (default empty). */
+  receiptLogs: Map<string, readonly { address: `0x${string}`; data: `0x${string}`; topics: readonly `0x${string}`[] }[]>;
   /** Receipt reads that fail (or a reverted receipt, as wagmi reports it), by hash. */
   receiptErrors: Map<string, Error>;
   /** The next send is rejected by the wallet with this error (no hash). */
@@ -73,6 +75,7 @@ export const fake: FakeState = {
   multicallSpy: [],
   receipts: new Map(),
   receiptBlocks: new Map(),
+  receiptLogs: new Map(),
   receiptErrors: new Map(),
   rejectNextSend: null,
   stepSends: false,
@@ -126,6 +129,7 @@ export function resetFake() {
   fake.multicallSpy = [];
   fake.receipts = new Map();
   fake.receiptBlocks = new Map();
+  fake.receiptLogs = new Map();
   fake.receiptErrors = new Map();
   fake.rejectNextSend = null;
   fake.stepSends = false;
@@ -148,10 +152,16 @@ export function setRead(address: string, functionName: string, value: unknown) {
   update((f) => f.reads.set(readKey(address, functionName), value));
 }
 
-export function mine(hash: string, status: "success" | "reverted" = "success", blockNumber = 1n) {
+export function mine(
+  hash: string,
+  status: "success" | "reverted" = "success",
+  blockNumber = 1n,
+  logs: readonly { address: `0x${string}`; data: `0x${string}`; topics: readonly `0x${string}`[] }[] = [],
+) {
   update((f) => {
     f.receipts.set(hash, status);
     f.receiptBlocks.set(hash, blockNumber);
+    f.receiptLogs.set(hash, logs);
   });
 }
 
@@ -273,7 +283,15 @@ export const chainModule = {
       isConfirming: phase === "idle" && !!last && status === undefined && receiptError === null,
       isSuccess: status === "success",
       hash: last,
-      receipt: status && last ? { transactionHash: last, status, blockNumber: fake.receiptBlocks.get(last) ?? 1n } : undefined,
+      receipt:
+        status && last
+          ? {
+              transactionHash: last,
+              status,
+              blockNumber: fake.receiptBlocks.get(last) ?? 1n,
+              logs: fake.receiptLogs.get(last) ?? [],
+            }
+          : undefined,
       receiptError,
       error: sendError ?? receiptError,
       reset: () => setLast(undefined),

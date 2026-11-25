@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
 import {
   ALICE,
   fake,
@@ -288,6 +289,50 @@ describe("IsolatedRepayModal (Codex #8, Gemini r2 M1/M2/M3)", () => {
   it("says the typed amount is an estimate before approval (Codex #6)", () => {
     render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
     expect(screen.getByTestId("share-estimate").textContent).toMatch(/Estimate/);
+  });
+
+  it("shows the repaid amount from the mined RepayAsset event, not the typed input (F3)", async () => {
+    const repayEventAbi = parseAbi([
+      "event RepayAsset(address indexed payer, address indexed borrower, uint256 amountToRepay, uint256 shares)",
+    ]);
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 80n);
+    setRead(PAIR_USDC_WETH, "toBorrowAmount", 80_000_000n);
+    render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "80" } });
+    await act(async () => fireEvent.click(button("Repay USDC")));
+    await act(async () => {});
+    expect(fake.sends.at(-1)).toMatchObject({ functionName: "repayAsset", args: [80n, ALICE] });
+
+    // Contract capped shares (e.g. a third party repaid part of the debt before inclusion):
+    // mined RepayAsset event reports 37.5 USDC (37_500_000 base units), 37 shares.
+    const aliceLc = ALICE.toLowerCase() as `0x${string}`;
+    const topics = encodeEventTopics({
+      abi: repayEventAbi,
+      eventName: "RepayAsset",
+      args: { payer: aliceLc, borrower: aliceLc },
+    }) as `0x${string}`[];
+    const data = encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [37_500_000n, 37n]);
+    await act(async () => mine(hashOf(1), "success", 101n, [{ address: PAIR_USDC_WETH, topics, data }]));
+
+    const success = screen.getByTestId("tx-success");
+    expect(success.textContent).toContain("Repaid 37.5 USDC");
+    expect(success.textContent).not.toContain("~80");
+    expect(success.textContent).not.toContain("80 USDC");
+  });
+
+  it("never falls back to the typed input when no RepayAsset log is in the receipt (F3)", async () => {
+    setRead(PAIR_USDC_WETH, "toBorrowShares", 80n);
+    setRead(PAIR_USDC_WETH, "toBorrowAmount", 80_000_000n);
+    render(<IsolatedRepayModal pair={PAIR_USDC_WETH} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "80" } });
+    await act(async () => fireEvent.click(button("Repay USDC")));
+    await act(async () => {});
+    await act(async () => mine(hashOf(1), "success", 101n, []));
+
+    const success = screen.getByTestId("tx-success");
+    expect(success.textContent).toContain("Debt repaid");
+    expect(success.textContent).not.toContain("~80");
+    expect(success.textContent).not.toContain("80 USDC");
   });
 });
 

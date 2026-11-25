@@ -529,6 +529,18 @@ export const ISOLATED_PAIR_ABI = [
   { name: "WithdrawPaused", type: "error", inputs: [] },
   { name: "LiquidatePaused", type: "error", inputs: [] },
   { name: "InterestPaused", type: "error", inputs: [] },
+  { name: "NothingToRepay", type: "error", inputs: [] },
+  // --- Events ---
+  {
+    name: "RepayAsset",
+    type: "event",
+    inputs: [
+      { name: "payer", type: "address", indexed: true },
+      { name: "borrower", type: "address", indexed: true },
+      { name: "amountToRepay", type: "uint256", indexed: false },
+      { name: "shares", type: "uint256", indexed: false },
+    ],
+  },
   // --- Mutative ---
   {
     name: "withdraw",

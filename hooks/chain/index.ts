@@ -274,7 +274,12 @@ export function useLuminaWrite() {
      * a success screen reads the after-state at a block at or after it (ui-usability-v1 §3.2).
      */
     receipt: receipt.data
-      ? { transactionHash: receipt.data.transactionHash, status: receipt.data.status, blockNumber: receipt.data.blockNumber }
+      ? {
+          transactionHash: receipt.data.transactionHash,
+          status: receipt.data.status,
+          blockNumber: receipt.data.blockNumber,
+          logs: receipt.data.logs,
+        }
       : undefined,
     /**
      * The receipt of `hash` could not be read, or the transaction reverted (wagmi turns a reverted
