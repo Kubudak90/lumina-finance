@@ -410,6 +410,7 @@ const PAIR_MESSAGES: Readonly<Record<string, string>> = {
   InvalidReceiver: "The receiver address is invalid.",
   SlippageTooHigh: "The price moved beyond the allowed slippage.",
   NothingToRepay: "Nothing left to repay.",
+  InsufficientGasForGuard: "This transaction needs a higher gas limit for the oracle price check; increase the gas limit and try again.",
 };
 
 function describeCustom(d: Extract<DecodedRevert, { kind: "custom" }>, ctx: TxErrorContext): string {

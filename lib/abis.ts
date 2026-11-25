@@ -530,6 +530,7 @@ export const ISOLATED_PAIR_ABI = [
   { name: "LiquidatePaused", type: "error", inputs: [] },
   { name: "InterestPaused", type: "error", inputs: [] },
   { name: "NothingToRepay", type: "error", inputs: [] },
+  { name: "InsufficientGasForGuard", type: "error", inputs: [] },
   // --- Events ---
   {
     name: "RepayAsset",
@@ -895,6 +896,7 @@ export const DUAL_ORACLE_ABI = [
       { name: "priceHigh", type: "uint256" },
     ],
   },
+  { name: "InsufficientGasForGuard", type: "error", inputs: [] },
 ] as const;
 
 // -----------------------------------------------------------------------------
