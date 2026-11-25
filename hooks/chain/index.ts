@@ -26,6 +26,7 @@ import {
 import { simulateContract } from "wagmi/actions";
 import type { ReadContractData, ReadContractsData } from "wagmi/query";
 import type { Abi, ContractFunctionArgs, ContractFunctionName } from "viem";
+import { estimateContractGas } from "viem/actions";
 import { LUMINA_CHAIN_ID, isDeployed } from "@/lib/deployments";
 import { NETWORK_NAME, rpcUrlFor } from "@/lib/chains";
 import { executePinnedWrite, pinChainId, pinContracts, type WriteRequest } from "@/lib/chainPin";
@@ -181,6 +182,7 @@ class UnmountedBeforeWalletError extends Error {
 export function useLuminaWrite() {
   const { address, chainId: walletChainId } = useAccount();
   const config = useConfig();
+  const publicClient = usePublicClient({ chainId: LUMINA_CHAIN_ID });
   const rpc = useRpcChainStatus();
   const queryClient = useQueryClient();
   const write = useWriteContract();
@@ -221,17 +223,29 @@ export function useLuminaWrite() {
           walletChainId,
           simulatorChainId,
           rpcChainId: rpc.rpcChainId,
-          // `simulating` ends when the simulation does: during the wallet prompt only `isPending`
+          // `simulating` ends right before the wallet prompt: during the prompt only `isPending`
           // is set, so the flags are exclusive (simulating → confirm in wallet → confirming).
           simulate: async (params) => {
-            try {
-              return (await simulateContract(config, params as never)) as { request: object };
-            } finally {
-              setSimulating(false);
+            return (await simulateContract(config, params as never)) as { request: object };
+          },
+          estimateGas: async (params) => {
+            const call = {
+              address: params.address,
+              abi: params.abi,
+              functionName: params.functionName,
+              args: params.args,
+              value: params.value,
+              account: params.account,
+            };
+            if (publicClient && "estimateContractGas" in publicClient && typeof publicClient.estimateContractGas === "function") {
+              return publicClient.estimateContractGas(call as never);
             }
+            const client = config.getClient({ chainId: LUMINA_CHAIN_ID });
+            return estimateContractGas(client, call as never);
           },
           // Right before the wallet prompt (after the simulation's await): still mounted?
           write: (params) => {
+            setSimulating(false);
             if (!mountedRef.current) throw new UnmountedBeforeWalletError();
             return write.writeContractAsync(params as never);
           },
@@ -244,7 +258,7 @@ export function useLuminaWrite() {
         setSimulating(false);
       }
     },
-    [address, walletChainId, config, write, rpc.rpcChainId, mountedRef],
+    [address, walletChainId, config, publicClient, write, rpc.rpcChainId, mountedRef],
   );
 
   return {

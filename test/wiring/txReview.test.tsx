@@ -86,13 +86,17 @@ const pairInfo = {
   maxLTV: 75_000n,
   totalAssetAmount: 1_000_000_000_000n,
   totalAssetShares: 1_000_000_000_000n,
-  totalBorrowAmount: 0n,
-  totalBorrowShares: 0n,
+  totalBorrowAmount: 100_000_000n,
+  totalBorrowShares: 100_000_000n,
   totalCollateral: 0n,
   borrowLimit: (1n << 200n) - 1n,
   availableLiquidity: 1_000_000_000_000n,
   utilization: 0,
   exchangeRate: RATE,
+  lowExchangeRate: RATE,
+  cleanLiquidationFee: 5_000n,
+  dirtyLiquidationFee: 4_500n,
+  protocolLiquidationFee: 10_000n,
   oracleBadData: false as boolean | undefined,
   loaded: true,
 };
@@ -340,8 +344,8 @@ describe("#3 the latched liquidation modals re-check the borrower before sending
   it("isolated: a borrower the pair sees as solvent (50% LTV, max 75%) → nothing sent", async () => {
     fake.data.pair = pairInfo;
     setRead(USDC, "allowance", 10n ** 12n);
-    setRead(PAIR_USDC_WETH, "toBorrowAmount", 100_000_000n);
-    chain.snapshots[lc(BORROWER)] = [0n, 100n, 10n ** 17n];
+    chain.accounting = [1_000_000_000_000n, 1_000_000_000_000n, 100_000_000n, 100_000_000n, 10n ** 17n];
+    chain.snapshots[lc(BORROWER)] = [0n, 100_000_000n, 10n ** 17n];
     render(
       <IsolatedLiquidateModal
         pair={PAIR_USDC_WETH}
@@ -352,7 +356,7 @@ describe("#3 the latched liquidation modals re-check the borrower before sending
         collateralDecimals={18}
         borrower={BORROWER}
         borrowerDebtAsset={100_000_000n}
-        borrowerDebtShares={100n}
+        borrowerDebtShares={100_000_000n}
         borrowerCollateral={10n ** 17n}
         onClose={() => {}}
       />,

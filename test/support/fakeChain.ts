@@ -18,6 +18,7 @@ export interface SentRequest {
   address: `0x${string}`;
   functionName: string;
   args?: readonly unknown[];
+  gasPadding?: bigint;
 }
 
 export const ALICE = "0x000000000000000000000000000000000000A11c" as const;
@@ -310,6 +311,9 @@ export interface ChainState {
   accounting: readonly [bigint, bigint, bigint, bigint, bigint];
   borrowLimit: bigint;
   maxRedeem: bigint;
+  cleanLiquidationFee?: bigint;
+  dirtyLiquidationFee?: bigint;
+  protocolLiquidationFee?: bigint;
 }
 
 export function scriptedChain(state: ChainState) {
@@ -339,6 +343,12 @@ export function scriptedChain(state: ChainState) {
           return ok(state.borrowLimit);
         case "maxRedeem":
           return ok(state.maxRedeem);
+        case "cleanLiquidationFee":
+          return ok(state.cleanLiquidationFee ?? 5_000n);
+        case "dirtyLiquidationFee":
+          return ok(state.dirtyLiquidationFee ?? 4_500n);
+        case "protocolLiquidationFee":
+          return ok(state.protocolLiquidationFee ?? 10_000n);
         default:
           return { status: "failure", error: new Error(`unscripted ${c.functionName}`) };
       }

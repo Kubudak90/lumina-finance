@@ -15,11 +15,20 @@ const ctl = vi.hoisted(() => ({
   resolveWrite: null as null | ((hash: `0x${string}`) => void),
   /** writeContractAsync calls: each one is a wallet prompt. */
   walletPrompts: 0,
+  lastWriteParams: null as null | Record<string, unknown>,
+  estimatedGas: 240_000n,
+  estimateCalls: 0,
 }));
 
 vi.mock("wagmi", () => ({
   useAccount: () => ({ address: "0x000000000000000000000000000000000000a11c", chainId: 19529, isConnected: true }),
-  usePublicClient: () => ({ request: async () => "0x4c49" }),
+  usePublicClient: () => ({
+    request: async () => "0x4c49",
+    estimateContractGas: async () => {
+      ctl.estimateCalls += 1;
+      return ctl.estimatedGas;
+    },
+  }),
   useConfig: () => ({ getClient: () => ({ chain: { id: 19529 } }) }),
   useWaitForTransactionReceipt: () => ({ data: undefined, isLoading: false, isSuccess: false, error: null }),
   useWriteContract: () => {
@@ -29,8 +38,9 @@ vi.mock("wagmi", () => ({
       data: undefined,
       error: null,
       reset: () => {},
-      writeContractAsync: () => {
+      writeContractAsync: (params: Record<string, unknown>) => {
         ctl.walletPrompts += 1;
+        ctl.lastWriteParams = params;
         setPending(true);
         return new Promise<`0x${string}`>((resolve) => {
           ctl.resolveWrite = (hash) => {
@@ -112,5 +122,38 @@ describe("useLuminaWrite: no wallet prompt once its component is gone (U4 review
     expect(dialog.probe.passiveRanBeforeCommitMicrotasks).toBe(false); // the window was open
     expect(ctl.walletPrompts).toBe(0); // no wallet prompt for the closed dialog
     await expect(sent).resolves.toBeUndefined(); // and the send ends: no hash
+  });
+});
+
+describe("useLuminaWrite: F2 gas padding for pair liquidate", () => {
+  it("sends gas = estimate + 1,000,000 + 100,000 when gasPadding is specified", async () => {
+    ctl.resolveSimulate = null;
+    ctl.resolveWrite = null;
+    ctl.lastWriteParams = null;
+    ctl.estimateCalls = 0;
+    ctl.estimatedGas = 240_000n;
+
+    const { result } = renderHook(() => ({ write: useLuminaWrite(), rpc: useRpcChainStatus() }), { wrapper });
+    await waitFor(() => expect(result.current.rpc.status).toBe("ok"));
+
+    let sent!: Promise<unknown>;
+    act(() => {
+      sent = result.current.write.send({
+        address: "0x0000000000000000000000000000000000000001",
+        abi: [],
+        functionName: "liquidate",
+        args: [],
+        gasPadding: 1_100_000n,
+      });
+    });
+    await waitFor(() => expect(ctl.resolveSimulate).not.toBeNull());
+    await act(async () => ctl.resolveSimulate!());
+    await waitFor(() => expect(ctl.lastWriteParams).not.toBeNull());
+    expect(ctl.estimateCalls).toBe(1);
+    expect((ctl.lastWriteParams as Record<string, unknown> | null)?.gas).toBe(240_000n + 1_100_000n);
+
+    const hash = `0x${"cd".repeat(32)}` as const;
+    await act(async () => ctl.resolveWrite!(hash));
+    await expect(sent).resolves.toBe(hash);
   });
 });

@@ -30,6 +30,12 @@ export interface IsolatedPairInfo extends IsolatedMarket {
    * THIS pair's asset × 1e18 (LighterDualOracle.getPrices().priceHigh; high = low on Lighter).
    */
   exchangeRate: bigint | undefined;
+  /** Pair oracle low rate (priceLow), used by `LightlendPairCore.liquidate`. */
+  lowExchangeRate: bigint | undefined;
+  /** Pair liquidation fees (1e5 precision): clean, dirty, and protocol share of the bonus. */
+  cleanLiquidationFee: bigint | undefined;
+  dirtyLiquidationFee: bigint | undefined;
+  protocolLiquidationFee: bigint | undefined;
   /** Dual oracle bad-data flag (= price guard blocks borrows); undefined if unreadable. */
   oracleBadData: boolean | undefined;
   loaded: boolean;
@@ -49,7 +55,7 @@ export interface IsolatedPairInfo extends IsolatedMarket {
   lendApr: Decimal | undefined;
 }
 
-const PER_PAIR = 6;
+const PER_PAIR = 9;
 
 const toBigint = (v: unknown): bigint | undefined =>
   typeof v === "bigint" ? v : typeof v === "number" && Number.isSafeInteger(v) ? BigInt(v) : undefined;
@@ -102,6 +108,10 @@ export function parsePair(m: IsolatedMarket, results: readonly CallResult[] | un
           ? Number((totalBorrowAmount * 10_000n) / totalAssetAmount) / 100
           : 0,
     exchangeRate: prices && typeof prices[2] === "bigint" && prices[2] > 0n ? prices[2] : undefined,
+    lowExchangeRate: prices && typeof prices[1] === "bigint" && prices[1] > 0n ? prices[1] : undefined,
+    cleanLiquidationFee: bigintAt(results, base + 6),
+    dirtyLiquidationFee: bigintAt(results, base + 7),
+    protocolLiquidationFee: bigintAt(results, base + 8),
     oracleBadData: prices && typeof prices[0] === "boolean" ? prices[0] : undefined,
     loaded: accounting !== undefined,
     ratePerSec: preview.ratePerSec,
@@ -128,6 +138,9 @@ export function useIsolatedPairs(): { pairs: IsolatedPairInfo[]; stamp: BlockSta
         { address: m.dualOracle, abi: DUAL_ORACLE_ABI, functionName: "getPrices" },
         { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "previewAddInterest" },
         { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "isInterestPaused" },
+        { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "cleanLiquidationFee" },
+        { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "dirtyLiquidationFee" },
+        { address: m.pair, abi: ISOLATED_PAIR_ABI, functionName: "protocolLiquidationFee" },
       ]),
     ],
     [],
