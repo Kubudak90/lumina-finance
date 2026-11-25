@@ -10,11 +10,13 @@ import {
   decideFollowUp,
   isFollowUpAbort,
   isFollowUpCancel,
+  receiptMatchesApproval,
   staleFollowUp,
   startFollowUp,
   type FollowUpAbort,
   type FollowUpBinding,
   type FollowUpCancel,
+  type FollowUpReceipt,
   type PendingFollowUp,
 } from "@/lib/approvalFlow";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
@@ -40,6 +42,7 @@ export type ApprovalTxState =
   | { kind: "wallet" }
   | { kind: "confirming"; hash: `0x${string}` }
   | { kind: "done"; hash: `0x${string}` }
+  | { kind: "cancelled"; reason: string; hash?: `0x${string}` }
   | { kind: "failed"; error: Error | null; hash?: `0x${string}` };
 
 /**
@@ -152,12 +155,15 @@ export function useApprovalFlow<P>(options: {
 
   const current = allowance.data as bigint | undefined;
 
+  const approvalSentHash = approveTx.sentHash ?? approveTx.hash;
   const decision = decideFollowUp(pending, {
     account: address,
     chainId,
     paramsKey,
     receipt: approveTx.receipt,
-    receiptErrorHash: approveTx.receiptError && approveTx.hash ? approveTx.hash : undefined,
+    cancelledHash: approveTx.isCancelled && approvalSentHash ? approvalSentHash : undefined,
+    receiptErrorHash: !approveTx.isCancelled && approveTx.receiptError && approvalSentHash ? approvalSentHash : undefined,
+    receiptErrorReason: approveTx.replacementKind === "replaced" ? "the approval was replaced by a different call" : undefined,
   });
 
   /**
@@ -263,14 +269,16 @@ export function useApprovalFlow<P>(options: {
 
   const cancel = useCallback(() => setPending(null), []);
 
-  const steps: ApprovalSteps | null = session
-    ? {
-        approveAmount: session.approveAmount,
-        approvalHash: session.approvalHash,
-        step1: step1State(session, approveTx),
-        step2: session.step2,
-      }
-    : null;
+  const step1 = session ? step1State(session, approveTx) : null;
+  const steps: ApprovalSteps | null =
+    session && step1
+      ? {
+          approveAmount: session.approveAmount,
+          approvalHash: step1.kind === "done" ? step1.hash : session.approvalHash,
+          step1,
+          step2: session.step2,
+        }
+      : null;
 
   return {
     allowance: current,
@@ -301,8 +309,10 @@ function step1State(
   s: Session,
   tx: {
     hash: `0x${string}` | undefined;
-    receipt: { transactionHash: `0x${string}`; status: "success" | "reverted" } | undefined;
+    sentHash?: `0x${string}` | undefined;
+    receipt: FollowUpReceipt | undefined;
     receiptError: Error | null;
+    isCancelled?: boolean;
     isSimulating: boolean;
     isPending: boolean;
     error: Error | null;
@@ -310,10 +320,15 @@ function step1State(
 ): ApprovalTxState {
   if (s.approvalHash) {
     const hash = s.approvalHash;
-    if (tx.receipt && same(tx.receipt.transactionHash, hash)) {
-      return tx.receipt.status === "success" ? { kind: "done", hash } : { kind: "failed", error: null, hash };
+    const txOrigHash = tx.sentHash ?? tx.hash;
+    if (receiptMatchesApproval(tx.receipt, hash)) {
+      const minedHash = tx.receipt!.transactionHash;
+      return tx.receipt!.status === "success" ? { kind: "done", hash: minedHash } : { kind: "failed", error: null, hash: minedHash };
     }
-    if (tx.receiptError && same(tx.hash, hash)) return { kind: "failed", error: tx.receiptError, hash };
+    if (tx.isCancelled && same(txOrigHash, hash)) {
+      return { kind: "cancelled", reason: "cancelled in wallet", hash };
+    }
+    if (tx.receiptError && same(txOrigHash, hash)) return { kind: "failed", error: tx.receiptError, hash };
     return { kind: "confirming", hash };
   }
   if (s.noHash) return { kind: "failed", error: tx.error };

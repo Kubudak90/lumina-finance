@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { BOB, fake, failReceipt, hashOf, mine, resetFake, setRead, update } from "../support/fakeChain";
+import { BOB, fake, failReceipt, hashOf, mine, replaceTx, resetFake, setRead, update } from "../support/fakeChain";
 import { POOL, USDC, WETH, fake as addr } from "../support/deployment";
 import { defaultTxChain, txChain } from "../support/txChain";
 import { repayApproval } from "@/lib/approvals";
@@ -173,6 +173,86 @@ describe("TxSteps: aborted, cancelled, failed", () => {
     await act(async () => fireEvent.click(button("Approve USDC")));
     expect(fake.sends.map((s) => s.functionName)).toEqual(["approve"]);
     expect(step(1).dataset.state).toBe("confirming");
+  });
+
+  it("replaced transactions through both approval steps: sped-up succeeds with new hash, cancelled is cancelled, changed calldata fails (N-FE-02 / F8)", async () => {
+    // 1. Sped-up approval (H1 -> H10) proceeds to step 2 (H2), then sped-up supply (H2 -> H20) shows TxSuccess with H20.
+    renderSupply();
+    type("1.5");
+    await act(async () => fireEvent.click(button("Approve USDC")));
+    await act(async () => setRead(USDC, "allowance", 1_500_000n));
+    await act(async () => replaceTx(hashOf(1), hashOf(10), "repriced", { blockNumber: 101n }));
+    await act(async () => {});
+    expect(fake.sends.map((s) => s.functionName)).toEqual(["approve", "supply"]);
+    expect(step(1).dataset.state).toBe("done");
+    expect(step(2).dataset.state).toBe("confirming");
+    await act(async () => replaceTx(hashOf(2), hashOf(20), "repriced", { blockNumber: 102n }));
+    expect(screen.getByTestId("tx-success")).toBeTruthy();
+
+    // 2. Cancelled step 2 (supply) never shows success and shows row 2 'cancelled'.
+    cleanup();
+    resetFake();
+    fake.multicall = txChain(defaultTxChain());
+    setRead(USDC, "balanceOf", 10_000_000_000n);
+    setRead(USDC, "allowance", 0n);
+    renderSupply();
+    type("1.5");
+    await act(async () => fireEvent.click(button("Approve USDC")));
+    await act(async () => setRead(USDC, "allowance", 1_500_000n));
+    await act(async () => mine(hashOf(1)));
+    await act(async () => {});
+    expect(fake.sends.map((s) => s.functionName)).toEqual(["approve", "supply"]);
+    await act(async () => replaceTx(hashOf(2), hashOf(21), "cancelled"));
+    expect(screen.queryByTestId("tx-success")).toBeNull();
+    expect(step(2).dataset.state).toBe("cancelled");
+
+    // 3. Step 2 replaced with different calldata never shows success and shows row 2 'failed'.
+    cleanup();
+    resetFake();
+    fake.multicall = txChain(defaultTxChain());
+    setRead(USDC, "balanceOf", 10_000_000_000n);
+    setRead(USDC, "allowance", 0n);
+    renderSupply();
+    type("1.5");
+    await act(async () => fireEvent.click(button("Approve USDC")));
+    await act(async () => setRead(USDC, "allowance", 1_500_000n));
+    await act(async () => mine(hashOf(1)));
+    await act(async () => {});
+    await act(async () => replaceTx(hashOf(2), hashOf(22), "replaced"));
+    expect(screen.queryByTestId("tx-success")).toBeNull();
+    expect(step(2).dataset.state).toBe("failed");
+
+    // 4. Step 1 cancelled shows row 1 'cancelled' and row 2 'cancelled', nothing sent for step 2.
+    cleanup();
+    resetFake();
+    fake.multicall = txChain(defaultTxChain());
+    setRead(USDC, "balanceOf", 10_000_000_000n);
+    setRead(USDC, "allowance", 0n);
+    renderSupply();
+    type("1.5");
+    await act(async () => fireEvent.click(button("Approve USDC")));
+    await act(async () => replaceTx(hashOf(1), hashOf(30), "cancelled"));
+    await act(async () => {});
+    expect(fake.sends.map((s) => s.functionName)).toEqual(["approve"]);
+    expect(step(1).dataset.state).toBe("cancelled");
+    expect(step(2).dataset.state).toBe("cancelled");
+    expect(button("Approve USDC").disabled).toBe(false);
+
+    // 5. Step 1 replaced with different calldata shows row 1 'failed' and row 2 'cancelled', nothing sent for step 2.
+    cleanup();
+    resetFake();
+    fake.multicall = txChain(defaultTxChain());
+    setRead(USDC, "balanceOf", 10_000_000_000n);
+    setRead(USDC, "allowance", 0n);
+    renderSupply();
+    type("1.5");
+    await act(async () => fireEvent.click(button("Approve USDC")));
+    await act(async () => replaceTx(hashOf(1), hashOf(31), "replaced"));
+    await act(async () => {});
+    expect(fake.sends.map((s) => s.functionName)).toEqual(["approve"]);
+    expect(step(1).dataset.state).toBe("failed");
+    expect(step(2).dataset.state).toBe("cancelled");
+    expect(button("Approve USDC").disabled).toBe(false);
   });
 });
 

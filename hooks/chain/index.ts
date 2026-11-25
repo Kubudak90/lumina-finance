@@ -6,7 +6,7 @@
  * (19529), whatever chain the wallet is on (FE-03), and nothing reads, simulates or writes until
  * the configured RPC has answered eth_chainId = 19529 (Codex r1 #1).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useAccount,
@@ -25,13 +25,14 @@ import {
 } from "wagmi";
 import { simulateContract } from "wagmi/actions";
 import type { ReadContractData, ReadContractsData } from "wagmi/query";
-import type { Abi, ContractFunctionArgs, ContractFunctionName } from "viem";
+import { encodeFunctionData, type Abi, type ContractFunctionArgs, type ContractFunctionName } from "viem";
 import { estimateContractGas } from "viem/actions";
 import { LUMINA_CHAIN_ID, isDeployed } from "@/lib/deployments";
 import { NETWORK_NAME, rpcUrlFor } from "@/lib/chains";
 import { executePinnedWrite, pinChainId, pinContracts, type WriteRequest } from "@/lib/chainPin";
 import { parseChainId } from "@/lib/rpcGuard";
 import { describeWrite, type TxPreview } from "@/lib/txPreview";
+import { classifyReplacement, resolveWriteReceipt, type ExpectedCall, type VerifiedReplacement } from "@/lib/txReplacement";
 import { useMountedRef } from "@/hooks/useMountedRef";
 
 export { LUMINA_CHAIN_ID };
@@ -186,10 +187,19 @@ export function useLuminaWrite() {
   const rpc = useRpcChainStatus();
   const queryClient = useQueryClient();
   const write = useWriteContract();
+  const [replacement, setReplacement] = useState<VerifiedReplacement | null>(null);
+  const expectedCallsRef = useRef<Map<string, ExpectedCall>>(new Map());
+  const pendingCallRef = useRef<ExpectedCall | undefined>(undefined);
   // Receipts are read from the RPC too: only while its chain is verified (Gemini r2 m1).
+  // Replacement receipts (N-FE-02 / F8) are classified by onReplaced before resolving.
   const receipt = useWaitForTransactionReceipt({
     hash: write.data,
     chainId: LUMINA_CHAIN_ID,
+    onReplaced: (info) => {
+      const origHash = info.replacedTransaction.hash.toLowerCase();
+      const expected = expectedCallsRef.current.get(origHash) ?? pendingCallRef.current;
+      setReplacement(classifyReplacement(info, expected));
+    },
     query: { enabled: rpc.status === "ok" && !!write.data },
   });
   const [preview, setPreview] = useState<TxPreview | null>(null);
@@ -199,16 +209,43 @@ export function useLuminaWrite() {
   // when the simulation resolves before the passive effects run.
   const mountedRef = useMountedRef();
 
+  const resolved = resolveWriteReceipt({
+    sentHash: write.data,
+    receipt: receipt.data
+      ? {
+          transactionHash: receipt.data.transactionHash,
+          status: receipt.data.status,
+          blockNumber: receipt.data.blockNumber,
+          logs: receipt.data.logs,
+        }
+      : undefined,
+    receiptError: receipt.error ?? null,
+    replacement,
+  });
+
   useEffect(() => {
-    if (!receipt.isSuccess) return;
+    if (!resolved.isSuccess) return;
     void queryClient.invalidateQueries();
-  }, [receipt.isSuccess, queryClient]);
+  }, [resolved.isSuccess, queryClient]);
 
   const send = useCallback(
     async (request: WriteRequest): Promise<`0x${string}` | undefined> => {
       setSimulating(true);
       setSimulationError(null);
+      setReplacement(null);
       setPreview(describeWrite(request as Parameters<typeof describeWrite>[0]));
+      let expectedCall: ExpectedCall | undefined;
+      try {
+        const data = encodeFunctionData({
+          abi: request.abi as Abi,
+          functionName: request.functionName,
+          args: request.args,
+        });
+        expectedCall = { to: request.address, value: request.value ?? 0n, data };
+      } catch {
+        expectedCall = undefined;
+      }
+      pendingCallRef.current = expectedCall;
       try {
         let simulatorChainId: number | undefined;
         try {
@@ -216,7 +253,7 @@ export function useLuminaWrite() {
         } catch {
           simulatorChainId = undefined;
         }
-        return await executePinnedWrite({
+        const hash = await executePinnedWrite({
           request,
           account: address,
           expectedChainId: LUMINA_CHAIN_ID,
@@ -250,6 +287,10 @@ export function useLuminaWrite() {
             return write.writeContractAsync(params as never);
           },
         });
+        if (hash && expectedCall) {
+          expectedCallsRef.current.set(hash.toLowerCase(), expectedCall);
+        }
+        return hash;
       } catch (err) {
         if (err instanceof UnmountedBeforeWalletError) return undefined; // nothing to report: no dialog
         setSimulationError(err instanceof Error ? err : new Error(String(err)));
@@ -261,33 +302,36 @@ export function useLuminaWrite() {
     [address, walletChainId, config, publicClient, write, rpc.rpcChainId, mountedRef],
   );
 
+  const reset = useCallback(() => {
+    setReplacement(null);
+    write.reset();
+  }, [write]);
+
   return {
     send,
     preview,
     isSimulating: simulating,
     isPending: write.isPending,
     isConfirming: receipt.isLoading,
-    isSuccess: receipt.isSuccess,
-    hash: write.data,
+    isSuccess: resolved.isSuccess,
+    isCancelled: resolved.isCancelled,
+    replacementKind: resolved.replacementKind,
+    /** Effective hash: the verified replacement hash when repriced, else the sent hash. */
+    hash: resolved.hash,
+    /** Hash originally broadcast before any replacement. */
+    sentHash: write.data,
     /**
-     * Receipt of the last transaction sent by this hook instance, with the block it was mined in:
-     * a success screen reads the after-state at a block at or after it (ui-usability-v1 §3.2).
+     * Verified receipt of the last transaction sent by this hook instance (original or verified
+     * same-call repriced replacement), with the block it was mined in and its logs.
      */
-    receipt: receipt.data
-      ? {
-          transactionHash: receipt.data.transactionHash,
-          status: receipt.data.status,
-          blockNumber: receipt.data.blockNumber,
-          logs: receipt.data.logs,
-        }
-      : undefined,
+    receipt: resolved.receipt,
     /**
-     * The receipt of `hash` could not be read, or the transaction reverted (wagmi turns a reverted
-     * receipt into an error): the transaction will not report success.
+     * The receipt of `hash` could not be read, reverted, was cancelled, or was replaced by a
+     * different call: the transaction will not report success.
      */
-    receiptError: receipt.error ?? null,
-    error: simulationError ?? write.error ?? receipt.error,
-    reset: write.reset,
+    receiptError: resolved.receiptError,
+    error: simulationError ?? write.error ?? resolved.receiptError,
+    reset,
   };
 }
 

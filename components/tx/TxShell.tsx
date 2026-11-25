@@ -4,6 +4,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { toast } from "sonner";
 import { explorerToastAction } from "@/lib/explorer";
 import { describeTxError, type TxErrorContext } from "@/lib/txErrors";
+import { isTransactionCancelledError } from "@/lib/txReplacement";
 import { isValidDecimalInput } from "@/lib/format";
 import { ExplorerLink } from "@/components/common/ExplorerLink";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,7 +23,12 @@ export function useTxErrorToast(error: unknown, title: string, ctx: TxErrorConte
   useEffect(() => {
     if (!error || error === prev.current) return;
     prev.current = error;
-    toast.error(title, { description: describeTxError(error, { venue, action, guardStatus }) });
+    const description = describeTxError(error, { venue, action, guardStatus });
+    if (isTransactionCancelledError(error)) {
+      toast.warning("Transaction cancelled", { description });
+      return;
+    }
+    toast.error(title, { description });
   }, [error, title, venue, action, guardStatus]);
 }
 

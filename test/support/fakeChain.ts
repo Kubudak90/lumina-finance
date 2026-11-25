@@ -4,6 +4,7 @@
  * `fake.sends`; a transaction "mines" when the test sets its receipt.
  */
 import { useCallback, useState, useSyncExternalStore } from "react";
+import { resolveWriteReceipt, type ReplacementKind, type VerifiedReplacement } from "@/lib/txReplacement";
 
 export type CallResult = { status: "success"; result: unknown } | { status: "failure"; error: Error };
 
@@ -39,6 +40,8 @@ interface FakeState {
   receiptBlocks: Map<string, bigint>;
   /** Logs each mined receipt carries (default empty). */
   receiptLogs: Map<string, readonly { address: `0x${string}`; data: `0x${string}`; topics: readonly `0x${string}`[] }[]>;
+  /** Replacement records keyed by original sent hash (N-FE-02 / F8). */
+  replacements: Map<string, { replacement: VerifiedReplacement; status: "success" | "reverted"; blockNumber: bigint; logs: readonly { address: `0x${string}`; data: `0x${string}`; topics: readonly `0x${string}`[] }[] }>;
   /** Receipt reads that fail (or a reverted receipt, as wagmi reports it), by hash. */
   receiptErrors: Map<string, Error>;
   /** The next send is rejected by the wallet with this error (no hash). */
@@ -76,6 +79,7 @@ export const fake: FakeState = {
   receipts: new Map(),
   receiptBlocks: new Map(),
   receiptLogs: new Map(),
+  replacements: new Map(),
   receiptErrors: new Map(),
   rejectNextSend: null,
   stepSends: false,
@@ -130,6 +134,7 @@ export function resetFake() {
   fake.receipts = new Map();
   fake.receiptBlocks = new Map();
   fake.receiptLogs = new Map();
+  fake.replacements = new Map();
   fake.receiptErrors = new Map();
   fake.rejectNextSend = null;
   fake.stepSends = false;
@@ -168,6 +173,27 @@ export function mine(
 /** The receipt read of `hash` fails (wagmi also reports a reverted receipt this way). */
 export function failReceipt(hash: string, error = new Error("receipt unavailable")) {
   update((f) => f.receiptErrors.set(hash, error));
+}
+
+/** Replace a pending transaction `originalHash` with `replacementHash` of kind `kind` (N-FE-02). */
+export function replaceTx(
+  originalHash: `0x${string}`,
+  replacementHash: `0x${string}`,
+  kind: ReplacementKind,
+  options?: {
+    status?: "success" | "reverted";
+    blockNumber?: bigint;
+    logs?: readonly { address: `0x${string}`; data: `0x${string}`; topics: readonly `0x${string}`[] }[];
+  },
+) {
+  update((f) => {
+    f.replacements.set(originalHash, {
+      replacement: { originalHash, replacementHash, kind },
+      status: options?.status ?? "success",
+      blockNumber: options?.blockNumber ?? 1n,
+      logs: options?.logs ?? [],
+    });
+  });
 }
 
 export function hashOf(n: number) {
@@ -274,26 +300,34 @@ export const chainModule = {
       return hash;
     }, []);
     const status = last ? fake.receipts.get(last) : undefined;
-    const receiptError = last ? (fake.receiptErrors.get(last) ?? null) : null;
+    const rep = last ? fake.replacements.get(last) : undefined;
+    const rawReceipt =
+      rep && last
+        ? { transactionHash: rep.replacement.replacementHash, status: rep.status, blockNumber: rep.blockNumber, logs: rep.logs }
+        : status && last
+          ? { transactionHash: last, status, blockNumber: fake.receiptBlocks.get(last) ?? 1n, logs: fake.receiptLogs.get(last) ?? [] }
+          : undefined;
+    const rawError = last ? (fake.receiptErrors.get(last) ?? null) : null;
+    const resolved = resolveWriteReceipt({
+      sentHash: last,
+      receipt: rawReceipt,
+      receiptError: rawError,
+      replacement: rep?.replacement ?? null,
+    });
     return {
       send,
       preview: null,
       isSimulating: phase === "simulating",
       isPending: phase === "wallet",
-      isConfirming: phase === "idle" && !!last && status === undefined && receiptError === null,
-      isSuccess: status === "success",
-      hash: last,
-      receipt:
-        status && last
-          ? {
-              transactionHash: last,
-              status,
-              blockNumber: fake.receiptBlocks.get(last) ?? 1n,
-              logs: fake.receiptLogs.get(last) ?? [],
-            }
-          : undefined,
-      receiptError,
-      error: sendError ?? receiptError,
+      isConfirming: phase === "idle" && !!last && rawReceipt === undefined && rawError === null,
+      isSuccess: resolved.isSuccess,
+      isCancelled: resolved.isCancelled,
+      replacementKind: resolved.replacementKind,
+      hash: resolved.hash,
+      sentHash: last,
+      receipt: resolved.receipt,
+      receiptError: resolved.receiptError,
+      error: sendError ?? resolved.receiptError,
       reset: () => setLast(undefined),
     };
   },
